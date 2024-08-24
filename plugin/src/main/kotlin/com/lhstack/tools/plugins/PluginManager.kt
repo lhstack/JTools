@@ -1,0 +1,163 @@
+package com.lhstack.tools.plugins
+
+import com.google.common.io.Files
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
+import com.intellij.util.lang.UrlClassLoader
+import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.forceDelete
+import com.lhstack.tools.ext.ifNotBlank
+import com.lhstack.tools.ext.parentMkdirs
+import org.apache.commons.codec.digest.DigestUtils
+import org.jetbrains.annotations.NonNls
+import java.io.File
+import java.nio.charset.StandardCharsets
+import java.nio.file.Paths
+
+/**
+ * 插件管理
+ */
+@Service
+class PluginManager {
+
+    private val pluginInstances = mutableMapOf<PluginInfo, IPlugin>()
+
+    private val projectStatus = hashSetOf<String>()
+
+    companion object {
+        val INSTANCE = service<PluginManager>()
+    }
+
+
+    private class PluginClassLoader(builder: Builder) : UrlClassLoader(
+        builder,
+        registerAsParallelCapable()
+    ) {
+        companion object {
+            fun newInstance(builder: Builder) = PluginClassLoader(builder)
+        }
+    }
+
+    fun plugins(consumer: (PluginInfo, IPlugin) -> Unit) {
+        pluginInstances.forEach { (k, v) -> consumer.invoke(k, v) }
+    }
+
+    fun installs(consumer: (PluginInfo, IPlugin, Int, Int) -> Unit) {
+        val plugins = this.pluginState().plugins
+        plugins.onEachIndexed { index, entry ->
+            val v = entry.value
+            try {
+                if (!pluginInstances.contains(v)) {
+                    val pluginPath = v.path
+                    val classLoader = PluginClassLoader.newInstance(
+                        UrlClassLoader.build()
+                            .files(listOf(Paths.get(pluginPath)))
+                            .parent(this::class.java.classLoader).useCache().allowBootstrapResources(false)
+                            .allowLock(false)
+                    )
+                    classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")?.use {
+                        String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
+                            val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                            pluginInstances[v] = pluginInstance
+                            //执行安装回调
+                            pluginInstance.install()
+                            consumer.invoke(v, pluginInstance, index, pluginInstances.size)
+                        }) {
+                            this.errorNotify(
+                                "插件加载",
+                                "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息: META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名"
+                            )
+                        }
+                    }
+
+                }
+            } catch (e: Throwable) {
+                e.message?.let {
+                    this.errorNotify(
+                        "插件加载",
+                        "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息:${it}"
+                    )
+                }
+            }
+        }
+
+    }
+
+    fun install(pluginPath: String, consumer: (IPlugin?, PluginInfo?, String?) -> Unit) {
+        val file = File(pluginPath)
+        if (file.exists() && file.isFile) {
+            var newPluginFile: File? = null
+            try {
+                val pluginId = DigestUtils.md5Hex(file.readBytes())
+                if (this.pluginState().plugins.containsKey(pluginId)) {
+                    consumer.invoke(null, null, "插件已存在,请不要重复安装")
+                    return
+                }
+                newPluginFile =
+                    File(this.pluginState().pluginBasePath, "${pluginId}.${file.extension}").parentMkdirs()
+                Files.copy(file, newPluginFile)
+                val classLoader = PluginClassLoader.newInstance(
+                    UrlClassLoader.build()
+                        .files(listOf(newPluginFile.toPath()))
+                        .parent(this::class.java.classLoader).useCache().allowBootstrapResources(false)
+                        .allowLock(false)
+                )
+                val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
+                toolsPluginTxt?.use {
+                    String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
+                        val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                        val pluginInfo = PluginInfo(
+                            pluginId,
+                            newPluginFile.absolutePath,
+                            pluginInstance.pluginName(),
+                            pluginInstance.pluginVersion(),
+                            System.currentTimeMillis()
+                        )
+                        pluginInstances[pluginInfo] = pluginInstance
+                        pluginInstance.install()
+                        consumer.invoke(pluginInstance, pluginInfo, null)
+                        this.pluginState().plugins[pluginId] = pluginInfo
+                    }) {
+                        newPluginFile.forceDelete()
+                        consumer.invoke(null, null, "META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名")
+                    }
+                }
+                if (toolsPluginTxt == null) {
+                    consumer.invoke(null, null, "META-INF/ToolsPlugin.txt文件未找到")
+                    newPluginFile.forceDelete()
+                }
+            } catch (e: Throwable) {
+                newPluginFile?.forceDelete()
+                consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.message}")
+            }
+        } else {
+            consumer.invoke(null, null, "插件路径错误")
+        }
+    }
+
+    /**
+     * 卸载插件
+     */
+    fun uninstsall(pluginInfo: PluginInfo) {
+        pluginInstances.remove(pluginInfo)
+        this.pluginState().plugins.remove(pluginInfo.id)
+        File(pluginInfo.path).forceDelete()
+    }
+
+    /**
+     * 插件移除逻辑
+     */
+    fun remove(projectId: @NonNls String, function: () -> Unit) {
+        if (projectStatus.contains(projectId)) {
+            function.invoke()
+            projectStatus.remove(projectId)
+        }
+    }
+
+    fun add(projectId: String) {
+        projectStatus.add(projectId)
+    }
+
+}
+
+fun Any.pluginManager() = PluginManager.INSTANCE
