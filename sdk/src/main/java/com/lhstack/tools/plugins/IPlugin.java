@@ -19,7 +19,12 @@ public interface IPlugin {
      * @param project
      * @return
      */
-    JComponent createPanel(Project project);
+    default JComponent createPanel(Project project) {
+        return createPanel();
+    }
+
+
+    JComponent createPanel();
 
     /**
      * 插件每次打开回调
