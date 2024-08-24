@@ -24,7 +24,9 @@ public interface IPlugin {
     }
 
 
-    JComponent createPanel();
+    default JComponent createPanel() {
+        return null;
+    }
 
     /**
      * 插件每次打开回调

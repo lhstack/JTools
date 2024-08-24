@@ -17,7 +17,7 @@ public class PluginImpl implements IPlugin {
 
             @Override
             public void actionPerformed(ActionEvent e) {
-                Messages.showInfoMessage("点击","111");
+                Messages.showInfoMessage("点击", "111");
             }
         });
     }
