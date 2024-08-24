@@ -44,8 +44,8 @@ class PluginManager {
 
     fun installs(consumer: (PluginInfo, IPlugin, Int, Int) -> Unit) {
         val plugins = this.pluginState().plugins
-        plugins.onEachIndexed { index, entry ->
-            val v = entry.value
+        val values = plugins.values
+        values.sortedBy { o1 -> o1.created }.forEachIndexed { index, v ->
             try {
                 if (!pluginInstances.contains(v)) {
                     val pluginPath = v.path
