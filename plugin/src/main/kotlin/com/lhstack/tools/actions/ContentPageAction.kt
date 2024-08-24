@@ -17,6 +17,7 @@ import com.intellij.util.messages.MessageBusConnection
 import com.lhstack.tools.components.EmptyPanel
 import com.lhstack.tools.components.PluginTabPanel
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginInfo
@@ -103,37 +104,41 @@ class ContentPageAction(
                 }
             }
         }
-        val pluginPanel = plugin.createPanel(project)
-        val pluginTabPanel = PluginTabPanel(pluginInfo, plugin)
-        pluginTabPanel.layout = BorderLayout()
-        pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
-        val tabInfo = TabInfo(pluginTabPanel)
-        tabInfo.setIcon(plugin.pluginTabIcon())
-        tabInfo.setText(pluginInfo.name)
-        tabInfo.setTooltipText(plugin.pluginDesc())
-        tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
+        try {
+            val pluginPanel = plugin.createPanel(project)
+            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin)
+            pluginTabPanel.layout = BorderLayout()
+            pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
+            val tabInfo = TabInfo(pluginTabPanel)
+            tabInfo.setIcon(plugin.pluginTabIcon())
+            tabInfo.setText(pluginInfo.name)
+            tabInfo.setTooltipText(plugin.pluginDesc())
+            tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
 
-            override fun update(e: AnActionEvent) {
-                super.update(e)
-                e.presentation.icon = AllIcons.Actions.Close
-                e.presentation.hoveredIcon = AllIcons.Actions.CloseHovered
-            }
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.icon = AllIcons.Actions.Close
+                    e.presentation.hoveredIcon = AllIcons.Actions.CloseHovered
+                }
 
-            override fun actionPerformed(e: AnActionEvent) {
-                tabsPanel.removeTab(tabInfo)
-                plugin.closePanel(project)
-            }
+                override fun actionPerformed(e: AnActionEvent) {
+                    tabsPanel.removeTab(tabInfo)
+                    plugin.closePanel(project)
+                }
 
-            override fun getActionUpdateThread(): ActionUpdateThread {
-                return ActionUpdateThread.EDT
-            }
+                override fun getActionUpdateThread(): ActionUpdateThread {
+                    return ActionUpdateThread.EDT
+                }
 
-        }), "tabActionGroup")
-        cardLayout.show(contentPanel, cardView)
-        tabsPanel.addTab(tabInfo)
-        tabsPanel.select(tabInfo, true)
-        plugin.showPanel(project)
-        goToPage()
+            }), "tabActionGroup")
+            cardLayout.show(contentPanel, cardView)
+            tabsPanel.addTab(tabInfo)
+            tabsPanel.select(tabInfo, true)
+            plugin.showPanel(project)
+            goToPage()
+        } catch (e: Throwable) {
+            e.message?.let { project.errorNotify("插件打开失败", it) }
+        }
     }
 
 
