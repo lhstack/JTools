@@ -2,10 +2,7 @@ package com.lhstack.tools.actions
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
@@ -13,8 +10,10 @@ import com.intellij.ui.tabs.JBEditorTabsBase
 import com.intellij.ui.tabs.JBTabsFactory
 import com.intellij.ui.tabs.TabInfo
 import com.intellij.ui.tabs.TabsListener
+import com.intellij.ui.tabs.impl.TabLabel
 import com.intellij.util.messages.MessageBusConnection
 import com.lhstack.tools.components.EmptyPanel
+import com.lhstack.tools.components.FloatingDialog
 import com.lhstack.tools.components.PluginTabPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
@@ -57,12 +56,51 @@ class ContentPageAction(
                 }
             }
         })
+        createTabsPopup()
         contentPanel.add(tabsPanel.component, cardView)
         contentPanel.add(EmptyPanel(createAddButton(), "没有内容,请在插件列表中打开一个插件吧"), cardEmpty)
         cardLayout.show(contentPanel, cardEmpty)
         messageBusConnection = project.messageBus.connect()
         messageBusConnection.subscribe(ProjectPluginListener.TOPIC, this)
         Disposer.register(project, this)
+    }
+
+    private fun createTabsPopup() {
+        val tabsPopupGroup = DefaultActionGroup()
+        tabsPopupGroup.add(object : AnAction({ "关闭所有标签" }, AllIcons.Actions.Close) {
+            override fun actionPerformed(e: AnActionEvent) {
+                tabsPanel.tabs.forEach { tab ->
+                    if (tab.component is PluginTabPanel) {
+                        (tab.component as PluginTabPanel).plugin.closePanel(project)
+                        tabsPanel.removeTab(tab)
+                    }
+                }
+            }
+        })
+        tabsPopupGroup.add(object : AnAction({ "在新窗口中打开" }, AllIcons.Actions.OpenNewTab) {
+            override fun actionPerformed(e: AnActionEvent) {
+                val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
+                if (component is TabLabel) {
+                    val tabInfo = component.info
+                    tabInfo.isHidden = true
+                    val dialog: FloatingDialog = if (tabInfo.component is PluginTabPanel) {
+                        FloatingDialog(
+                            project,
+                            (tabInfo.component as PluginTabPanel).pluginInfo.name,
+                            tabInfo.component
+                        )
+                    } else {
+                        FloatingDialog(project, "新窗口", tabInfo.component)
+                    }
+                    //关闭回调
+                    Disposer.register(dialog.disposable) {
+                        tabInfo.isHidden = false
+                    }
+                    dialog.show()
+                }
+            }
+        })
+        tabsPanel.setPopupGroup(tabsPopupGroup, "ContentPage@Tabs", true)
     }
 
     private fun createAddButton(): JButton {
@@ -88,6 +126,7 @@ class ContentPageAction(
                 val pluginTabPanel = it.component as PluginTabPanel
                 if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
                     this.tabsPanel.removeTab(it)
+                    plugin.closePanel(project)
                 }
             }
         }
