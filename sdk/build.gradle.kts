@@ -16,8 +16,8 @@ repositories {
 tasks {
     // Set the JVM compatibility versions
     withType<JavaCompile> {
-        sourceCompatibility = "17"
-        targetCompatibility = "17"
+        sourceCompatibility = "8"
+        targetCompatibility = "8"
         options.encoding = "UTF-8"
     }
     withType<JavaExec> {
@@ -25,7 +25,7 @@ tasks {
     }
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.jvmTarget = "17"
+        kotlinOptions.jvmTarget = "1.8"
         kotlinOptions.freeCompilerArgs = listOf("-Xjvm-default=all")
     }
 
