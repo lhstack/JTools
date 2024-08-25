@@ -13,5 +13,15 @@ class Icons {
         val TOOL_ICON = findIcon("icons/tool.svg")!!
 
         val ADD_ICON = findIcon("icons/add.svg")!!
+
+        val DEVELOPER_ICON = findIcon("icons/developer.svg")!!
+
+        val SELECT_ICON = findIcon("icons/select.svg")!!
+
+        val RUN_ICON = findIcon("icons/run.svg")!!
+
+        val RESET_ICON = findIcon("icons/reset.svg")!!
+
+        val RESOURCE_ICON = findIcon("icons/resource.svg")!!
     }
 }

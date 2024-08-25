@@ -1,5 +1,6 @@
 package com.lhstack.tools.plugins
 
+import ai.grazie.utils.mpp.UUID
 import com.google.common.io.Files
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -9,9 +10,11 @@ import com.lhstack.tools.ext.forceDelete
 import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.parentMkdirs
 import org.apache.commons.codec.digest.DigestUtils
+import org.apache.commons.lang3.StringUtils
 import org.jetbrains.annotations.NonNls
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
@@ -83,6 +86,65 @@ class PluginManager {
             }
         }
 
+    }
+
+    fun loadInstanceByDir(classes: String?, resource: String?, consumer: (IPlugin?, PluginInfo?, String?) -> Unit) {
+        if (classes == null) {
+            consumer.invoke(null, null, "插件class目录不能为空")
+            return
+        }
+        val file = File(classes)
+        if (file.exists() && file.isDirectory) {
+            try {
+                val files = mutableListOf<Path>()
+                files.add(file.toPath())
+                if (!StringUtils.equals(classes, resource)) {
+                    resource?.let {
+                        val resourceFile = File(it)
+                        if (resourceFile.exists() && resourceFile.isDirectory) {
+                            files.add(File(resource).toPath())
+                        }
+                    }
+
+                }
+                val classLoader = PluginClassLoader.newInstance(
+                    UrlClassLoader.build()
+                        .files(files)
+                        .parent(this::class.java.classLoader).useCache().allowBootstrapResources(false)
+                        .allowLock(false)
+                )
+                val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
+                toolsPluginTxt?.use {
+                    String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
+                        val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                        val pluginInfo = PluginInfo(
+                            UUID.random().toString(),
+                            classes,
+                            pluginInstance.pluginName(),
+                            pluginInstance.pluginVersion(),
+                            System.currentTimeMillis()
+                        )
+                        pluginInstance.install()
+                        consumer.invoke(pluginInstance, pluginInfo, null)
+                    }) {
+                        consumer.invoke(null, null, "META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名")
+                    }
+                }
+                if (toolsPluginTxt == null) {
+                    consumer.invoke(null, null, "META-INF/ToolsPlugin.txt文件未找到")
+                }
+            } catch (e: Throwable) {
+                consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.message}")
+            }
+        } else {
+            consumer.invoke(
+                null, null, if (file.exists()) {
+                    "插件地址不是一个目录"
+                } else {
+                    "插件目录不存在"
+                }
+            )
+        }
     }
 
     fun install(pluginPath: String, consumer: (IPlugin?, PluginInfo?, String?) -> Unit) {

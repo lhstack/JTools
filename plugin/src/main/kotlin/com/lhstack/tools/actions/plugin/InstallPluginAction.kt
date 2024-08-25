@@ -13,7 +13,7 @@ import com.lhstack.tools.plugins.pluginManager
 class InstallPluginAction : AnAction({ "安装插件" }, Icons.INSTALL_ICON) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project
-        project?.chooseJarFile {
+        project?.chooseJarFile("选择要安装的插件") {
             this.pluginManager().install(it.presentableUrl) { plugin, pluginInfo, error ->
                 if (error != null) {
                     project.errorNotify("插件安装", error)

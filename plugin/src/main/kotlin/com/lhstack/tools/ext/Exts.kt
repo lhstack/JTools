@@ -55,9 +55,25 @@ fun Any.notify(title: String, msg: String, notificationType: NotificationType) {
 
 fun Any.findIcon(iconPath: String) = IconLoader.findIcon(iconPath, ToolsMainWindowFactory::class.java)
 
-fun Project.chooseJarFile(consumer: (VirtualFile) -> Unit) {
-    FileChooser.chooseFile(FileChooserDescriptor(false, true, true, true, false, false), this, null)
+fun String.substr(start: Int, end: Int): String {
+    if (this.length < end) {
+        return this
+    }
+    return this.substring(start, end)
+}
+
+fun Project.chooseJarFile(title: String, consumer: (VirtualFile) -> Unit) {
+    val fileChooserDescriptor = FileChooserDescriptor(false, true, true, true, false, false)
+    fileChooserDescriptor.title = title
+    FileChooser.chooseFile(fileChooserDescriptor, this, null)
         ?.let { consumer(it) }
+}
+
+fun Project.chooseDirectory(title: String, consumer: (VirtualFile) -> Unit) {
+    val fileChooserDescriptor = FileChooserDescriptor(false, true, false, false, false, false)
+    fileChooserDescriptor.title = title
+    FileChooser.chooseFile(fileChooserDescriptor, this, null)
+        ?.let(consumer)
 }
 
 fun File.parentMkdirs(): File {
@@ -72,6 +88,11 @@ fun File.forceDelete() {
     try {
         FileUtils.forceDelete(this)
     } catch (ignore: Throwable) {
-
+        ignore.message?.let {
+            this.errorNotify(
+                "插件文件删除失败,也许插件被其他进程占用了,或插件本身占用了,请检查你的插件是否存在有被引用的情况",
+                it
+            )
+        }
     }
 }

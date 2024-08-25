@@ -142,6 +142,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                         project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).uninstall(plugin, pluginInfo)
                         pluginPanel.remove(it)
                         pluginPanel.validate()
+                        pluginPanel.repaint()
                     }
                 }
             }
