@@ -10,6 +10,8 @@ class ToolsMainWindowFactory : ToolWindowFactory {
         this.pluginManager().installs { _, _, _, _ ->
             //处理插件卸载重新安装的逻辑,不会走打开app和打开项目的回调
         }
+        //插件重新安装处理
+        this.pluginManager().add(project.locationHash)
         val factory = toolWindow.contentManager.factory
         toolWindow.contentManager.addContent(factory.createContent(ToolsMainView(project), "", true))
     }
