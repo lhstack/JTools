@@ -22,6 +22,7 @@ public class PluginImpl implements IPlugin {
         });
     }
 
+
     @Override
     public JComponent createPanel(Project project) {
         return button;

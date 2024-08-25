@@ -11,7 +11,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
     private var state = State()
 
     companion object {
-        val INSTANCE = service<PluginState>()
+        fun getInstance() = service<PluginState>()
     }
 
     class State {
@@ -19,7 +19,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var pluginBasePath: String = "${System.getProperty("user.home")}/.ideaTools/plugins"
 
         //插件信息 key=pluginId value=插件信息
-        @field:OptionTag(converter= JsonConverter::class)
+        @field:OptionTag(converter = JsonConverter::class)
         var plugins = hashMapOf<String, PluginInfo>()
 
     }
@@ -33,4 +33,4 @@ class PluginState : PersistentStateComponent<PluginState.State> {
     }
 }
 
-fun Any.pluginState() = PluginState.INSTANCE.state
+fun Any.pluginState() = PluginState.getInstance().state

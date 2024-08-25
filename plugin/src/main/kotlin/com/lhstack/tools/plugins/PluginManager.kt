@@ -25,7 +25,9 @@ class PluginManager {
     private val projectStatus = hashSetOf<String>()
 
     companion object {
-        val INSTANCE = service<PluginManager>()
+        fun getInstance(): PluginManager {
+            return service<PluginManager>()
+        }
     }
 
 
@@ -160,4 +162,4 @@ class PluginManager {
 
 }
 
-fun Any.pluginManager() = PluginManager.INSTANCE
+fun Any.pluginManager() = PluginManager.getInstance()
