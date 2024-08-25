@@ -23,6 +23,8 @@ import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginInfo
 import com.lhstack.tools.plugins.PluginManager
 import com.lhstack.tools.plugins.pluginManager
+import java.awt.Color
+import java.awt.Cursor
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.time.Instant
@@ -80,6 +82,8 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         boxPanel.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent?) {
                 if (e!!.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) {
+                    boxPanel.setBackground(null as Color?)
+                    boxPanel.setCursor(Cursor(0))
                     project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
                 } else if (SwingUtilities.isRightMouseButton(e)) {
                     val listPopup = JBPopupFactory.getInstance().createActionGroupPopup(

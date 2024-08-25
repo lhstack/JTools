@@ -10,6 +10,10 @@ public interface IPlugin {
      * 加载函数 每个项目打开都会加载一次
      */
     default void openProject(Project project) {
+        this.openProject(project.getLocationHash());
+    }
+
+    default void openProject(String projectHash) {
 
     }
 
@@ -20,11 +24,11 @@ public interface IPlugin {
      * @return
      */
     default JComponent createPanel(Project project) {
-        return createPanel();
+        return createPanel(project.getLocationHash());
     }
 
 
-    default JComponent createPanel() {
+    default JComponent createPanel(String projectHash) {
         return null;
     }
 
@@ -34,6 +38,10 @@ public interface IPlugin {
      * @param project
      */
     default void showPanel(Project project) {
+        showPanel(project.getLocationHash());
+    }
+
+    default void showPanel(String projectHash) {
 
     }
 
@@ -43,6 +51,10 @@ public interface IPlugin {
      * @param project
      */
     default void closePanel(Project project) {
+        closePanel(project.getLocationHash());
+    }
+
+    default void closePanel(String projectHash) {
 
     }
 
@@ -50,6 +62,10 @@ public interface IPlugin {
      * 项目关闭会回调
      */
     default void closeProject(Project project) {
+        closeProject(project.getLocationHash());
+    }
+
+    default void closeProject(String projectHash) {
 
     }
 
