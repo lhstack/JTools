@@ -67,6 +67,14 @@ fun String.substr(start: Int, end: Int): String {
     return this.substring(start, end)
 }
 
+
+fun String.substr(start: Int, end: Int, apply: (String) -> String): String {
+    if (this.length < end) {
+        return this
+    }
+    return apply(this.substring(start, end))
+}
+
 fun Project.chooseJarFile(title: String, consumer: (VirtualFile) -> Unit) {
     val fileChooserDescriptor = FileChooserDescriptor(false, true, true, true, false, false)
     fileChooserDescriptor.title = title

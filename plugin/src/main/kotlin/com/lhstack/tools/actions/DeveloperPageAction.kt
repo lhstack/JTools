@@ -53,9 +53,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun update(item: Module, presentation: Presentation, popup: Boolean) {
-                if(!popup){
-                    presentation.text = item.name.substr(0,20) + "..."
-                }else {
+                if (!popup) {
+                    presentation.text = item.name.substr(0, 20) { "$it..." }
+                } else {
                     presentation.text = item.name
                 }
             }
@@ -132,27 +132,27 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         actionGroup.add(object : ToggleAction({ "停止运行" }) {
 
             override fun isSelected(e: AnActionEvent): Boolean {
-                if(pluginInstance.get() != null){
+                if (pluginInstance.get() != null) {
                     e.presentation.icon = Icons.STOP_HOVER_ICON
                     return true
-                }else {
+                } else {
                     e.presentation.icon = Icons.STOP_ICON
                     return false
                 }
             }
 
             override fun setSelected(e: AnActionEvent, state: Boolean) {
-               if(pluginInstance.get() != null){
-                   pluginInstance.get().let { plugin ->
-                       plugin.closePanel(project)
-                       plugin.closeProject(project)
-                       plugin.unInstall()
-                       pluginInstance.set(null)
-                       contentPanel.removeAll()
-                       contentPanel.validate()
-                       contentPanel.repaint()
-                   }
-               }
+                if (pluginInstance.get() != null) {
+                    pluginInstance.get().let { plugin ->
+                        plugin.closePanel(project)
+                        plugin.closeProject(project)
+                        plugin.unInstall()
+                        pluginInstance.set(null)
+                        contentPanel.removeAll()
+                        contentPanel.validate()
+                        contentPanel.repaint()
+                    }
+                }
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
