@@ -16,5 +16,9 @@ class Icons {
 
         val DEVELOPER_ICON = findIcon("icons/developer.svg")!!
 
+        val STOP_HOVER_ICON = findIcon("icons/stop_hover.svg")!!
+
+        val STOP_ICON = findIcon("icons/stop.svg")!!
+
     }
 }

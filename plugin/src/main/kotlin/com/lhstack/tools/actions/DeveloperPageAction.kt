@@ -90,7 +90,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 return ActionUpdateThread.BGT
             }
         })
-        actionGroup.add(object : AnAction({ "运行插件" }, AllIcons.Actions.Run_anything) {
+        actionGroup.add(object : AnAction({ "运行插件" }, AllIcons.Actions.Execute) {
             override fun actionPerformed(e: AnActionEvent) {
                 run(comboBoxAction)
             }
@@ -121,15 +121,45 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             override fun getActionUpdateThread(): ActionUpdateThread {
                 return ActionUpdateThread.BGT
             }
+        })
 
+        actionGroup.add(object : ToggleAction({ "停止运行" }) {
+
+            override fun isSelected(e: AnActionEvent): Boolean {
+                if(pluginInstance.get() != null){
+                    e.presentation.icon = Icons.STOP_HOVER_ICON
+                    return true
+                }else {
+                    e.presentation.icon = Icons.STOP_ICON
+                    return false
+                }
+            }
+
+            override fun setSelected(e: AnActionEvent, state: Boolean) {
+               if(pluginInstance.get() != null){
+                   pluginInstance.get().let { plugin ->
+                       plugin.closePanel(project)
+                       plugin.closeProject(project)
+                       plugin.unInstall()
+                       pluginInstance.set(null)
+                       contentPanel.removeAll()
+                       contentPanel.validate()
+                       contentPanel.repaint()
+                   }
+               }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.BGT
+            }
         })
     }
 
     fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
         comboBoxAction.selection?.let {
             val moduleOutputDirectory = CompilerPaths.getModuleOutputDirectory(it, false)
-            if(moduleOutputDirectory == null){
-                project.errorNotify("插件开发","当前项目未编译，或者不存在编译结果，请检查你的项目结构")
+            if (moduleOutputDirectory == null) {
+                project.errorNotify("插件开发", "当前项目未编译，或者不存在编译结果，请检查你的项目结构")
                 return@let
             }
             moduleOutputDirectory.let { classes ->
