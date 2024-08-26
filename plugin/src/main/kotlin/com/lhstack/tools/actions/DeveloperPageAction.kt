@@ -13,6 +13,7 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.allLibraryPaths
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.substr
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
 import org.apache.commons.lang3.StringUtils
@@ -52,7 +53,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun update(item: Module, presentation: Presentation, popup: Boolean) {
-                presentation.text = item.name
+                if(!popup){
+                    presentation.text = item.name.substr(0,20) + "..."
+                }else {
+                    presentation.text = item.name
+                }
             }
 
             override fun selectionChanged(item: Module): Boolean {
@@ -60,7 +65,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
-                return ActionUpdateThread.BGT
+                return ActionUpdateThread.EDT
             }
 
         }
@@ -69,10 +74,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             override fun actionPerformed(e: AnActionEvent) {
                 val modules = ModuleManager.getInstance(project).modules
                 comboBoxAction.setItems(modules.toMutableList(), modules[0])
+                comboBoxAction.update()
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
-                return ActionUpdateThread.BGT
+                return ActionUpdateThread.EDT
             }
         })
 
