@@ -4,15 +4,15 @@ import com.intellij.designer.actions.AbstractComboBoxAction
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.compiler.CompilerManager
-import com.intellij.openapi.compiler.CompilerMessageCategory
 import com.intellij.openapi.compiler.CompilerPaths
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.ext.allLibraryPaths
 import com.lhstack.tools.ext.errorNotify
-import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
 import org.apache.commons.lang3.StringUtils
@@ -44,18 +44,18 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     }
 
     private fun initActionGroup(actionGroup: DefaultActionGroup) {
-        val comboBoxAction = object : AbstractComboBoxAction<com.intellij.openapi.module.Module>() {
+        val comboBoxAction = object : AbstractComboBoxAction<Module>() {
 
             init {
                 val modules = ModuleManager.getInstance(project).modules
                 setItems(modules.toMutableList(), modules[0])
             }
 
-            override fun update(item: com.intellij.openapi.module.Module, presentation: Presentation, popup: Boolean) {
+            override fun update(item: Module, presentation: Presentation, popup: Boolean) {
                 presentation.text = item.name
             }
 
-            override fun selectionChanged(item: com.intellij.openapi.module.Module): Boolean {
+            override fun selectionChanged(item: Module): Boolean {
                 return selection.name != item.name
             }
 
@@ -65,7 +65,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
         }
         actionGroup.add(comboBoxAction)
-        actionGroup.add(object : AnAction({ "刷新模块" }, Icons.RESET_ICON) {
+        actionGroup.add(object : AnAction({ "刷新模块" }, AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
                 val modules = ModuleManager.getInstance(project).modules
                 comboBoxAction.setItems(modules.toMutableList(), modules[0])
@@ -81,24 +81,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 comboBoxAction.selection?.let {
                     val compileScope =
                         compilerManager.createModulesCompileScope(arrayOf(it), true, true, false)
-                    compilerManager.make(compileScope) { abort, errors, warnings, context ->
-                        if (abort) {
-                            project.errorNotify("插件开发", "模块编译被中止")
-                            return@make
-                        }
-                        if (errors > 0) {
-                            val messages = context.getMessages(CompilerMessageCategory.ERROR)
-                            val errorInfo = messages.joinToString("\n") { m -> m.message }
-                            project.errorNotify("插件开发", "编译出错: $errorInfo")
-                            return@make
-                        }
-                        if (warnings > 0) {
-                            val messages = context.getMessages(CompilerMessageCategory.WARNING)
-                            val warnInfo = messages.joinToString("\n") { m -> m.message }
-                            project.infoNotify("插件开发", "编译成功,有几处警告: $warnInfo")
-                            return@make
-                        }
-                        project.infoNotify("插件开发", "编译成功")
+                    compilerManager.make(compileScope) { _, _, _, _ ->
                     }
                 }
             }
@@ -107,42 +90,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 return ActionUpdateThread.BGT
             }
         })
-        actionGroup.add(object : AnAction({ "运行插件" }, Icons.RUN_ICON) {
+        actionGroup.add(object : AnAction({ "运行插件" }, AllIcons.Actions.Run_anything) {
             override fun actionPerformed(e: AnActionEvent) {
-                comboBoxAction.selection?.let {
-                    CompilerPaths.getModuleOutputDirectory(it, false)?.let { classes ->
-                        try {
-                            contentPanel.removeAll()
-                            pluginInstance.get()?.let { plugin ->
-                                plugin.closePanel(project)
-                                plugin.closeProject(project)
-                                plugin.unInstall()
-                            }
-                            val resourcePaths =
-                                ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
-                                    .map { resource -> resource.toNioPath() }
-                            val classPaths = classes.toNioPath()
-                            val list = mutableListOf(classPaths).apply { addAll(resourcePaths) }
-                            this.pluginManager().loadInstanceByDir(list) { plugin, _, errorText ->
-                                if (StringUtils.isNoneBlank(errorText)) {
-                                    errorText?.let { text -> project.errorNotify("插件运行失败", text) }
-                                } else {
-                                    plugin!!.install()
-                                    pluginInstance.set(plugin)
-                                    plugin.openProject(project)
-                                    val pluginPanel = plugin.createPanel(project)
-                                    contentPanel.add(pluginPanel, BorderLayout.CENTER)
-                                    contentPanel.validate()
-                                    contentPanel.repaint()
-                                    plugin.showPanel(project)
-                                }
-                            }
-                        } catch (e: Throwable) {
-                            e.message?.let { text -> project.errorNotify("插件运行失败", text) }
-                        }
-                    }
-
-                }
+                run(comboBoxAction)
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
@@ -156,55 +106,14 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 comboBoxAction.selection?.let {
                     val compileScope =
                         compilerManager.createModulesCompileScope(arrayOf(it), true, true, false)
-                    compilerManager.make(compileScope) { abort, errors, warnings, context ->
+                    compilerManager.make(compileScope) { abort, errors, _, _ ->
                         if (abort) {
-                            project.errorNotify("插件开发", "模块编译被中止")
                             return@make
                         }
                         if (errors > 0) {
-                            val messages = context.getMessages(CompilerMessageCategory.ERROR)
-                            val errorInfo = messages.joinToString("\n") { m -> m.message }
-                            project.errorNotify("插件开发", "编译出错: $errorInfo")
                             return@make
                         }
-                        if (warnings > 0) {
-                            val messages = context.getMessages(CompilerMessageCategory.WARNING)
-                            val warnInfo = messages.joinToString("\n") { m -> m.message }
-                            project.infoNotify("插件开发", "编译成功,有几处警告: $warnInfo")
-                        } else {
-                            project.infoNotify("插件开发", "编译成功")
-                        }
-                        CompilerPaths.getModuleOutputDirectory(it, false)?.let { classes ->
-                            try {
-                                contentPanel.removeAll()
-                                pluginInstance.get()?.let { plugin ->
-                                    plugin.closePanel(project)
-                                    plugin.closeProject(project)
-                                    plugin.unInstall()
-                                }
-                                val resourcePaths =
-                                    ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
-                                        .map { resource -> resource.toNioPath() }
-                                val classPaths = classes.toNioPath()
-                                val list = mutableListOf(classPaths).apply { addAll(resourcePaths) }
-                                this.pluginManager().loadInstanceByDir(list) { plugin, _, errorText ->
-                                    if (StringUtils.isNoneBlank(errorText)) {
-                                        errorText?.let { text -> project.errorNotify("插件运行失败", text) }
-                                    } else {
-                                        plugin!!.install()
-                                        pluginInstance.set(plugin)
-                                        plugin.openProject(project)
-                                        val pluginPanel = plugin.createPanel(project)
-                                        contentPanel.add(pluginPanel, BorderLayout.CENTER)
-                                        contentPanel.validate()
-                                        contentPanel.repaint()
-                                        plugin.showPanel(project)
-                                    }
-                                }
-                            } catch (e: Throwable) {
-                                e.message?.let { text -> project.errorNotify("插件运行失败", text) }
-                            }
-                        }
+                        run(comboBoxAction)
                     }
                 }
             }
@@ -215,6 +124,46 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
         })
     }
+
+    fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
+        comboBoxAction.selection?.let {
+            CompilerPaths.getModuleOutputDirectory(it, false)?.let { classes ->
+                try {
+                    contentPanel.removeAll()
+                    pluginInstance.get()?.let { plugin ->
+                        plugin.closePanel(project)
+                        plugin.closeProject(project)
+                        plugin.unInstall()
+                    }
+                    val resourcePaths =
+                        ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
+                            .map { resource -> resource.toNioPath() }
+                    val list = mutableListOf(classes.toNioPath()).apply {
+                        addAll(resourcePaths)
+                        addAll(it.allLibraryPaths())
+                    }
+                    this.pluginManager().loadInstanceByDir(list) { plugin, _, errorText ->
+                        if (StringUtils.isNoneBlank(errorText)) {
+                            errorText?.let { text -> project.errorNotify("插件运行失败", text) }
+                        } else {
+                            plugin!!.install()
+                            pluginInstance.set(plugin)
+                            plugin.openProject(project)
+                            val pluginPanel = plugin.createPanel(project)
+                            contentPanel.add(pluginPanel, BorderLayout.CENTER)
+                            contentPanel.validate()
+                            contentPanel.repaint()
+                            plugin.showPanel(project)
+                        }
+                    }
+                } catch (e: Throwable) {
+                    e.message?.let { text -> project.errorNotify("插件运行失败", text) }
+                }
+            }
+
+        }
+    }
+
 
     override fun getPanel(): JComponent {
         return panel

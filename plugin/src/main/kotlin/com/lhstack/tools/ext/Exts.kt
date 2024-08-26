@@ -5,13 +5,18 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
 import java.io.File
+import java.nio.file.Path
+import java.util.stream.Collectors
 
 
 fun String.ifNotBlank(consumer: (String) -> Unit, empty: () -> Unit) {
@@ -74,6 +79,32 @@ fun Project.chooseDirectory(title: String, consumer: (VirtualFile) -> Unit) {
     fileChooserDescriptor.title = title
     FileChooser.chooseFile(fileChooserDescriptor, this, null)
         ?.let(consumer)
+}
+
+fun Module.allLibraryPaths(): List<Path> {
+    val result = ArrayList<Path>()
+    val moduleRootManager = ModuleRootManager.getInstance(this)
+    for (orderEntry in moduleRootManager.orderEntries) {
+        if (orderEntry is ModuleOrderEntry) {
+            if (orderEntry.scope == DependencyScope.RUNTIME || orderEntry.scope == DependencyScope.COMPILE) {
+                orderEntry.module?.let {
+                    result.addAll(it.allLibraryPaths())
+                }
+            }
+        } else if (orderEntry is LibraryOrderEntry) {
+            if (orderEntry.scope == DependencyScope.RUNTIME || orderEntry.scope == DependencyScope.COMPILE) {
+                orderEntry.library?.let { pack ->
+                    val paths = pack.getFiles(OrderRootType.CLASSES).stream()
+                        .collect(
+                            Collectors.toMap(
+                                { it.name },
+                                { File(it.presentableUrl).toPath() }) { _, o2 -> o2 })
+                    result.addAll(paths.values)
+                }
+            }
+        }
+    }
+    return result
 }
 
 fun File.parentMkdirs(): File {
