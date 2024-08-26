@@ -127,7 +127,12 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
     fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
         comboBoxAction.selection?.let {
-            CompilerPaths.getModuleOutputDirectory(it, false)?.let { classes ->
+            val moduleOutputDirectory = CompilerPaths.getModuleOutputDirectory(it, false)
+            if(moduleOutputDirectory == null){
+                project.errorNotify("插件开发","当前项目未编译，或者不存在编译结果，请检查你的项目结构")
+                return@let
+            }
+            moduleOutputDirectory.let { classes ->
                 try {
                     contentPanel.removeAll()
                     pluginInstance.get()?.let { plugin ->
