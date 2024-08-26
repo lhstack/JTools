@@ -151,6 +151,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         contentPanel.removeAll()
                         contentPanel.validate()
                         contentPanel.repaint()
+                        comboBoxAction.update()
                     }
                 }
             }
@@ -195,6 +196,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             contentPanel.validate()
                             contentPanel.repaint()
                             plugin.showPanel(project)
+                            comboBoxAction.update()
                         }
                     }
                 } catch (e: Throwable) {
