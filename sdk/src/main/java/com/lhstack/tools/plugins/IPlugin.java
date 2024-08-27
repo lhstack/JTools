@@ -70,7 +70,7 @@ public interface IPlugin {
     }
 
     /**
-     * 安装
+     * app启动时会触发 安装
      */
     default void install() {
 
@@ -80,6 +80,13 @@ public interface IPlugin {
      * 卸载
      */
     default void unInstall() {
+
+    }
+
+    /**
+     * app关闭时触发
+     */
+    default void appClose(){
 
     }
 

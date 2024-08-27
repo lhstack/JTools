@@ -200,7 +200,10 @@ class PluginManager {
         projectStatus.add(projectId)
     }
 
-    fun clear() {
+    /**
+     * 清除卸载残留
+     */
+    fun clearUnloadingResidue() {
         val pluginPaths = this.pluginState().plugins.values.map { it.path }.toSet()
         val pluginBasePath = this.pluginState().pluginBasePath
         val file = File(pluginBasePath)

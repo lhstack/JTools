@@ -5,8 +5,6 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.lhstack.tools.plugins.pluginManager
-import com.lhstack.tools.plugins.pluginState
-import java.io.File
 
 class PluginAppLifecycleListener : AppLifecycleListener {
 
@@ -17,8 +15,15 @@ class PluginAppLifecycleListener : AppLifecycleListener {
                     indicator.text = "安装插件: ${pluginInfo.name}成功"
                     indicator.fraction = index.toDouble() / total
                 }
-                this.pluginManager().clear()
+                this.pluginManager().clearUnloadingResidue()
             }
         })
+    }
+
+
+    override fun appClosing() {
+        this.pluginManager().plugins{_, plugin->
+            plugin.appClose()
+        }
     }
 }
