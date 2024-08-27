@@ -125,7 +125,7 @@ fun File.parentMkdirs(): File {
 
 fun File.forceDelete() {
     try {
-        FileUtils.forceDelete(this)
+        FileUtils.delete(this)
     } catch (ignore: Throwable) {
         ignore.message?.let {
             this.errorNotify(

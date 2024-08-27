@@ -200,6 +200,20 @@ class PluginManager {
         projectStatus.add(projectId)
     }
 
+    fun clear() {
+        val pluginPaths = this.pluginState().plugins.values.map { it.path }.toSet()
+        val pluginBasePath = this.pluginState().pluginBasePath
+        val file = File(pluginBasePath)
+        if (file.exists() && file.isDirectory) {
+            val listFiles = file.listFiles()
+            listFiles?.forEach { f ->
+                if (!pluginPaths.contains(f.absolutePath)) {
+                    f.delete()
+                }
+            }
+        }
+    }
+
 }
 
 fun Any.pluginManager() = PluginManager.getInstance()
