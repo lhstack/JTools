@@ -86,7 +86,7 @@ public interface IPlugin {
     /**
      * app关闭时触发
      */
-    default void appClose(){
+    default void appClose() {
 
     }
 

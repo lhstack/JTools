@@ -17,6 +17,7 @@ import com.lhstack.tools.actions.plugin.InstallPluginAction
 import com.lhstack.tools.components.HoverAttachPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.const.Keys
+import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
@@ -149,7 +150,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                     .uninstall(plugin, pluginInfo)
-                plugin.unInstall()
+                plugin.catch { unInstall() }
                 pluginManager.uninstsall(pluginInfo)
             }
 

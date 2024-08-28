@@ -12,6 +12,7 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.allLibraryPaths
+import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.substr
 import com.lhstack.tools.plugins.IPlugin
@@ -144,9 +145,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             override fun setSelected(e: AnActionEvent, state: Boolean) {
                 if (pluginInstance.get() != null) {
                     pluginInstance.get().let { plugin ->
-                        plugin.closePanel(project)
-                        plugin.closeProject(project)
-                        plugin.unInstall()
+                        plugin.catch {
+                            closePanel(project)
+                            closeProject(project)
+                            unInstall()
+                        }
                         pluginInstance.set(null)
                         contentPanel.removeAll()
                         contentPanel.validate()
@@ -173,9 +176,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 try {
                     contentPanel.removeAll()
                     pluginInstance.get()?.let { plugin ->
-                        plugin.closePanel(project)
-                        plugin.closeProject(project)
-                        plugin.unInstall()
+                        plugin.catch {
+                            closePanel(project)
+                            closeProject(project)
+                            unInstall()
+                        }
                     }
                     val resourcePaths =
                         ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
@@ -188,15 +193,19 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         if (StringUtils.isNoneBlank(errorText)) {
                             errorText?.let { text -> project.errorNotify("插件运行失败", text) }
                         } else {
-                            plugin!!.install()
-                            pluginInstance.set(plugin)
-                            plugin.openProject(project)
-                            val pluginPanel = plugin.createPanel(project)
-                            contentPanel.add(pluginPanel, BorderLayout.CENTER)
-                            contentPanel.validate()
-                            contentPanel.repaint()
-                            plugin.showPanel(project)
-                            comboBoxAction.update()
+                            plugin!!.catch {
+                                install()
+                                openProject(project)
+                                val pluginPanel = plugin.createPanel(project)
+                                showPanel(project)
+                                contentPanel.add(pluginPanel, BorderLayout.CENTER)
+                                contentPanel.validate()
+                                contentPanel.repaint()
+                                this
+                            }?.catch {
+                                pluginInstance.set(plugin)
+                                comboBoxAction.update()
+                            }
                         }
                     }
                 } catch (e: Throwable) {

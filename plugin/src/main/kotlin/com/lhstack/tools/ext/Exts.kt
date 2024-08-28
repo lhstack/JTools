@@ -34,15 +34,15 @@ fun String.ifNotBlank(consumer: (String) -> Unit) {
 }
 
 
-fun Any.infoNotify(title: String, msg: String) {
+fun <T> T.infoNotify(title: String, msg: String) {
     this.notify(title, msg, NotificationType.INFORMATION)
 }
 
-fun Any.errorNotify(title: String, msg: String) {
+fun <T> T.errorNotify(title: String, msg: String) {
     this.notify(title, msg, NotificationType.ERROR)
 }
 
-fun Any.notify(title: String, msg: String, notificationType: NotificationType) {
+fun <T> T.notify(title: String, msg: String, notificationType: NotificationType) {
     if (this is Project) {
         Notifications.Bus.notify(
             Notification("ToolsNotification", title, msg, notificationType).setIcon(
@@ -125,4 +125,13 @@ fun File.parentMkdirs(): File {
 
 fun File.forceDelete() {
     FileUtils.forceDelete(this)
+}
+
+inline fun <T, R> T.catch(block: T.() -> R): R? {
+    return try {
+        block()
+    } catch (e: Throwable) {
+        e.message?.let { this.errorNotify("执行异常", it) }
+        null
+    }
 }

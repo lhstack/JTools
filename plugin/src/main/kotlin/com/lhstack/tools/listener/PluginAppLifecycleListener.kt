@@ -4,6 +4,7 @@ import com.intellij.ide.AppLifecycleListener
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
+import com.lhstack.tools.ext.catch
 import com.lhstack.tools.plugins.pluginManager
 
 class PluginAppLifecycleListener : AppLifecycleListener {
@@ -23,7 +24,7 @@ class PluginAppLifecycleListener : AppLifecycleListener {
 
     override fun appClosing() {
         this.pluginManager().plugins{_, plugin->
-            plugin.appClose()
+            plugin.catch { appClose() }
         }
     }
 }
