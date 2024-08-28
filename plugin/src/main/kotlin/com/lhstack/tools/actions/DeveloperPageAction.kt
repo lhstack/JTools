@@ -147,8 +147,15 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     pluginInstance.get().let { plugin ->
                         plugin.catch {
                             closePanel(project)
+                            this
+                        }?.catch {
                             closeProject(project)
+                            this
+                        }?.catch {
                             unInstall()
+                            this
+                        }?.catch {
+                            appClose()
                         }
                         pluginInstance.set(null)
                         contentPanel.removeAll()
@@ -178,8 +185,15 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     pluginInstance.get()?.let { plugin ->
                         plugin.catch {
                             closePanel(project)
+                            this
+                        }?.catch {
                             closeProject(project)
+                            this
+                        }?.catch {
                             unInstall()
+                            this
+                        }?.catch {
+                            appClose()
                         }
                     }
                     val resourcePaths =
