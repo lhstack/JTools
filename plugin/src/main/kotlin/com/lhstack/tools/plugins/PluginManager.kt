@@ -105,7 +105,6 @@ class PluginManager {
                             pluginInstance.pluginVersion(),
                             System.currentTimeMillis()
                         )
-                        pluginInstance.install()
                         consumer.invoke(pluginInstance, pluginInfo, null)
                     }) {
                         consumer.invoke(null, null, "META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名")
