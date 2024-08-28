@@ -180,9 +180,9 @@ class PluginManager {
     fun uninstsall(pluginInfo: PluginInfo) {
         pluginInstances.remove(pluginInfo)
         this.pluginState().plugins.remove(pluginInfo.id)
-        try{
-            File(pluginInfo.path).delete()
-        }catch (e:Throwable){
+        try {
+            java.nio.file.Files.delete(File(pluginInfo.path).toPath())
+        } catch (e: Throwable) {
             e.message?.let {
                 this.errorNotify(
                     "插件文件删除失败,也许插件被其他进程占用了,或插件本身占用了,请检查你的插件是否存在有被引用的情况",
@@ -191,7 +191,7 @@ class PluginManager {
             }
             return
         }
-        this.infoNotify("插件卸载","插件卸载完成")
+        this.infoNotify("插件卸载", "插件卸载完成")
     }
 
     /**
