@@ -5,10 +5,7 @@ import com.google.common.io.Files
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.util.lang.UrlClassLoader
-import com.lhstack.tools.ext.errorNotify
-import com.lhstack.tools.ext.forceDelete
-import com.lhstack.tools.ext.ifNotBlank
-import com.lhstack.tools.ext.parentMkdirs
+import com.lhstack.tools.ext.*
 import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.collections.CollectionUtils
 import org.jetbrains.annotations.NonNls
@@ -183,7 +180,18 @@ class PluginManager {
     fun uninstsall(pluginInfo: PluginInfo) {
         pluginInstances.remove(pluginInfo)
         this.pluginState().plugins.remove(pluginInfo.id)
-        File(pluginInfo.path).forceDelete()
+        try{
+            File(pluginInfo.path).delete()
+        }catch (e:Throwable){
+            e.message?.let {
+                this.errorNotify(
+                    "插件文件删除失败,也许插件被其他进程占用了,或插件本身占用了,请检查你的插件是否存在有被引用的情况",
+                    it
+                )
+            }
+            return
+        }
+        this.infoNotify("插件卸载","插件卸载完成")
     }
 
     /**

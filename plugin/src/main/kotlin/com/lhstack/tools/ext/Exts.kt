@@ -124,14 +124,5 @@ fun File.parentMkdirs(): File {
 }
 
 fun File.forceDelete() {
-    try {
-        FileUtils.delete(this)
-    } catch (ignore: Throwable) {
-        ignore.message?.let {
-            this.errorNotify(
-                "插件文件删除失败,也许插件被其他进程占用了,或插件本身占用了,请检查你的插件是否存在有被引用的情况",
-                it
-            )
-        }
-    }
+    FileUtils.forceDelete(this)
 }

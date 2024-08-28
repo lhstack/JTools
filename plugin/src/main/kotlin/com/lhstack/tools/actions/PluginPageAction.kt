@@ -17,6 +17,7 @@ import com.lhstack.tools.actions.plugin.InstallPluginAction
 import com.lhstack.tools.components.HoverAttachPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.const.Keys
+import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.IPlugin
@@ -25,8 +26,13 @@ import com.lhstack.tools.plugins.PluginManager
 import com.lhstack.tools.plugins.pluginManager
 import java.awt.Color
 import java.awt.Cursor
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetAdapter
+import java.awt.dnd.DropTargetDropEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -51,6 +57,41 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         pluginManager.plugins { pluginInfo, iPlugin ->
             pluginPanel.add(createPluginBox(pluginInfo, iPlugin))
         }
+
+        pluginPanel.dropTarget = DropTarget(pluginPanel, object : DropTargetAdapter() {
+            override fun drop(dtde: DropTargetDropEvent) {
+                dtde.acceptDrop(1)
+                //判断拖拽文件是否满足要求
+                if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                    val files = dtde.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
+                    if(files.size > 1){
+                        project.errorNotify("插件安装","拖拽安装目前仅支持单个文件")
+                        return
+                    }
+                    val file = files[0]
+                    if(file.extension != "jar"){
+                        project.errorNotify("插件安装","插件仅支持jar包方式安装")
+                        return
+                    }
+                    this.pluginManager().install(file.absolutePath) { plugin, pluginInfo, error ->
+                        if (error != null) {
+                            project.errorNotify("插件安装", error)
+                        } else {
+                            plugin?.let { p ->
+                                try {
+                                    p.openProject(project)
+                                } catch (e: Throwable) {
+                                    e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
+                                }
+                                ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
+                                    .install(p, pluginInfo!!)
+                            }
+                        }
+                    }
+                }
+                dtde.dropComplete(true)
+            }
+        })
         val toolWindowPanel = SimpleToolWindowPanel(true, true)
         val actionGroup = DefaultActionGroup()
         actionGroup.add(InstallPluginAction())
