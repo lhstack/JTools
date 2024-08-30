@@ -8,13 +8,25 @@ public interface IPlugin {
 
     /**
      * 加载函数 每个项目打开都会加载一次
+     *
+     * @param project      项目
+     * @param openThisPage 打开此页面,此功能仅UIPlugin有效
      */
-    default void openProject(Project project) {
-        this.openProject(project.getLocationHash());
+    default void openProject(Project project, Runnable openThisPage) {
+        this.openProject(project.getLocationHash(), openThisPage);
     }
 
-    default void openProject(String projectHash) {
+    default void openProject(String projectHash, Runnable openThisPage) {
 
+    }
+
+    /**
+     * 是否是UI插件,意味着此插件存在UI面板
+     *
+     * @return
+     */
+    default Boolean isUIPlugin() {
+        return true;
     }
 
     /**

@@ -2,6 +2,7 @@ package com.lhstack.tools.actions
 
 import com.intellij.designer.actions.AbstractComboBoxAction
 import com.intellij.icons.AllIcons
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.compiler.CompilerManager
 import com.intellij.openapi.compiler.CompilerPaths
@@ -11,10 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.const.Icons
-import com.lhstack.tools.ext.allLibraryPaths
-import com.lhstack.tools.ext.catch
-import com.lhstack.tools.ext.errorNotify
-import com.lhstack.tools.ext.substr
+import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
 import org.apache.commons.lang3.StringUtils
@@ -209,7 +207,14 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         } else {
                             plugin!!.catch {
                                 install()
-                                openProject(project)
+                                openProject(project) {
+                                    //开发者模式不支持此功能
+                                    project.notify(
+                                        "插件开发通知",
+                                        "开发者模式不支持openThisPage功能",
+                                        NotificationType.INFORMATION
+                                    )
+                                }
                                 val pluginPanel = plugin.createPanel(project)
                                 showPanel(project)
                                 contentPanel.add(pluginPanel, BorderLayout.CENTER)

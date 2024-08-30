@@ -19,11 +19,12 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.INSTALL_ICON) {
                     project.errorNotify("插件安装", error)
                 } else {
                     plugin?.let { p ->
-                        try {
-                            p.openProject(project)
-                        } catch (e: Throwable) {
-                            e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
-                        }
+                        //插件安装不再调用打开项目函数
+//                        try {
+//                            p.openProject(project)
+//                        } catch (e: Throwable) {
+//                            e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
+//                        }
                         ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                             .install(p, pluginInfo!!)
                     }

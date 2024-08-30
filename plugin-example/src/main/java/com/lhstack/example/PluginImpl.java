@@ -22,11 +22,21 @@ public class PluginImpl implements IPlugin {
         });
     }
 
+    @Override
+    public Boolean isUIPlugin() {
+        return false;
+    }
+
+    @Override
+    public void openProject(Project project, Runnable openThisPage) {
+        openThisPage.run();
+    }
 
     @Override
     public JComponent createPanel(Project project) {
         return button;
     }
+
 
     @Override
     public void closeProject(Project project) {

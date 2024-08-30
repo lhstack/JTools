@@ -1,5 +1,6 @@
 package com.lhstack.tools.actions
 
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -19,6 +20,7 @@ import com.lhstack.tools.const.Icons
 import com.lhstack.tools.const.Keys
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.notify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.IPlugin
@@ -65,13 +67,13 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 //判断拖拽文件是否满足要求
                 if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
                     val files = dtde.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
-                    if(files.size > 1){
-                        project.errorNotify("插件安装","拖拽安装目前仅支持单个文件")
+                    if (files.size > 1) {
+                        project.errorNotify("插件安装", "拖拽安装目前仅支持单个文件")
                         return
                     }
                     val file = files[0]
-                    if(file.extension != "jar"){
-                        project.errorNotify("插件安装","插件仅支持jar包方式安装")
+                    if (file.extension != "jar") {
+                        project.errorNotify("插件安装", "插件仅支持jar包方式安装")
                         return
                     }
                     this.pluginManager().install(file.absolutePath) { plugin, pluginInfo, error ->
@@ -79,11 +81,12 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                             project.errorNotify("插件安装", error)
                         } else {
                             plugin?.let { p ->
-                                try {
-                                    p.openProject(project)
-                                } catch (e: Throwable) {
-                                    e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
-                                }
+                                //插件安装不再调用打开项目函数
+//                                try {
+//                                    p.openProject(project)
+//                                } catch (e: Throwable) {
+//                                    e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
+//                                }
                                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                                     .install(p, pluginInfo!!)
                             }
@@ -126,7 +129,12 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 if (e!!.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) {
                     boxPanel.setBackground(null as Color?)
                     boxPanel.setCursor(Cursor(0))
-                    project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
+                    //判断是否是ui插件,非ui插件不支持此功能
+                    if (plugin.isUIPlugin) {
+                        project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
+                    } else {
+                        project.notify("插件点击通知", "此插件不是UI插件,不存在面板", NotificationType.WARNING)
+                    }
                 } else if (SwingUtilities.isRightMouseButton(e)) {
                     val listPopup = JBPopupFactory.getInstance().createActionGroupPopup(
                         pluginInfo.name,

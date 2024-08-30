@@ -18,6 +18,7 @@ import com.lhstack.tools.components.PluginTabPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginInfo
@@ -136,6 +137,8 @@ class ContentPageAction(
     }
 
     override fun openPanel(pluginInfo: PluginInfo, plugin: IPlugin) {
+        //需要打开Tools面板
+        project.openThisWindow()
         this.tabsPanel.tabs.forEach {
             if (it.component is PluginTabPanel) {
                 val pluginTabPanel = it.component as PluginTabPanel

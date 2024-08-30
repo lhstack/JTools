@@ -10,8 +10,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
+import com.lhstack.tools.const.Const
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
 import java.io.File
@@ -125,6 +127,12 @@ fun File.parentMkdirs(): File {
 
 fun File.forceDelete() {
     FileUtils.forceDelete(this)
+}
+
+fun Project.openThisWindow(){
+    val windowManager = ToolWindowManager.getInstance(this)
+    val toolWindow = windowManager.getToolWindow(Const.TOOLS_WINDOW_ID)
+    toolWindow?.show()
 }
 
 inline fun <T, R> T.catch(block: T.() -> R): R? {
