@@ -5,6 +5,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
@@ -81,12 +82,21 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                             project.errorNotify("插件安装", error)
                         } else {
                             plugin?.let { p ->
-                                //插件安装不再调用打开项目函数
-//                                try {
-//                                    p.openProject(project)
-//                                } catch (e: Throwable) {
-//                                    e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
-//                                }
+                                //安装成功,需要通知所有项目的打开事件
+                                ProjectManager.getInstance().openProjects.forEach { openProject ->
+                                    p.openProject(openProject) {
+                                        if (plugin.isUIPlugin) {
+                                            openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
+                                                .openPanel(pluginInfo!!, plugin)
+                                        } else {
+                                            openProject.notify(
+                                                "插件点击通知",
+                                                "此插件不是UI插件,不存在面板",
+                                                NotificationType.WARNING
+                                            )
+                                        }
+                                    }
+                                }
                                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                                     .install(p, pluginInfo!!)
                             }
