@@ -145,7 +145,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 if (pluginInstance.get() != null) {
                     pluginInstance.get().let { plugin ->
                         plugin.catch {
-                            closePanel(project)
+                            if(this.isUIPlugin){
+                                closePanel(project)
+                            }
                             this
                         }?.catch {
                             closeProject(project)
@@ -183,7 +185,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     contentPanel.removeAll()
                     pluginInstance.get()?.let { plugin ->
                         plugin.catch {
-                            closePanel(project)
+                            if(this.isUIPlugin){
+                                closePanel(project)
+                            }
                             this
                         }?.catch {
                             closeProject(project)
@@ -223,7 +227,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                     contentPanel.validate()
                                     contentPanel.repaint()
                                 }else {
-                                    contentPanel.add(JLabel("当前插件不处于UI模式,无UI面板"),BorderLayout.CENTER)
+                                    contentPanel.add(JLabel("当前插件不处于UI模式,无UI面板",JLabel.CENTER),BorderLayout.CENTER)
                                     contentPanel.validate()
                                     contentPanel.repaint()
                                 }
