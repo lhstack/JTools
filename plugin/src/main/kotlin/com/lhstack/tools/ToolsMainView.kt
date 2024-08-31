@@ -22,7 +22,7 @@ class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false)
         toolBarActionGroup.add(contentPageAction)
         toolBarActionGroup.add(pluginPageAction)
         toolBarActionGroup.add(DeveloperPageAction(this,project))
-        toolBarActionGroup.add(SettingAction())
+        toolBarActionGroup.add(SettingAction(this,project))
         val actionToolbar =
             ActionManager.getInstance().createActionToolbar("Tools@ToolBar", toolBarActionGroup, false)
         toolbar = actionToolbar.component

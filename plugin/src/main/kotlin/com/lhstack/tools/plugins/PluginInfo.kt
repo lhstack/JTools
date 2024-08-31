@@ -7,7 +7,7 @@ class PluginInfo(
     //插件id
     val id: String,
     //插件安装路径
-    val path: String,
+    var path: String,
     //插件名称
     val name: String,
     //插件版本

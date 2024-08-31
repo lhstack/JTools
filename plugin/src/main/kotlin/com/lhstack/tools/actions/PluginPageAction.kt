@@ -6,9 +6,11 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
@@ -109,6 +111,11 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         val toolWindowPanel = SimpleToolWindowPanel(true, true)
         val actionGroup = DefaultActionGroup()
         actionGroup.add(InstallPluginAction())
+        actionGroup.add(object:AnAction({"帮助"},IconLoader.findIcon("icons/help.svg",PluginPageAction::class.java)){
+            override fun actionPerformed(e: AnActionEvent) {
+                Messages.showInfoMessage("点击安装按钮或者将插件拖入插件面板进行安装","提示")
+            }
+        })
         val actionToolbar = ActionManager.getInstance().createActionToolbar("ToolsPlugin@Toolbar", actionGroup, true)
         actionToolbar.targetComponent = toolWindowPanel
         toolWindowPanel.toolbar = actionToolbar.component
