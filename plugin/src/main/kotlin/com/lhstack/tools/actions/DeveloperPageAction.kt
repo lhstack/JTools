@@ -20,6 +20,7 @@ import org.jetbrains.jps.model.java.JavaResourceRootType
 import java.awt.BorderLayout
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
 
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
@@ -215,11 +216,17 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                         NotificationType.INFORMATION
                                     )
                                 }
-                                val pluginPanel = plugin.createPanel(project)
-                                showPanel(project)
-                                contentPanel.add(pluginPanel, BorderLayout.CENTER)
-                                contentPanel.validate()
-                                contentPanel.repaint()
+                                if(plugin.isUIPlugin){
+                                    val pluginPanel = plugin.createPanel(project)
+                                    showPanel(project)
+                                    contentPanel.add(pluginPanel, BorderLayout.CENTER)
+                                    contentPanel.validate()
+                                    contentPanel.repaint()
+                                }else {
+                                    contentPanel.add(JLabel("当前插件不处于UI模式,无UI面板"),BorderLayout.CENTER)
+                                    contentPanel.validate()
+                                    contentPanel.repaint()
+                                }
                                 this
                             }?.catch {
                                 pluginInstance.set(plugin)
