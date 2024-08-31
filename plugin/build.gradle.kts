@@ -2,6 +2,7 @@ plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.22"
     id("org.jetbrains.intellij") version "1.17.2"
+    id("io.github.sgtsilvio.gradle.proguard") version "0.7.0"
 }
 
 group = "com.lhstack"
@@ -19,11 +20,64 @@ intellij {
     version.set("2022.3")
     type.set("IC") // Target IDE Platform
 
-    plugins.set(listOf("com.intellij.java","org.jetbrains.plugins.yaml","org.intellij.groovy"))
+    plugins.set(listOf("com.intellij.java", "org.jetbrains.plugins.yaml", "org.intellij.groovy"))
 }
 
-dependencies{
+dependencies {
     implementation(project(":sdk"))
+}
+
+val proguardJar by tasks.registering(proguard.taskClass) {
+//    addInput {
+//        classpath.from(tasks.shadowJar)
+//    }
+    addInput {
+        classpath.from(base.libsDirectory.file("instrumented-plugin-1.0-SNAPSHOT.jar"))
+    }
+    addOutput {
+        archiveFile.set(base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar"))
+    }
+    jdkModules.add("java.base")
+    mappingFile.set(base.libsDirectory.file("${project.name}-${project.version}-mapping.txt"))
+
+    rules.addAll(
+        "-target 17",
+        "-dontoptimize",
+        "-useuniqueclassmembernames",
+        "-dontwarn !com.lhstack.tools.**",
+        "-flattenpackagehierarchy",
+        "-libraryjars F:\\Repo\\Gradle\\wrapper\\dists\\gradle-8.6-all\\6itsypff3gopqo4yna2pr643r\\gradle-8.6\\lib\\kotlin-stdlib-1.9.20.jar",
+        "-libraryjars D:\\Program Files\\java\\17/jmods/java.base.jmod(!.jar;!module-info.class)",
+        "-keep class com.lhstack.tools.ToolsMainWindowFactory { *; }",
+        "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
+        "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
+        "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
+        "-keep class com.lhstack.tools.plugins.PluginState { *; }",
+        "-keepattributes Signature,InnerClasses,*Annotation*",
+        //不需要混淆类名,但是需要混淆里面的函数
+//        "-keepnames class com.lhstack.tools.plugins.PluginManager",
+        """
+            -keepclassmember class com.lhstack.tools.actions.** {
+                public *;
+                protected *;
+            }
+           
+            -keep interface kotlin.jvm.functions.Function*
+            
+            -keep class kotlin.jvm.functions.Function*
+                
+            -keepclassmember class com.lhstack.tools.components.** {
+                public *;
+                protected *;
+            }
+            
+            -keepclassmember class com.lhstack.tools.converter.** {
+                public *;
+                protected *;
+            }
+        """.trimIndent(),
+        "-ignorewarnings"
+    )
 }
 
 tasks {

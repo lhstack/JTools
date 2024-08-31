@@ -228,7 +228,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }
                     }
                 } catch (e: Throwable) {
-                    e.message?.let { text -> project.errorNotify("插件运行失败", text) }
+                    project.errorNotify("插件运行失败", e.fullMsg())
                 }
             }
 

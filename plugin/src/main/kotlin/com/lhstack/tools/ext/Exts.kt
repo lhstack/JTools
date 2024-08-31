@@ -129,7 +129,7 @@ fun File.forceDelete() {
     FileUtils.forceDelete(this)
 }
 
-fun Project.openThisWindow(){
+fun Project.openThisWindow() {
     val windowManager = ToolWindowManager.getInstance(this)
     val toolWindow = windowManager.getToolWindow(Const.TOOLS_WINDOW_ID)
     toolWindow?.show()
@@ -139,7 +139,11 @@ inline fun <T, R> T.catch(block: T.() -> R): R? {
     return try {
         block()
     } catch (e: Throwable) {
-        e.message?.let { this.errorNotify("执行异常", it) }
+        this.errorNotify("执行异常", e.fullMsg())
         null
     }
+}
+
+fun Throwable.fullMsg(): String{
+    return this.toString() + "\r\n" + this.stackTrace.joinToString("\r\n") { it.toString() }
 }

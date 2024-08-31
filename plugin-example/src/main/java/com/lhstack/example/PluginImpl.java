@@ -29,7 +29,8 @@ public class PluginImpl implements IPlugin {
 
     @Override
     public void openProject(Project project, Runnable openThisPage) {
-        openThisPage.run();
+        throw new RuntimeException("111");
+//        openThisPage.run();
     }
 
     @Override
