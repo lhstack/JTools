@@ -5,15 +5,15 @@ package com.lhstack.tools.plugins
  */
 class PluginInfo(
     //插件id
-    val id: String,
+    var id: String,
     //插件安装路径
     var path: String,
     //插件名称
-    val name: String,
+    var name: String,
     //插件版本
-    val version: String,
+    var version: String,
     //创建时间
-    val created: Long
+    var created: Long
 ) {
 
     override fun equals(other: Any?): Boolean {

@@ -23,6 +23,7 @@ import com.lhstack.tools.const.Icons
 import com.lhstack.tools.const.Keys
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
@@ -61,7 +62,11 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         Disposer.register(project, this)
         pluginPanel = JPanel(WrapLayout(0, 3, 3))
         pluginManager.plugins { pluginInfo, iPlugin ->
-            pluginPanel.add(createPluginBox(pluginInfo, iPlugin))
+            try{
+                pluginPanel.add(createPluginBox(pluginInfo, iPlugin))
+            }catch (e:Throwable){
+                this.project.errorNotify("构建插件面板错误","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
+            }
         }
 
         pluginPanel.dropTarget = DropTarget(pluginPanel, object : DropTargetAdapter() {
@@ -111,9 +116,10 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         val toolWindowPanel = SimpleToolWindowPanel(true, true)
         val actionGroup = DefaultActionGroup()
         actionGroup.add(InstallPluginAction())
-        actionGroup.add(object:AnAction({"帮助"},IconLoader.findIcon("icons/help.svg",PluginPageAction::class.java)){
+        actionGroup.add(object :
+            AnAction({ "帮助" }, IconLoader.findIcon("icons/help.svg", PluginPageAction::class.java)) {
             override fun actionPerformed(e: AnActionEvent) {
-                Messages.showInfoMessage("点击安装按钮或者将插件拖入插件面板进行安装","提示")
+                Messages.showInfoMessage("点击安装按钮或者将插件拖入插件面板进行安装", "提示")
             }
         })
         val actionToolbar = ActionManager.getInstance().createActionToolbar("ToolsPlugin@Toolbar", actionGroup, true)
@@ -168,7 +174,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
     }
 
     fun createPopupActionGroup(
-        boxPanel: HoverAttachPanel, pluginInfo: PluginInfo, plugin: IPlugin
+        boxPanel: HoverAttachPanel, pluginInfo: PluginInfo, plugin: IPlugin,
     ): DefaultActionGroup {
         val group = DefaultActionGroup()
         group.add(object : AnAction({ "卸载插件" }, Icons.UNINSTALL_ICON) {
@@ -195,9 +201,13 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
     }
 
     override fun install(plugin: IPlugin, pluginInfo: PluginInfo) {
-        val pluginBox = createPluginBox(pluginInfo, plugin)
-        pluginPanel.add(pluginBox)
-        pluginPanel.validate()
+        try {
+            val pluginBox = createPluginBox(pluginInfo, plugin)
+            pluginPanel.add(pluginBox)
+            pluginPanel.validate()
+        } catch (e: Throwable) {
+            this.project.errorNotify("构建插件面板错误","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
+        }
     }
 
     override fun uninstall(plugin: IPlugin, pluginInfo: PluginInfo) {

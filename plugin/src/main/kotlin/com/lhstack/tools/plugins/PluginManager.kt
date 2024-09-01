@@ -74,12 +74,10 @@ class PluginManager {
 
                 }
             } catch (e: Throwable) {
-                e.message?.let {
-                    this.errorNotify(
-                        "插件加载",
-                        "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息:${it}"
-                    )
-                }
+                this.errorNotify(
+                    "插件加载",
+                    "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息:${e.fullMsg()}"
+                )
             }
         }
 
@@ -97,7 +95,9 @@ class PluginManager {
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
-                        val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                        val pluginInstance = classLoader.loadClass(s).getConstructor().catch("构建插件实例失败") {
+                            this.newInstance()
+                        } as IPlugin
                         val pluginInfo = PluginInfo(
                             UUID.random().toString(),
                             paths.toString(),
@@ -114,7 +114,7 @@ class PluginManager {
                     consumer.invoke(null, null, "META-INF/ToolsPlugin.txt文件未找到")
                 }
             } catch (e: Throwable) {
-                consumer.invoke(null, null, "插件安装出错,插件名称: ${paths},错误信息: ${e.message}")
+                consumer.invoke(null, null, "插件安装出错,插件名称: ${paths},错误信息: ${e.fullMsg()}")
             }
         } else {
             consumer.invoke(null, null, "插件安装出错,请先编译插件再运行")
@@ -143,7 +143,9 @@ class PluginManager {
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
-                        val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                        val pluginInstance = classLoader.loadClass(s).getConstructor().catch("构建插件实例失败") {
+                            this.newInstance()
+                        } as IPlugin
                         val pluginInfo = PluginInfo(
                             pluginId,
                             newPluginFile.absolutePath,
@@ -166,7 +168,7 @@ class PluginManager {
                 }
             } catch (e: Throwable) {
                 newPluginFile?.forceDelete()
-                consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.message}")
+                consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.fullMsg()}")
             }
         } else {
             consumer.invoke(null, null, "插件路径错误")

@@ -144,6 +144,15 @@ inline fun <T, R> T.catch(block: T.() -> R): R? {
     }
 }
 
-fun Throwable.fullMsg(): String{
+inline fun <T, R> T.catch(title: String, block: T.() -> R): R? {
+    return try {
+        block()
+    } catch (e: Throwable) {
+        this.errorNotify(title, e.fullMsg())
+        null
+    }
+}
+
+fun Throwable.fullMsg(): String {
     return this.toString() + "\r\n" + this.stackTrace.joinToString("\r\n") { it.toString() }
 }

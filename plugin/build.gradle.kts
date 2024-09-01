@@ -53,6 +53,7 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
         "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
         "-keep class com.lhstack.tools.plugins.PluginState** { *; }",
+        "-keep class com.lhstack.tools.plugins.PluginInfo** { *; }",
         "-keepattributes Signature,InnerClasses,*Annotation*",
         //不需要混淆类名,但是需要混淆里面的函数
 //        "-keepnames class com.lhstack.tools.plugins.PluginManager",
