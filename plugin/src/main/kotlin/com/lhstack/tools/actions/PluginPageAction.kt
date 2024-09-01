@@ -21,6 +21,7 @@ import com.lhstack.tools.actions.plugin.InstallPluginAction
 import com.lhstack.tools.components.HoverAttachPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.const.Keys
+import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.fullMsg
@@ -62,10 +63,10 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         Disposer.register(project, this)
         pluginPanel = JPanel(WrapLayout(0, 3, 3))
         pluginManager.plugins { pluginInfo, iPlugin ->
-            try{
+            try {
                 pluginPanel.add(createPluginBox(pluginInfo, iPlugin))
-            }catch (e:Throwable){
-                this.project.errorNotify("构建插件面板错误,如果插件出现问题,请找到ToolsPluginState.xml,手动将对应的插件信息删除","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
+            } catch (e: Throwable) {
+                throw PluginException(pluginInfo, "创建插件面板失败", e.fullMsg())
             }
         }
 
@@ -91,17 +92,21 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                             plugin?.let { p ->
                                 //安装成功,需要通知所有项目的打开事件
                                 ProjectManager.getInstance().openProjects.forEach { openProject ->
-                                    p.openProject(openProject) {
-                                        if (plugin.isUIPlugin) {
-                                            openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
-                                                .openPanel(pluginInfo!!, plugin)
-                                        } else {
-                                            openProject.notify(
-                                                "插件点击通知",
-                                                "此插件不是UI插件,不存在面板",
-                                                NotificationType.WARNING
-                                            )
+                                    try {
+                                        p.openProject(openProject) {
+                                            if (plugin.isUIPlugin) {
+                                                openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
+                                                    .openPanel(pluginInfo!!, plugin)
+                                            } else {
+                                                openProject.notify(
+                                                    "插件点击通知",
+                                                    "此插件不是UI插件,不存在面板",
+                                                    NotificationType.WARNING
+                                                )
+                                            }
                                         }
+                                    } catch (e: Throwable) {
+                                        throw PluginException(pluginInfo!!, "打开项目回调", e.fullMsg())
                                     }
                                 }
                                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
@@ -152,12 +157,15 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 if (e!!.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) {
                     boxPanel.setBackground(null as Color?)
                     boxPanel.setCursor(Cursor(0))
-                    //判断是否是ui插件,非ui插件不支持此功能
-                    if (plugin.isUIPlugin) {
-                        project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
-                    } else {
-                        project.notify("插件点击通知", "此插件不是UI插件,不存在面板", NotificationType.WARNING)
+                    plugin.catch("打开插件面板回调") {
+                        //判断是否是ui插件,非ui插件不支持此功能
+                        if (plugin.isUIPlugin) {
+                            project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
+                        } else {
+                            project.notify("插件点击通知", "此插件不是UI插件,不存在面板", NotificationType.WARNING)
+                        }
                     }
+
                 } else if (SwingUtilities.isRightMouseButton(e)) {
                     val listPopup = JBPopupFactory.getInstance().createActionGroupPopup(
                         pluginInfo.name,
@@ -181,7 +189,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                     .uninstall(plugin, pluginInfo)
-                plugin.catch { unInstall() }
+                plugin.catch("卸载插件回调异常,插件信息: $pluginInfo") { unInstall() }
                 pluginManager.uninstsall(pluginInfo)
             }
 
@@ -206,8 +214,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             pluginPanel.add(pluginBox)
             pluginPanel.validate()
         } catch (e: Throwable) {
-            this.project.errorNotify("构建插件面板错误","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
-            throw RuntimeException(e)
+            throw PluginException(pluginInfo, "创建插件面板失败", e.fullMsg())
         }
     }
 

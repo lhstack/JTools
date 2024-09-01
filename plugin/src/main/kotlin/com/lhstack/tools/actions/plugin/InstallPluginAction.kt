@@ -7,8 +7,10 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.chooseJarFile
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
@@ -40,7 +42,7 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.INSTALL_ICON) {
                                 }
                             }
                         } catch (e: Throwable) {
-                            e.message?.let { it1 -> project.errorNotify("项目启动插件回调", it1) }
+                            throw PluginException(pluginInfo!!, "打开项目回调", e.fullMsg())
                         }
                         ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                             .install(p, pluginInfo!!)

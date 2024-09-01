@@ -24,7 +24,7 @@ class PluginAppLifecycleListener : AppLifecycleListener {
 
     override fun appClosing() {
         this.pluginManager().plugins{_, plugin->
-            plugin.catch { appClose() }
+            plugin.catch("app关闭回调") { appClose() }
         }
     }
 }

@@ -5,6 +5,7 @@ import com.google.common.io.Files
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.util.lang.UrlClassLoader
+import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
 import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.collections.CollectionUtils
@@ -32,8 +33,7 @@ class PluginManager {
 
 
     private class PluginClassLoader(builder: Builder) : UrlClassLoader(
-        builder,
-        registerAsParallelCapable()
+        builder, registerAsParallelCapable()
     ) {
         companion object {
             fun newInstance(builder: Builder) = PluginClassLoader(builder)
@@ -41,7 +41,23 @@ class PluginManager {
     }
 
     fun plugins(consumer: (PluginInfo, IPlugin) -> Unit) {
-        pluginInstances.forEach { (k, v) -> consumer.invoke(k, v) }
+        try {
+            pluginInstances.forEach { (k, v) -> consumer.invoke(k, v) }
+        } catch (e: Throwable) {
+            if (e is PluginException) {
+                this.errorNotify(
+                    e.title, "插件信息: ${e.pluginInfo},错误信息: ${e.msg}"
+                )
+            } else if (e.cause is PluginException) {
+                val pluginException = e.cause as PluginException
+                this.errorNotify(
+                    pluginException.title,
+                    "插件信息: ${pluginException.pluginInfo},异常信息: ${pluginException.msg}"
+                )
+            }  else {
+                this.errorNotify("插件生命周期回调异常", e.fullMsg())
+            }
+        }
     }
 
     fun installs(consumer: (PluginInfo, IPlugin, Int, Int) -> Unit) {
@@ -52,10 +68,8 @@ class PluginManager {
                 if (!pluginInstances.contains(v)) {
                     val pluginPath = v.path
                     val classLoader = PluginClassLoader.newInstance(
-                        UrlClassLoader.build()
-                            .files(listOf(Paths.get(pluginPath)))
-                            .parent(this::class.java.classLoader).useCache().allowBootstrapResources(false)
-                            .allowLock(false)
+                        UrlClassLoader.build().files(listOf(Paths.get(pluginPath))).parent(this::class.java.classLoader)
+                            .useCache().allowBootstrapResources(false).allowLock(false)
                     )
                     classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")?.use {
                         String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
@@ -74,23 +88,32 @@ class PluginManager {
 
                 }
             } catch (e: Throwable) {
-                this.errorNotify(
-                    "插件加载",
-                    "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息:${e.fullMsg()}"
-                )
+                if (e is PluginException) {
+                    this.errorNotify(
+                        e.title, "插件信息: ${e.pluginInfo},异常信息: ${e.msg}"
+                    )
+                } else if (e.cause is PluginException) {
+                    val pluginException = e.cause as PluginException
+                    this.errorNotify(
+                        pluginException.title,
+                        "插件信息: ${pluginException.pluginInfo},异常信息: ${pluginException.msg}"
+                    )
+                } else {
+                    this.errorNotify(
+                        "插件加载", "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息:${e.fullMsg()}"
+                    )
+                }
             }
         }
 
     }
 
-    fun loadInstanceByDir(paths: MutableList<Path>, consumer: (IPlugin?, PluginInfo?, String?) -> Unit) {
+    fun loadInstanceByDir(paths: MutableList<Path>, consumer: (IPlugin?, PluginInfo?, RuntimeException?) -> Unit) {
         if (CollectionUtils.isNotEmpty(paths)) {
             try {
                 val classLoader = PluginClassLoader.newInstance(
-                    UrlClassLoader.build()
-                        .files(paths)
-                        .parent(this::class.java.classLoader).useCache().allowBootstrapResources(false)
-                        .allowLock(false)
+                    UrlClassLoader.build().files(paths).parent(this::class.java.classLoader).useCache()
+                        .allowBootstrapResources(false).allowLock(false)
                 )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
@@ -107,17 +130,31 @@ class PluginManager {
                         )
                         consumer.invoke(pluginInstance, pluginInfo, null)
                     }) {
-                        consumer.invoke(null, null, "META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名")
+                        consumer.invoke(
+                            null, null, RuntimeException("META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名")
+                        )
                     }
                 }
                 if (toolsPluginTxt == null) {
-                    consumer.invoke(null, null, "META-INF/ToolsPlugin.txt文件未找到")
+                    consumer.invoke(null, null, RuntimeException("META-INF/ToolsPlugin.txt文件未找到"))
                 }
             } catch (e: Throwable) {
-                consumer.invoke(null, null, "插件安装出错,插件名称: ${paths},错误信息: ${e.fullMsg()}")
+                if (e is PluginException) {
+                    consumer.invoke(null, null, e)
+                } else if (e.cause is PluginException) {
+                    val pluginException = e.cause as PluginException
+                    this.errorNotify(
+                        pluginException.title,
+                        "插件信息: ${pluginException.pluginInfo},异常信息: ${pluginException.msg}"
+                    )
+                }  else {
+                    consumer.invoke(
+                        null, null, RuntimeException("插件安装出错,插件classpath: ${paths},错误信息: ${e.fullMsg()}")
+                    )
+                }
             }
         } else {
-            consumer.invoke(null, null, "插件安装出错,请先编译插件再运行")
+            consumer.invoke(null, null, RuntimeException("插件安装出错,请先编译插件再运行"))
         }
     }
 
@@ -131,14 +168,11 @@ class PluginManager {
                     consumer.invoke(null, null, "插件已存在,请不要重复安装")
                     return
                 }
-                newPluginFile =
-                    File(this.pluginState().pluginBasePath, "${pluginId}.${file.extension}").parentMkdirs()
+                newPluginFile = File(this.pluginState().pluginBasePath, "${pluginId}.${file.extension}").parentMkdirs()
                 Files.copy(file, newPluginFile)
                 val classLoader = PluginClassLoader.newInstance(
-                    UrlClassLoader.build()
-                        .files(listOf(newPluginFile.toPath()))
-                        .parent(this::class.java.classLoader).useCache().allowBootstrapResources(false)
-                        .allowLock(false)
+                    UrlClassLoader.build().files(listOf(newPluginFile.toPath())).parent(this::class.java.classLoader)
+                        .useCache().allowBootstrapResources(false).allowLock(false)
                 )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
@@ -168,7 +202,18 @@ class PluginManager {
                 }
             } catch (e: Throwable) {
                 newPluginFile?.forceDelete()
-                consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.fullMsg()}")
+                if (e is PluginException) {
+                    consumer.invoke(null, null, "插件安装出错,插件名称: ${e.pluginInfo.name},错误信息: ${e.msg}")
+                } else if (e.cause is PluginException) {
+                    val pluginException = e.cause as PluginException
+                    consumer.invoke(
+                        null,
+                        null,
+                        "插件安装出错,插件名称: ${pluginException.pluginInfo.name},错误信息: ${pluginException.msg}"
+                    )
+                } else {
+                    consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.fullMsg()}")
+                }
             }
         } else {
             consumer.invoke(null, null, "插件路径错误")

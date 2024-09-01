@@ -73,7 +73,7 @@ class ContentPageAction(
             override fun actionPerformed(e: AnActionEvent) {
                 tabsPanel.tabs.forEach { tab ->
                     if (tab.component is PluginTabPanel) {
-                        (tab.component as PluginTabPanel).plugin.catch { closePanel(project) }
+                        (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project) }
                         tabsPanel.removeTab(tab)
                     }
                 }
@@ -128,7 +128,7 @@ class ContentPageAction(
                 val pluginTabPanel = it.component as PluginTabPanel
                 if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
                     this.tabsPanel.removeTab(it)
-                    plugin.catch {
+                    plugin.catch("插件面板关闭回调") {
                         closePanel(project)
                     }
                 }
@@ -149,43 +149,38 @@ class ContentPageAction(
                 }
             }
         }
-        try {
-            plugin.catch {
-                val pluginPanel = createPanel(project)
-                val pluginTabPanel = PluginTabPanel(pluginInfo, plugin)
-                pluginTabPanel.layout = BorderLayout()
-                pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
-                val tabInfo = TabInfo(pluginTabPanel)
-                tabInfo.setIcon(plugin.pluginTabIcon())
-                tabInfo.setText(pluginInfo.name)
-                tabInfo.setTooltipText(plugin.pluginDesc())
-                tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
+        plugin.catch("创建插件面板") {
+            val pluginPanel = createPanel(project)
+            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin)
+            pluginTabPanel.layout = BorderLayout()
+            pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
+            val tabInfo = TabInfo(pluginTabPanel)
+            tabInfo.setIcon(plugin.pluginTabIcon())
+            tabInfo.setText(pluginInfo.name)
+            tabInfo.setTooltipText(plugin.pluginDesc())
+            tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
 
-                    override fun update(e: AnActionEvent) {
-                        super.update(e)
-                        e.presentation.icon = AllIcons.Actions.Close
-                        e.presentation.hoveredIcon = AllIcons.Actions.CloseHovered
-                    }
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.icon = AllIcons.Actions.Close
+                    e.presentation.hoveredIcon = AllIcons.Actions.CloseHovered
+                }
 
-                    override fun actionPerformed(e: AnActionEvent) {
-                        tabsPanel.removeTab(tabInfo)
-                        plugin.catch { closePanel(project) }
-                    }
+                override fun actionPerformed(e: AnActionEvent) {
+                    tabsPanel.removeTab(tabInfo)
+                    plugin.catch("插件面板关闭回调") { closePanel(project) }
+                }
 
-                    override fun getActionUpdateThread(): ActionUpdateThread {
-                        return ActionUpdateThread.EDT
-                    }
+                override fun getActionUpdateThread(): ActionUpdateThread {
+                    return ActionUpdateThread.EDT
+                }
 
-                }), "tabActionGroup")
-                cardLayout.show(contentPanel, cardView)
-                tabsPanel.addTab(tabInfo)
-                tabsPanel.select(tabInfo, true)
-                plugin.catch { showPanel(project) }
-                goToPage()
-            }
-
-        } catch (e: Throwable) {
-            e.message?.let { project.errorNotify("插件打开失败", it) }
+            }), "tabActionGroup")
+            cardLayout.show(contentPanel, cardView)
+            tabsPanel.addTab(tabInfo)
+            tabsPanel.select(tabInfo, true)
+            plugin.catch("插件面板显示回调") { showPanel(project) }
+            goToPage()
         }
     }
 

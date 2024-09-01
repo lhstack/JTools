@@ -4,7 +4,8 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.StartupActivity
-import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.exception.PluginException
+import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.plugins.pluginManager
 
@@ -21,7 +22,7 @@ class ProjectStartupActivity : StartupActivity, DumbAware {
                     }
                 }
             } catch (e: Throwable) {
-                e.message?.let { project.errorNotify("项目启动插件回调", it) }
+                throw PluginException(pluginInfo, "打开项目回调", e.fullMsg())
             }
         }
         this.pluginManager().add(project.locationHash)

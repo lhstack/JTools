@@ -12,10 +12,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
-import org.apache.commons.lang3.StringUtils
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import java.awt.BorderLayout
 import java.util.concurrent.atomic.AtomicReference
@@ -144,18 +144,18 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             override fun setSelected(e: AnActionEvent, state: Boolean) {
                 if (pluginInstance.get() != null) {
                     pluginInstance.get().let { plugin ->
-                        plugin.catch {
-                            if(this.isUIPlugin){
+                        plugin.catch("关闭插件面板回调") {
+                            if (this.isUIPlugin) {
                                 closePanel(project)
                             }
                             this
-                        }?.catch {
+                        }?.catch("项目关闭回调") {
                             closeProject(project)
                             this
-                        }?.catch {
+                        }?.catch("插件卸载回调") {
                             unInstall()
                             this
-                        }?.catch {
+                        }?.catch("app关闭回调") {
                             appClose()
                         }
                         pluginInstance.set(null)
@@ -184,18 +184,18 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 try {
                     contentPanel.removeAll()
                     pluginInstance.get()?.let { plugin ->
-                        plugin.catch {
-                            if(this.isUIPlugin){
+                        plugin.catch("关闭插件面板回调") {
+                            if (this.isUIPlugin) {
                                 closePanel(project)
                             }
                             this
-                        }?.catch {
+                        }?.catch("项目关闭回调") {
                             closeProject(project)
                             this
-                        }?.catch {
+                        }?.catch("插件卸载回调") {
                             unInstall()
                             this
-                        }?.catch {
+                        }?.catch("app关闭回调") {
                             appClose()
                         }
                     }
@@ -206,12 +206,18 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         addAll(resourcePaths)
                         addAll(it.allLibraryPaths())
                     }
-                    this.pluginManager().loadInstanceByDir(list) { plugin, _, errorText ->
-                        if (StringUtils.isNoneBlank(errorText)) {
-                            errorText?.let { text -> project.errorNotify("插件运行失败", text) }
+                    this.pluginManager().loadInstanceByDir(list) { plugin, _, err ->
+                        if (err != null) {
+                            if (err is PluginException) {
+                                project.errorNotify(err.title, err.msg)
+                            } else {
+                                project.errorNotify("插件运行失败", err.toString())
+                            }
                         } else {
-                            plugin!!.catch {
+                            plugin!!.catch("安装插件回调") {
                                 install()
+                                this
+                            }?.catch("打开插件回调") {
                                 openProject(project) {
                                     //开发者模式不支持此功能
                                     project.notify(
@@ -220,14 +226,19 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                         NotificationType.INFORMATION
                                     )
                                 }
-                                if(plugin.isUIPlugin){
+                                this
+                            }?.catch("创建插件面板回调") {
+                                if (plugin.isUIPlugin) {
                                     val pluginPanel = plugin.createPanel(project)
                                     showPanel(project)
                                     contentPanel.add(pluginPanel, BorderLayout.CENTER)
                                     contentPanel.validate()
                                     contentPanel.repaint()
-                                }else {
-                                    contentPanel.add(JLabel("当前插件不处于UI模式,无UI面板",JLabel.CENTER),BorderLayout.CENTER)
+                                } else {
+                                    contentPanel.add(
+                                        JLabel("当前插件不处于UI模式,无UI面板", JLabel.CENTER),
+                                        BorderLayout.CENTER
+                                    )
                                     contentPanel.validate()
                                     contentPanel.repaint()
                                 }
