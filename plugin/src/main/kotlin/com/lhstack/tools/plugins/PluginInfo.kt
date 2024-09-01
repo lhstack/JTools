@@ -33,4 +33,10 @@ class PluginInfo(
         result = 31 * result + path.hashCode()
         return result
     }
+
+    override fun toString(): String {
+        return "PluginInfo(id='$id', path='$path', name='$name', version='$version', created=$created)"
+    }
+
+
 }

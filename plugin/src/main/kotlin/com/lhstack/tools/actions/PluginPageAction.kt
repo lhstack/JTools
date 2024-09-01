@@ -65,7 +65,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             try{
                 pluginPanel.add(createPluginBox(pluginInfo, iPlugin))
             }catch (e:Throwable){
-                this.project.errorNotify("构建插件面板错误","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
+                this.project.errorNotify("构建插件面板错误,如果插件出现问题,请找到ToolsPluginState.xml,手动将对应的插件信息删除","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
             }
         }
 
@@ -207,6 +207,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             pluginPanel.validate()
         } catch (e: Throwable) {
             this.project.errorNotify("构建插件面板错误","pluginInfo: $pluginInfo,错误信息: ${e.fullMsg()}")
+            throw RuntimeException(e)
         }
     }
 
