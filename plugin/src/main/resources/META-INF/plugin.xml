@@ -36,7 +36,7 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.lhstack.tools.ToolsMainWindowFactory" icon="/icons/pluginIcon.svg" id="Tools"
+        <toolWindow factoryClass="com.lhstack.tools.ToolsMainWindowFactory" id="Tools"
                     secondary="true" anchor="right"/>
         <postStartupActivity implementation="com.lhstack.tools.listener.ProjectStartupActivity"/>
         <notificationGroup displayType="BALLOON" id="ToolsNotification" toolWindowId="TODO"/>

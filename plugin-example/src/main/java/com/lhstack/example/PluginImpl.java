@@ -24,24 +24,49 @@ public class PluginImpl implements IPlugin {
 
     @Override
     public Boolean isUIPlugin() {
-        return false;
+        return true;
     }
 
     @Override
     public void openProject(Project project, Runnable openThisPage) {
-        throw new RuntimeException("111");
-//        openThisPage.run();
+//        throw new RuntimeException("111");
+        openThisPage.run();
+    }
+
+    @Override
+    public void install() {
+//        throw new RuntimeException("111");
     }
 
     @Override
     public JComponent createPanel(Project project) {
+//        throw new RuntimeException("111");
         return button;
     }
 
+    @Override
+    public void showPanel(String projectHash) {
+//        throw new RuntimeException("111");
+    }
+
+    @Override
+    public void closePanel(String projectHash) {
+//        throw new RuntimeException("222");
+    }
 
     @Override
     public void closeProject(Project project) {
         System.out.println("插件关闭: " + this.pluginName());
+    }
+
+    @Override
+    public void unInstall() {
+//        throw new RuntimeException("111");
+    }
+
+    @Override
+    public void appClose() {
+//        throw new RuntimeException("111");
     }
 
     @Override

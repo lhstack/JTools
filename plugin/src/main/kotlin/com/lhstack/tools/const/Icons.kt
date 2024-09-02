@@ -1,5 +1,7 @@
 package com.lhstack.tools.const
 
+import com.intellij.openapi.util.IconLoader
+import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.ext.findIcon
 
 class Icons {
@@ -18,7 +20,7 @@ class Icons {
 
         fun developerIcon() = findIcon("icons/developer")
 
-        fun stopHoverIcon() = findIcon("icons/stop_hover")
+        fun stopHoverIcon() = IconLoader.findIcon("icons/stop_hover.svg",ToolsMainWindowFactory::class.java)
 
         fun stopIcon() = findIcon("icons/stop")
 

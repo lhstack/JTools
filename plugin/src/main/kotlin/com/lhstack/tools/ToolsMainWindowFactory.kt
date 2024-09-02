@@ -36,6 +36,7 @@ class ToolsMainWindowFactory : ToolWindowFactory {
                 }
             }
         }
+        toolWindow.setIcon(Icons.pluginWindowIcon())
         val messageBus = ApplicationManager.getApplication().messageBus
         messageBus.connect().subscribe(LafManagerListener.TOPIC, LafManagerListener {
             toolWindow.setIcon(Icons.pluginWindowIcon())
