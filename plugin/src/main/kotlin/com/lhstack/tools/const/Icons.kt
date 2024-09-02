@@ -4,7 +4,7 @@ import com.lhstack.tools.ext.findIcon
 
 class Icons {
     companion object {
-        fun pluginIcon() = findIcon("icons/plugin_dark")
+        fun pluginIcon() = findIcon("icons/plugin")
 
         fun installIcon() = findIcon("icons/install")
 
@@ -25,6 +25,8 @@ class Icons {
         fun helpIcon() = findIcon("icons/help")
 
         fun notificationIcon() = findIcon("icons/notification")
+
+        fun pluginWindowIcon() = findIcon("icons/pluginIcon")
 
     }
 }

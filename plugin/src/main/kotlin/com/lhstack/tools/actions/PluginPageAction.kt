@@ -68,7 +68,6 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 throw PluginException(pluginInfo, "创建插件面板失败", e.fullMsg())
             }
         }
-
         pluginPanel.dropTarget = DropTarget(pluginPanel, object : DropTargetAdapter() {
             override fun drop(dtde: DropTargetDropEvent) {
                 dtde.acceptDrop(1)

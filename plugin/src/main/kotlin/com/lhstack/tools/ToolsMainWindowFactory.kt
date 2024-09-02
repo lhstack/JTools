@@ -1,10 +1,13 @@
 package com.lhstack.tools
 
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
@@ -33,6 +36,10 @@ class ToolsMainWindowFactory : ToolWindowFactory {
                 }
             }
         }
+        val messageBus = ApplicationManager.getApplication().messageBus
+        messageBus.connect().subscribe(LafManagerListener.TOPIC, LafManagerListener {
+            toolWindow.setIcon(Icons.pluginWindowIcon())
+        })
         //插件重新安装处理
         this.pluginManager().add(project.locationHash)
         val factory = toolWindow.contentManager.factory
