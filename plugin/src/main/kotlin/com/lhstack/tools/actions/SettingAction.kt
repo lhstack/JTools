@@ -21,7 +21,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
     { Icons.settingIcon() }, windowPanel
 ) {
     private var panel: JPanel = JPanel()
-    private var labelIcon: JLabel = JLabel(Icons.helpIcon()).apply {
+    private var pluginInstallDirHelpLabel: JLabel = JLabel(Icons.helpIcon()).apply {
         val toolTipText =
             "修改插件安装的目录,默认安装目录为: ${
                 System.getProperty("user.home").replace("\\", "/")
@@ -42,7 +42,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
 
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JLabel("插件安装目录: "))
-            this.add(labelIcon)
+            this.add(pluginInstallDirHelpLabel)
         })
         //F:\Repo\Gradle\caches\modules-2\files-2.1\cn.dorck.code.guarder
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -96,15 +96,13 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                 }
             })
         })
-        val jSeparator = JSeparator(SwingConstants.HORIZONTAL)
-        panel.add(jSeparator)
     }
 
     override fun update(e: AnActionEvent) {
         super.update(e)
-        labelIcon.icon = Icons.helpIcon()
-        labelIcon.revalidate()
-        labelIcon.repaint()
+        pluginInstallDirHelpLabel.icon = Icons.helpIcon()
+        pluginInstallDirHelpLabel.revalidate()
+        pluginInstallDirHelpLabel.repaint()
     }
 
     override fun getPanel(): JComponent {

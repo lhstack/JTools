@@ -67,25 +67,33 @@ class PluginManager {
             try {
                 if (!pluginInstances.contains(v)) {
                     val pluginPath = v.path
-                    val classLoader = PluginClassLoader.newInstance(
-                        UrlClassLoader.build().files(listOf(Paths.get(pluginPath))).parent(this::class.java.classLoader)
-                            .useCache().allowBootstrapResources(false).allowLock(false)
-                    )
-                    classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")?.use {
-                        String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
-                            val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
-                            pluginInstances[v] = pluginInstance
-                            //执行安装回调
-                            pluginInstance.install()
-                            consumer.invoke(v, pluginInstance, index, pluginInstances.size)
-                        }) {
-                            this.errorNotify(
-                                "插件加载",
-                                "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息: META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名"
-                            )
+                    if(!java.nio.file.Files.exists(Paths.get(pluginPath))){
+                        //如果插件文件不存在,需要卸载
+                        plugins.remove(v.id)
+                        this.errorNotify(
+                            "插件加载",
+                            "插件加载失败,移除插件信息,插件名称:${v.name},插件版本:${v.version},错误信息: 插件jar未找到,请检查你的插件jar是否被删除"
+                        )
+                    }else {
+                        val classLoader = PluginClassLoader.newInstance(
+                            UrlClassLoader.build().files(listOf(Paths.get(pluginPath))).parent(this::class.java.classLoader)
+                                .useCache().allowBootstrapResources(false).allowLock(false)
+                        )
+                        classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")?.use {
+                            String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
+                                val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                                pluginInstances[v] = pluginInstance
+                                //执行安装回调
+                                pluginInstance.install()
+                                consumer.invoke(v, pluginInstance, index, pluginInstances.size)
+                            }) {
+                                this.errorNotify(
+                                    "插件加载",
+                                    "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息: META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名"
+                                )
+                            }
                         }
                     }
-
                 }
             } catch (e: Throwable) {
                 if (e is PluginException) {
