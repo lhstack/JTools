@@ -12,13 +12,16 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
+import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.const.Const
+import com.lhstack.tools.const.Icons
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
 import java.io.File
 import java.nio.file.Path
 import java.util.stream.Collectors
+import javax.swing.Icon
 
 
 fun String.ifNotBlank(consumer: (String) -> Unit, empty: () -> Unit) {
@@ -48,19 +51,25 @@ fun <T> T.notify(title: String, msg: String, notificationType: NotificationType)
     if (this is Project) {
         Notifications.Bus.notify(
             Notification("ToolsNotification", title, msg, notificationType).setIcon(
-                IconLoader.findIcon("/icons/notification.svg", ToolsMainWindowFactory::class.java)
+                Icons.notificationIcon()
             ), this
         )
     } else {
         Notifications.Bus.notify(
             Notification("ToolsNotification", title, msg, notificationType).setIcon(
-                IconLoader.findIcon("/icons/notification.svg", ToolsMainWindowFactory::class.java)
+                Icons.notificationIcon()
             )
         )
     }
 }
 
-fun Any.findIcon(iconPath: String) = IconLoader.findIcon(iconPath, ToolsMainWindowFactory::class.java)
+fun Any.findIcon(iconPath: String, ext: String = "svg"): Icon {
+    if (UIUtil.isUnderDarcula()) {
+        return IconLoader.findIcon("${iconPath}_light.${ext}", ToolsMainWindowFactory::class.java)!!
+    }
+    return IconLoader.findIcon("${iconPath}_dark.${ext}", ToolsMainWindowFactory::class.java)!!
+}
+
 
 fun String.substr(start: Int, end: Int): String {
     if (this.length < end) {

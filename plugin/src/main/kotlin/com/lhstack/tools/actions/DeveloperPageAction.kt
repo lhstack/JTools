@@ -24,7 +24,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
-    AbstractPageAction({ "插件开发调试" }, Icons.DEVELOPER_ICON, windowPanel) {
+    AbstractPageAction({ "插件开发调试" }, { Icons.developerIcon() }, windowPanel) {
 
     private val panel: SimpleToolWindowPanel = SimpleToolWindowPanel(true, true)
 
@@ -131,14 +131,17 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
         actionGroup.add(object : ToggleAction({ "停止运行" }) {
 
-            override fun isSelected(e: AnActionEvent): Boolean {
+            override fun update(e: AnActionEvent) {
+                super.update(e)
                 if (pluginInstance.get() != null) {
-                    e.presentation.icon = Icons.STOP_HOVER_ICON
-                    return true
+                    e.presentation.icon = Icons.stopHoverIcon()
                 } else {
-                    e.presentation.icon = Icons.STOP_ICON
-                    return false
+                    e.presentation.icon = Icons.stopIcon()
                 }
+            }
+
+            override fun isSelected(e: AnActionEvent): Boolean {
+                return pluginInstance.get() != null
             }
 
             override fun setSelected(e: AnActionEvent, state: Boolean) {

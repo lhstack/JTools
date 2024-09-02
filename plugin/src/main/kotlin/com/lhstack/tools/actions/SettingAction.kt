@@ -8,6 +8,7 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.components.JBTextField
 import com.lhstack.tools.const.Const
+import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.ext.chooseDirectory
 import com.lhstack.tools.ext.fullMsg
@@ -24,7 +25,7 @@ import javax.swing.*
 
 class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : AbstractPageAction(
     { "设置" },
-    IconLoader.findIcon("icons/setting.svg", SettingAction::class.java)!!, windowPanel
+    { Icons.settingIcon() }, windowPanel
 ) {
     private var panel: JPanel = JPanel()
 
@@ -33,7 +34,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         panel.layout = VerticalLayout()
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JLabel("插件安装目录: "))
-            this.add(JLabel(IconLoader.findIcon("icons/help.svg", SettingAction::class.java)).apply {
+            this.add(JLabel(Icons.helpIcon()).apply {
                 val toolTipText =
                     "修改插件安装的目录,默认安装目录为: ${
                         System.getProperty("user.home").replace("\\", "/")
@@ -95,7 +96,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                             this.pluginState().plugins.forEach { (k, v) ->
                                 try {
                                     val oldFile = File(v.path)
-                                    val newFile = File(this.absolutePath,oldFile.name)
+                                    val newFile = File(this.absolutePath, oldFile.name)
                                     FileUtils.copyFile(oldFile, newFile)
                                     v.path = newFile.absolutePath
                                     this.pluginState().plugins[k] = v

@@ -4,21 +4,27 @@ import com.lhstack.tools.ext.findIcon
 
 class Icons {
     companion object {
-        val PLUGIN_ICON = findIcon("icons/plugin.svg")!!
+        fun pluginIcon() = findIcon("icons/plugin_dark")
 
-        val INSTALL_ICON = findIcon("icons/install.svg")!!
+        fun installIcon() = findIcon("icons/install")
 
-        val UNINSTALL_ICON = findIcon("icons/uninstall.svg")!!
+        fun unInstallIcon() = findIcon("icons/uninstall")
 
-        val TOOL_ICON = findIcon("icons/tool.svg")!!
+        fun toolIcon() = findIcon("icons/tool")
 
-        val ADD_ICON = findIcon("icons/add.svg")!!
+        fun settingIcon() = findIcon("icons/setting")
 
-        val DEVELOPER_ICON = findIcon("icons/developer.svg")!!
+        fun addIcon() = findIcon("icons/add", "svg")
 
-        val STOP_HOVER_ICON = findIcon("icons/stop_hover.svg")!!
+        fun developerIcon() = findIcon("icons/developer")
 
-        val STOP_ICON = findIcon("icons/stop.svg")!!
+        fun stopHoverIcon() = findIcon("icons/stop_hover")
+
+        fun stopIcon() = findIcon("icons/stop")
+
+        fun helpIcon() = findIcon("icons/help")
+
+        fun notificationIcon() = findIcon("icons/notification")
 
     }
 }

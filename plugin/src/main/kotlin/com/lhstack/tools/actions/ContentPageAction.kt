@@ -17,7 +17,6 @@ import com.lhstack.tools.components.FloatingDialog
 import com.lhstack.tools.components.PluginTabPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.catch
-import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.IPlugin
@@ -33,7 +32,7 @@ class ContentPageAction(
     private val project: Project,
     private val goToPage: (String) -> Unit
 ) :
-    AbstractPageAction({ "插件面板" }, Icons.TOOL_ICON, windowPanel), Disposable, ProjectPluginListener {
+    AbstractPageAction({ "插件面板" }, { Icons.toolIcon() }, windowPanel), Disposable, ProjectPluginListener {
 
     private val tabsPanel: JBEditorTabsBase
 
@@ -107,7 +106,7 @@ class ContentPageAction(
 
     private fun createAddButton(): JButton {
         val button = JButton()
-        button.icon = Icons.ADD_ICON
+        button.icon = Icons.addIcon()
         button.addActionListener {
             goToPage.invoke("plugin")
         }

@@ -10,7 +10,6 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
@@ -50,7 +49,7 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
-    AbstractPageAction({ "插件管理" }, Icons.PLUGIN_ICON, windowPanel), Disposable, PluginListener {
+    AbstractPageAction({ "插件管理" }, { Icons.pluginIcon() }, windowPanel), Disposable, PluginListener {
     private val panel: JComponent
     private val connect: MessageBusConnection
     private val pluginManager: PluginManager
@@ -122,9 +121,13 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         val actionGroup = DefaultActionGroup()
         actionGroup.add(InstallPluginAction())
         actionGroup.add(object :
-            AnAction({ "帮助" }, IconLoader.findIcon("icons/help.svg", PluginPageAction::class.java)) {
+            DynamicIconAction({ "帮助" }, { Icons.helpIcon() }) {
             override fun actionPerformed(e: AnActionEvent) {
                 Messages.showInfoMessage("点击安装按钮或者将插件拖入插件面板进行安装", "提示")
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.EDT
             }
         })
         val actionToolbar = ActionManager.getInstance().createActionToolbar("ToolsPlugin@Toolbar", actionGroup, true)
@@ -185,7 +188,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         boxPanel: HoverAttachPanel, pluginInfo: PluginInfo, plugin: IPlugin,
     ): DefaultActionGroup {
         val group = DefaultActionGroup()
-        group.add(object : AnAction({ "卸载插件" }, Icons.UNINSTALL_ICON) {
+        group.add(object : DynamicIconAction({ "卸载插件" }, { Icons.unInstallIcon() }) {
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                     .uninstall(plugin, pluginInfo)

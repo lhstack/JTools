@@ -2,7 +2,6 @@ package com.lhstack.tools.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import java.util.function.Supplier
 import javax.swing.Icon
@@ -10,9 +9,9 @@ import javax.swing.JComponent
 
 abstract class AbstractPageAction(
     dynamicText: Supplier<String>,
-    icon: Icon,
+    dynamicIcon: () -> Icon,
     val windowPanel: SimpleToolWindowPanel
-) : ToggleAction(dynamicText, icon) {
+) : DynamicToggleIconAction(dynamicText, dynamicIcon) {
 
     abstract fun getPanel(): JComponent
 
