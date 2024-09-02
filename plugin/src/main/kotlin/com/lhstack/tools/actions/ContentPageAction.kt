@@ -46,6 +46,13 @@ class ContentPageAction(
 
     private val cardEmpty = "empty"
 
+    private val goToPluginButton: JButton = JButton().apply {
+        this.icon = Icons.addIcon()
+        this.addActionListener {
+            goToPage.invoke("plugin")
+        }
+    }
+
     init {
         contentPanel = JPanel(cardLayout)
         tabsPanel = JBTabsFactory.createEditorTabs(project, this)
@@ -59,7 +66,7 @@ class ContentPageAction(
         })
         createTabsPopup()
         contentPanel.add(tabsPanel.component, cardView)
-        contentPanel.add(EmptyPanel(createAddButton(), "没有内容,请在插件列表中打开一个插件吧"), cardEmpty)
+        contentPanel.add(EmptyPanel(goToPluginButton, "没有内容,请在插件列表中打开一个插件吧"), cardEmpty)
         cardLayout.show(contentPanel, cardEmpty)
         messageBusConnection = project.messageBus.connect()
         messageBusConnection.subscribe(ProjectPluginListener.TOPIC, this)
@@ -104,13 +111,11 @@ class ContentPageAction(
         tabsPanel.setPopupGroup(tabsPopupGroup, "ContentPage@Tabs", true)
     }
 
-    private fun createAddButton(): JButton {
-        val button = JButton()
-        button.icon = Icons.addIcon()
-        button.addActionListener {
-            goToPage.invoke("plugin")
-        }
-        return button
+    override fun update(e: AnActionEvent) {
+        super.update(e)
+        this.goToPluginButton.icon = Icons.addIcon()
+        this.goToPluginButton.revalidate()
+        this.goToPluginButton.repaint()
     }
 
     override fun getPanel(): JComponent {
