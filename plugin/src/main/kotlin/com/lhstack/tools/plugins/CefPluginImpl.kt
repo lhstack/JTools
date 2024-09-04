@@ -1,9 +1,7 @@
 package com.lhstack.tools.plugins
 
-import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.intellij.openapi.util.IconLoader
-import kotlinx.serialization.json.JsonObject
 import org.apache.commons.lang3.StringUtils
 import org.cef.callback.CefCallback
 import org.cef.handler.CefResourceHandlerAdapter
@@ -17,30 +15,44 @@ import java.nio.charset.StandardCharsets
 import javax.swing.Icon
 import kotlin.math.min
 
-class CefPluginImpl(val classLoader: ClassLoader) : IPlugin {
+class CefPluginInfo(
+    val pluginIcon: String,
+    val pluginTabIcon: String,
+    val pluginName: String,
+    val pluginDesc: String,
+    val pluginVersion: String,
+)
+
+class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
+
+    private val cefPluginInfo: CefPluginInfo
 
     init {
-        var resource: URL? = classLoader.getResource("pluginInfo.json") ?: throw RuntimeException("pluginInfo.json cannot null")
-        resource!!.readBytes().let { String(it,StandardCharsets.UTF_8) }.let {  }
+        val resource: URL =
+            classLoader.getResource("pluginInfo.json") ?: throw RuntimeException("pluginInfo.json cannot null")
+        cefPluginInfo = String(resource.readBytes(), StandardCharsets.UTF_8).let {
+            GsonBuilder().create().fromJson(it, CefPluginInfo::class.java)
+        }
     }
+
     override fun pluginIcon(): Icon? {
-        return IconLoader.findIcon("PluginIcon.svg",classLoader)
+        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader)
     }
 
     override fun pluginTabIcon(): Icon? {
-        return IconLoader.findIcon("PluginTabIcon.svg",classLoader)
+        return IconLoader.findIcon(cefPluginInfo.pluginTabIcon, classLoader)
     }
 
-    override fun pluginName(): String? {
-        return classLoader.getResourceAsStream("PluginName.json")?.readBytes()?.let { String(it,StandardCharsets.UTF_8) }
+    override fun pluginName(): String {
+        return cefPluginInfo.pluginName
     }
 
-    override fun pluginDesc(): String? {
-        return classLoader.getResourceAsStream("PluginDesc.txt")?.readBytes()?.let { String(it,StandardCharsets.UTF_8) }
+    override fun pluginDesc(): String {
+        return cefPluginInfo.pluginDesc
     }
 
     override fun pluginVersion(): String {
-        TODO("Not yet implemented")
+        return cefPluginInfo.pluginVersion
     }
 }
 
