@@ -9,7 +9,6 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.jcef.*
 import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.ext.gson
-import com.lhstack.tools.ext.ifNotBlank
 import org.apache.commons.lang3.StringUtils
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.impl.client.CloseableHttpClient
