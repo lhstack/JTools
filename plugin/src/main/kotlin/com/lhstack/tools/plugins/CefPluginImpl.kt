@@ -84,7 +84,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                 ) {
                     if (isLoading) {
                         val script = functions.joinToString("\r\n")
-                        browser?.executeJavaScript(script, cefPluginInfo.indexPage, 0)
+                        browser?.executeJavaScript(script, browser.url, 0)
                     }
                 }
             }, jbBrowser.cefBrowser)
@@ -127,7 +127,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
             jbCefClient.addContextMenuHandler(object : CefContextMenuHandlerAdapter() {
 
                 override fun onBeforeContextMenu(
-                    browser: CefBrowser?,
+                    browser: CefBrowser,
                     frame: CefFrame?,
                     params: CefContextMenuParams,
                     model: CefMenuModel
@@ -135,7 +135,10 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     //清除之前的按钮
                     model.clear()
                     model.addItem(1, "DevTools")
-                    model.addItem(2, "重新加载")
+                    if(browser.canGoBack()){
+                        model.addItem(2,"goBack")
+                    }
+                    model.addItem(3, "重新加载")
                 }
 
                 override fun onContextMenuCommand(
@@ -148,8 +151,12 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     //DevTools
                     if (commandId == 1) {
                         SwingUtilities.invokeLater { jbBrowser.openDevtools() }
-                    } else if (commandId == 2) {
+                    } else if (commandId == 3) {
                         browser.reload()
+                    }else if(commandId == 2){
+                        if (browser.canGoBack()) {
+                            browser.goBack()
+                        }
                     }
                     return true
                 }
