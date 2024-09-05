@@ -138,7 +138,8 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     if(browser.canGoBack()){
                         model.addItem(2,"goBack")
                     }
-                    model.addItem(3, "重新加载")
+                    model.addItem(3,"返回首页")
+                    model.addItem(4, "重新加载")
                 }
 
                 override fun onContextMenuCommand(
@@ -151,12 +152,14 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     //DevTools
                     if (commandId == 1) {
                         SwingUtilities.invokeLater { jbBrowser.openDevtools() }
-                    } else if (commandId == 3) {
+                    } else if (commandId == 4) {
                         browser.reload()
                     }else if(commandId == 2){
                         if (browser.canGoBack()) {
                             browser.goBack()
                         }
+                    }else if(commandId == 3){
+                        browser.loadURL(cefPluginInfo.indexPage)
                     }
                     return true
                 }
