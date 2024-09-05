@@ -9,6 +9,10 @@ import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
 import org.apache.commons.lang3.StringUtils
+import org.apache.http.client.methods.HttpGet
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.util.EntityUtils
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.callback.CefBeforeDownloadCallback
@@ -20,7 +24,6 @@ import org.cef.misc.IntRef
 import org.cef.misc.StringRef
 import org.cef.network.CefRequest
 import org.cef.network.CefResponse
-import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import javax.swing.Icon
@@ -40,6 +43,8 @@ class CefPluginImpl(private val classLoader: ClassLoader, private val pluginInfo
     private val cefPluginInfo: CefPluginInfo
 
     private val browsers: HashMap<String, JBCefBrowser> = hashMapOf()
+
+    private val httpClients: HashMap<String, CloseableHttpClient> = hashMapOf()
 
     init {
         val resource: URL =
@@ -98,7 +103,7 @@ class CefPluginImpl(private val classLoader: ClassLoader, private val pluginInfo
                         frame: CefFrame?,
                         request: CefRequest
                     ): org.cef.handler.CefResourceHandler {
-                        return CefResourceHandler(request.url, classLoader)
+                        return CefResourceHandler(request.url, classLoader, httpClients[project.locationHash]!!)
                     }
                 }
             }
@@ -108,15 +113,17 @@ class CefPluginImpl(private val classLoader: ClassLoader, private val pluginInfo
             jbCefClient.dispose()
         }
         browsers[project.locationHash] = jbBrowser
+        httpClients[project.locationHash] = HttpClients.createSystem()
     }
 
     override fun closeProject(project: Project) {
         browsers.remove(project.locationHash)
+        httpClients.remove(project.locationHash)?.close()
     }
 
     override fun appClose() {
         browsers.clear()
-
+        httpClients.clear()
     }
 
     override fun pluginIcon(): Icon? {
@@ -140,10 +147,13 @@ class CefPluginImpl(private val classLoader: ClassLoader, private val pluginInfo
     }
 }
 
-class CefResourceHandler(private var url: String, classLoader: ClassLoader) : CefResourceHandlerAdapter() {
+class CefResourceHandler(private var url: String, classLoader: ClassLoader, httpClient: CloseableHttpClient) :
+    CefResourceHandlerAdapter() {
     private var bytes: ByteArray? = null
     private var offset: Int? = null
     private var isOpen: Boolean = false
+    private var responseHeader: HashMap<String, String> = hashMapOf()
+    private var httpResource = false
 
     init {
         try {
@@ -152,7 +162,10 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader) : Ce
                 bytes = classLoader.getResource(url)?.readBytes()
             } else {
                 //需要http客户端
-                bytes = URI.create(url).toURL().readBytes()
+                val httpResponse = httpClient.execute(HttpGet(url))
+                httpResponse.allHeaders.forEach { responseHeader[it.name] = it.value }
+                bytes = EntityUtils.toByteArray(httpResponse.entity)
+                httpResource = true
             }
             offset = 0
             isOpen = true
@@ -166,21 +179,25 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader) : Ce
     }
 
     override fun getResponseHeaders(response: CefResponse, responseLength: IntRef, redirectUrl: StringRef?) {
-        if (StringUtils.endsWithIgnoreCase(url, ".html")) {
-            response.mimeType = "text/html"
-        } else if (StringUtils.endsWithIgnoreCase(url, ".css")) {
-            response.mimeType = "text/css"
-        } else if (StringUtils.endsWithIgnoreCase(url, ".js")) {
-            response.mimeType = "application/javascript"
-        } else if (StringUtils.endsWithIgnoreCase(url, ".png")) {
-            response.mimeType = "image/png"
-        } else if (StringUtils.endsWithAny(url.lowercase(), ".jpg", "jpeg")) {
-            response.mimeType = "image/jpg"
-        } else if (StringUtils.endsWithIgnoreCase(url, ".gif")) {
-            response.mimeType = "image/gif"
+        if(httpResource){
+            responseHeader.forEach { (k, v) -> response.setHeaderByName(k, v, true) }
+        }else {
+            if (StringUtils.endsWithIgnoreCase(url, ".html")) {
+                response.mimeType = "text/html"
+            } else if (StringUtils.endsWithIgnoreCase(url, ".css")) {
+                response.mimeType = "text/css"
+            } else if (StringUtils.endsWithIgnoreCase(url, ".js")) {
+                response.mimeType = "application/javascript"
+            } else if (StringUtils.endsWithIgnoreCase(url, ".png")) {
+                response.mimeType = "image/png"
+            } else if (StringUtils.endsWithAny(url.lowercase(), ".jpg", "jpeg")) {
+                response.mimeType = "image/jpg"
+            } else if (StringUtils.endsWithIgnoreCase(url, ".gif")) {
+                response.mimeType = "image/gif"
+            }
+            response.status = 200
+            bytes?.size?.let { responseLength.set(it) }
         }
-        response.status = 200
-        bytes?.size?.let { responseLength.set(it) }
     }
 
     override fun readResponse(buffer: ByteArray, bufferSize: Int, bytesRead: IntRef, callback: CefCallback): Boolean {
