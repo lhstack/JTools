@@ -1,10 +1,21 @@
 package com.lhstack.tools.plugins
 
 import com.google.gson.GsonBuilder
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefBrowserBase
+import com.intellij.ui.jcef.JBCefJSQuery
 import org.apache.commons.lang3.StringUtils
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.callback.CefBeforeDownloadCallback
 import org.cef.callback.CefCallback
-import org.cef.handler.CefResourceHandlerAdapter
+import org.cef.callback.CefDownloadItem
+import org.cef.handler.*
+import org.cef.misc.BoolRef
 import org.cef.misc.IntRef
 import org.cef.misc.StringRef
 import org.cef.network.CefRequest
@@ -13,6 +24,7 @@ import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import javax.swing.Icon
+import javax.swing.JComponent
 import kotlin.math.min
 
 class CefPluginInfo(
@@ -23,9 +35,11 @@ class CefPluginInfo(
     val pluginVersion: String,
 )
 
-class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
+class CefPluginImpl(private val classLoader: ClassLoader, private val pluginInfo: PluginInfo) : IPlugin {
 
     private val cefPluginInfo: CefPluginInfo
+
+    private val browsers: HashMap<String, JBCefBrowser> = hashMapOf()
 
     init {
         val resource: URL =
@@ -33,6 +47,76 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
         cefPluginInfo = String(resource.readBytes(), StandardCharsets.UTF_8).let {
             GsonBuilder().create().fromJson(it, CefPluginInfo::class.java)
         }
+    }
+
+    override fun createPanel(project: Project): JComponent {
+        return browsers[project.locationHash]!!.component
+    }
+
+    override fun openProject(project: Project, openThisPage: Runnable) {
+        val jbCefApp = JBCefApp.getInstance()
+        val jbCefClient = jbCefApp.createClient()
+        val jbBrowser = JBCefBrowser.createBuilder().setClient(jbCefClient).build()
+        jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
+            override fun onBeforeDownload(
+                browser: CefBrowser?,
+                downloadItem: CefDownloadItem?,
+                suggestedName: String?,
+                callback: CefBeforeDownloadCallback?
+            ) {
+                callback?.Continue(suggestedName, true)
+            }
+        }, jbBrowser.cefBrowser)
+        val functions = jsFunctions(jbBrowser, cefPluginInfo, pluginInfo)
+        jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadingStateChange(
+                browser: CefBrowser?,
+                isLoading: Boolean,
+                canGoBack: Boolean,
+                canGoForward: Boolean
+            ) {
+                if (isLoading) {
+                    val script = functions.joinToString("\r\n")
+                    browser?.executeJavaScript(script, "cp://index.html", 0)
+                }
+            }
+        }, jbBrowser.cefBrowser)
+        jbCefClient.addRequestHandler(object : CefRequestHandlerAdapter() {
+
+            override fun getResourceRequestHandler(
+                browser: CefBrowser?,
+                frame: CefFrame?,
+                request: CefRequest?,
+                isNavigation: Boolean,
+                isDownload: Boolean,
+                requestInitiator: String?,
+                disableDefaultHandling: BoolRef?
+            ): CefResourceRequestHandler {
+                return object : CefResourceRequestHandlerAdapter() {
+                    override fun getResourceHandler(
+                        browser: CefBrowser?,
+                        frame: CefFrame?,
+                        request: CefRequest
+                    ): org.cef.handler.CefResourceHandler {
+                        return CefResourceHandler(request.url, classLoader)
+                    }
+                }
+            }
+        }, jbBrowser.cefBrowser)
+        Disposer.register(project) {
+            jbBrowser.dispose()
+            jbCefClient.dispose()
+        }
+        browsers[project.locationHash] = jbBrowser
+    }
+
+    override fun closeProject(project: Project) {
+        browsers.remove(project.locationHash)
+    }
+
+    override fun appClose() {
+        browsers.clear()
+
     }
 
     override fun pluginIcon(): Icon? {
@@ -67,6 +151,7 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader) : Ce
                 url = url.substring("cp://".length)
                 bytes = classLoader.getResource(url)?.readBytes()
             } else {
+                //需要http客户端
                 bytes = URI.create(url).toURL().readBytes()
             }
             offset = 0
@@ -87,11 +172,14 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader) : Ce
             response.mimeType = "text/css"
         } else if (StringUtils.endsWithIgnoreCase(url, ".js")) {
             response.mimeType = "application/javascript"
-        } else {
-            response.mimeType = "text/plain"
+        } else if (StringUtils.endsWithIgnoreCase(url, ".png")) {
+            response.mimeType = "image/png"
+        } else if (StringUtils.endsWithAny(url.lowercase(), ".jpg", "jpeg")) {
+            response.mimeType = "image/jpg"
+        } else if (StringUtils.endsWithIgnoreCase(url, ".gif")) {
+            response.mimeType = "image/gif"
         }
-
-        response.status = 200 // HTTP 状态码 200
+        response.status = 200
         bytes?.size?.let { responseLength.set(it) }
     }
 
@@ -122,4 +210,12 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader) : Ce
         // 处理取消请求的逻辑
         isOpen = false
     }
+}
+
+fun jsFunctions(cefBrowserBase: JBCefBrowserBase, cefPluginInfo: CefPluginInfo, pluginInfo: PluginInfo): Set<String> {
+    val getPluginInfo = JBCefJSQuery.create(cefBrowserBase)
+    getPluginInfo.addHandler {
+        JBCefJSQuery.Response("111")
+    }
+    return emptySet()
 }
