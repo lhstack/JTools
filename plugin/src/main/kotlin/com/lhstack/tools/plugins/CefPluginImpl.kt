@@ -20,7 +20,6 @@ import org.cef.misc.IntRef
 import org.cef.misc.StringRef
 import org.cef.network.CefRequest
 import org.cef.network.CefResponse
-import java.net.URL
 import java.nio.charset.StandardCharsets
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -47,15 +46,18 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
     private val httpClients: HashMap<String, CloseableHttpClient> = hashMapOf()
 
     init {
-        val resource: URL =
-            classLoader.getResource("pluginInfo.json") ?: throw RuntimeException("pluginInfo.json cannot null")
-        cefPluginInfo = String(resource.readBytes(), StandardCharsets.UTF_8).let {
-            GsonBuilder().create().fromJson(it, CefPluginInfo::class.java)
+        val resource =
+            classLoader.getResourceAsStream("pluginInfo.json") ?: throw RuntimeException("pluginInfo.json cannot null")
+        resource.use {
+            cefPluginInfo = String(it.readAllBytes(), StandardCharsets.UTF_8).let { s ->
+                GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)
+            }
         }
+
     }
 
     override fun createPanel(project: Project): JComponent {
-        return browsers.computeIfAbsent(project.locationHash){ key ->
+        return browsers.computeIfAbsent(project.locationHash) { key ->
             val jbCefApp = JBCefApp.getInstance()
             val jbCefClient = jbCefApp.createClient()
             val jbBrowser = JBCefBrowser.createBuilder().setClient(jbCefClient).build()
@@ -202,7 +204,9 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader, http
         try {
             if (url.startsWith("cp://", ignoreCase = true)) {
                 url = url.substring("cp://".length)
-                bytes = classLoader.getResource(url)?.readBytes()
+                bytes = classLoader.getResourceAsStream(url)?.use {
+                    it.readAllBytes()
+                }
             } else {
                 //需要http客户端
                 val httpResponse = httpClient.execute(HttpGet(url))
