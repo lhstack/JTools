@@ -32,6 +32,7 @@ class CefPluginInfo(
     val pluginName: String,
     val pluginDesc: String,
     val pluginVersion: String,
+    val indexPage: String
 )
 
 class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
@@ -83,7 +84,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                 ) {
                     if (isLoading) {
                         val script = functions.joinToString("\r\n")
-                        browser?.executeJavaScript(script, "cp://index.html", 0)
+                        browser?.executeJavaScript(script, cefPluginInfo.indexPage, 0)
                     }
                 }
             }, jbBrowser.cefBrowser)
@@ -97,8 +98,20 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     isDownload: Boolean,
                     requestInitiator: String?,
                     disableDefaultHandling: BoolRef?
-                ): CefResourceRequestHandler {
+                ): CefResourceRequestHandler? {
+                    if (StringUtils.startsWithAny(request?.url, "https://", "http://")) {
+                        return null
+                    }
                     return object : CefResourceRequestHandlerAdapter() {
+
+                        override fun onBeforeResourceLoad(
+                            browser: CefBrowser?,
+                            frame: CefFrame?,
+                            request: CefRequest?
+                        ): Boolean {
+                            return super.onBeforeResourceLoad(browser, frame, request)
+                        }
+
                         override fun getResourceHandler(
                             browser: CefBrowser?,
                             frame: CefFrame?,
@@ -108,6 +121,8 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                         }
                     }
                 }
+
+
             }, jbBrowser.cefBrowser)
             jbCefClient.addContextMenuHandler(object : CefContextMenuHandlerAdapter() {
 
@@ -133,7 +148,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     //DevTools
                     if (commandId == 1) {
                         SwingUtilities.invokeLater { jbBrowser.openDevtools() }
-                    }else if(commandId == 2){
+                    } else if (commandId == 2) {
                         browser.reload()
                     }
                     return true
@@ -147,7 +162,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
             }
             cefClients[project.locationHash] = jbCefClient
             httpClients[project.locationHash] = HttpClients.createSystem()
-            jbBrowser.loadURL("cp://index.html")
+            jbBrowser.loadURL(cefPluginInfo.indexPage)
             jbBrowser
         }.component
     }
@@ -225,6 +240,7 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader, http
             isOpen = false
         }
     }
+
 
     override fun processRequest(request: CefRequest?, callback: CefCallback?): Boolean {
         callback?.Continue()
