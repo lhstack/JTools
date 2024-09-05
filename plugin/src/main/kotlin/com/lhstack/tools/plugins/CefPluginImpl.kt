@@ -60,7 +60,9 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
         return browsers.computeIfAbsent(project.locationHash) { key ->
             val jbCefApp = JBCefApp.getInstance()
             val jbCefClient = jbCefApp.createClient()
-            val jbBrowser = JBCefBrowser.createBuilder().setOffScreenRendering(true).setClient(jbCefClient).build()
+            val jbBrowser = JBCefBrowser.createBuilder()
+                .setOffScreenRendering(false)
+                .setClient(jbCefClient).build()
             jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
                 override fun onBeforeDownload(
                     browser: CefBrowser?,
@@ -118,6 +120,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     //清除之前的按钮
                     model.clear()
                     model.addItem(1, "DevTools")
+                    model.addItem(2, "重新加载")
                 }
 
                 override fun onContextMenuCommand(
@@ -130,6 +133,8 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     //DevTools
                     if (commandId == 1) {
                         SwingUtilities.invokeLater { jbBrowser.openDevtools() }
+                    }else if(commandId == 2){
+                        browser.reload()
                     }
                     return true
                 }
