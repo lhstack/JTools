@@ -12,6 +12,7 @@ import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.listener.ProjectPluginListener
+import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 
 class ToolsMainWindowFactory : ToolWindowFactory {
@@ -21,7 +22,7 @@ class ToolsMainWindowFactory : ToolWindowFactory {
             ProjectManager.getInstance().openProjects.forEach { openProject ->
                 plugin.openProject(openProject) {
                     try {
-                        if (plugin.isUIPlugin) {
+                        if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
                                 .openPanel(pluginInfo, plugin)
                         } else {

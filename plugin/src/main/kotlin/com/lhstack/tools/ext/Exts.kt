@@ -1,5 +1,7 @@
 package com.lhstack.tools.ext
 
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -165,3 +167,6 @@ inline fun <T, R> T.catch(title: String, block: T.() -> R): R? {
 fun Throwable.fullMsg(): String {
     return this.toString() + "\r\n" + this.stackTrace.joinToString("\r\n") { it.toString() }
 }
+
+val Any.gson: Gson
+    get() = GsonBuilder().create()

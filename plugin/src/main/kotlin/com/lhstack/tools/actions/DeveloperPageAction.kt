@@ -15,6 +15,7 @@ import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.IPlugin
+import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import java.awt.BorderLayout
@@ -148,7 +149,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 if (pluginInstance.get() != null) {
                     pluginInstance.get().let { plugin ->
                         plugin.catch("关闭插件面板回调") {
-                            if (this.isUIPlugin) {
+                            if (this.pluginType() != PluginType.JAVA_NON_UI) {
                                 closePanel(project)
                             }
                             this
@@ -188,7 +189,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     contentPanel.removeAll()
                     pluginInstance.get()?.let { plugin ->
                         plugin.catch("关闭插件面板回调") {
-                            if (this.isUIPlugin) {
+                            if (this.pluginType() != PluginType.JAVA_NON_UI) {
                                 closePanel(project)
                             }
                             this
@@ -231,7 +232,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 }
                                 this
                             }?.catch("创建插件面板回调") {
-                                if (plugin.isUIPlugin) {
+                                if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                     val pluginPanel = plugin.createPanel(project)
                                     showPanel(project)
                                     contentPanel.add(pluginPanel, BorderLayout.CENTER)

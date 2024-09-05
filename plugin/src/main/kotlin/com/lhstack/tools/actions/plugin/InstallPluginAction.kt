@@ -15,6 +15,7 @@ import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
+import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 
 class InstallPluginAction : DynamicIconAction({ "安装插件" }, {Icons.installIcon()}) {
@@ -30,7 +31,7 @@ class InstallPluginAction : DynamicIconAction({ "安装插件" }, {Icons.install
                             //安装成功,需要通知所有项目的打开事件
                             ProjectManager.getInstance().openProjects.forEach { openProject ->
                                 p.openProject(openProject) {
-                                    if (plugin.isUIPlugin) {
+                                    if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                         openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
                                             .openPanel(pluginInfo!!, plugin)
                                     } else {

@@ -20,13 +20,8 @@ public interface IPlugin {
 
     }
 
-    /**
-     * 是否是UI插件,意味着此插件存在UI面板
-     *
-     * @return
-     */
-    default Boolean isUIPlugin() {
-        return true;
+    default PluginType pluginType() {
+        return PluginType.JAVA;
     }
 
     /**

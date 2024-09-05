@@ -54,7 +54,7 @@ class PluginManager {
                     pluginException.title,
                     "插件信息: ${pluginException.pluginInfo},异常信息: ${pluginException.msg}"
                 )
-            }  else {
+            } else {
                 this.errorNotify("插件生命周期回调异常", e.fullMsg())
             }
         }
@@ -67,19 +67,21 @@ class PluginManager {
             try {
                 if (!pluginInstances.contains(v)) {
                     val pluginPath = v.path
-                    if(!java.nio.file.Files.exists(Paths.get(pluginPath))){
+                    if (!java.nio.file.Files.exists(Paths.get(pluginPath))) {
                         //如果插件文件不存在,需要卸载
                         plugins.remove(v.id)
                         this.errorNotify(
                             "插件加载",
                             "插件加载失败,移除插件信息,插件名称:${v.name},插件版本:${v.version},错误信息: 插件jar未找到,请检查你的插件jar是否被删除"
                         )
-                    }else {
+                    } else {
                         val classLoader = PluginClassLoader.newInstance(
-                            UrlClassLoader.build().files(listOf(Paths.get(pluginPath))).parent(this::class.java.classLoader)
-                                .useCache().allowBootstrapResources(false).allowLock(false)
+                            UrlClassLoader.build().files(listOf(Paths.get(pluginPath)))
+                                .parent(this::class.java.classLoader)
+                                .useCache().allowBootstrapResources(true).allowLock(false)
                         )
-                        classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")?.use {
+                        val toolsPluginSource = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
+                        toolsPluginSource?.use {
                             String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
                                 val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
                                 pluginInstances[v] = pluginInstance
@@ -89,9 +91,17 @@ class PluginManager {
                             }) {
                                 this.errorNotify(
                                     "插件加载",
-                                    "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息: META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名"
+                                    "插件加载失败,插件名称:${v.name},插件版本:${v.version},错误信息: META-INF/ToolsPlugin.txt中未找到插件类全限定名"
                                 )
                             }
+                        }
+                        if(toolsPluginSource == null){
+                            //加载js插件
+                            val pluginInstance = CefPluginImpl(classLoader)
+                            pluginInstances[v] = pluginInstance
+                            //执行安装回调
+                            pluginInstance.install()
+                            consumer.invoke(v, pluginInstance, index, pluginInstances.size)
                         }
                     }
                 }
@@ -144,7 +154,16 @@ class PluginManager {
                     }
                 }
                 if (toolsPluginTxt == null) {
-                    consumer.invoke(null, null, RuntimeException("META-INF/ToolsPlugin.txt文件未找到"))
+                    val pluginInstance = CefPluginImpl(classLoader)
+                    val pluginInfo = PluginInfo(
+                        UUID.random().toString(),
+                        paths.toString(),
+                        pluginInstance.pluginName(),
+                        pluginInstance.pluginVersion(),
+                        System.currentTimeMillis()
+                    )
+                    pluginInstances[pluginInfo] = pluginInstance
+                    consumer.invoke(pluginInstance, pluginInfo, null)
                 }
             } catch (e: Throwable) {
                 if (e is PluginException) {
@@ -155,7 +174,7 @@ class PluginManager {
                         pluginException.title,
                         "插件信息: ${pluginException.pluginInfo},异常信息: ${pluginException.msg}"
                     )
-                }  else {
+                } else {
                     consumer.invoke(
                         null, null, RuntimeException("插件安装出错,插件classpath: ${paths},错误信息: ${e.fullMsg()}")
                     )
@@ -205,8 +224,19 @@ class PluginManager {
                     }
                 }
                 if (toolsPluginTxt == null) {
-                    consumer.invoke(null, null, "META-INF/ToolsPlugin.txt文件未找到")
-                    newPluginFile.forceDelete()
+                    val pluginInstance = CefPluginImpl(classLoader)
+                    val pluginInfo = PluginInfo(
+                        pluginId,
+                        newPluginFile.absolutePath,
+                        pluginInstance.pluginName(),
+                        pluginInstance.pluginVersion(),
+                        System.currentTimeMillis()
+                    )
+                    pluginInstances[pluginInfo] = pluginInstance
+                    //执行安装回调
+                    pluginInstance.install()
+                    consumer.invoke(pluginInstance, pluginInfo, null)
+                    this.pluginState().plugins[pluginId] = pluginInfo
                 }
             } catch (e: Throwable) {
                 newPluginFile?.forceDelete()

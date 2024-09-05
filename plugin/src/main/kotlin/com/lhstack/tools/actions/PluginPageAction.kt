@@ -27,10 +27,8 @@ import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
-import com.lhstack.tools.plugins.IPlugin
-import com.lhstack.tools.plugins.PluginInfo
-import com.lhstack.tools.plugins.PluginManager
-import com.lhstack.tools.plugins.pluginManager
+import com.lhstack.tools.plugins.*
+import org.apache.commons.lang3.StringUtils
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.datatransfer.DataFlavor
@@ -79,8 +77,8 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                         return
                     }
                     val file = files[0]
-                    if (file.extension != "jar") {
-                        project.errorNotify("插件安装", "插件仅支持jar包方式安装")
+                    if (StringUtils.equalsAnyIgnoreCase(file.extension,".jar",".zip")) {
+                        project.errorNotify("插件安装", "插件仅支持jar,zip包方式安装")
                         return
                     }
                     this.pluginManager().install(file.absolutePath) { plugin, pluginInfo, error ->
@@ -92,7 +90,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                                 ProjectManager.getInstance().openProjects.forEach { openProject ->
                                     try {
                                         p.openProject(openProject) {
-                                            if (plugin.isUIPlugin) {
+                                            if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                                 openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
                                                     .openPanel(pluginInfo!!, plugin)
                                             } else {
@@ -161,7 +159,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                     boxPanel.setCursor(Cursor(0))
                     plugin.catch("打开插件面板回调") {
                         //判断是否是ui插件,非ui插件不支持此功能
-                        if (plugin.isUIPlugin) {
+                        if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
                         } else {
                             project.notify("插件点击通知", "此插件不是UI插件,不存在面板", NotificationType.WARNING)
