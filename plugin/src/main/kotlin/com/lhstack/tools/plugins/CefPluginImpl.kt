@@ -4,6 +4,8 @@ import com.google.gson.GsonBuilder
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.ColorChooser
+import com.intellij.ui.JBColor
 import com.intellij.ui.jcef.*
 import com.lhstack.tools.ext.gson
 import org.apache.commons.lang3.StringUtils
@@ -140,6 +142,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     }
                     model.addItem(3,"返回首页")
                     model.addItem(4, "重新加载")
+                    model.addItem(5, "自定义背景颜色")
                 }
 
                 override fun onContextMenuCommand(
@@ -160,6 +163,13 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                         }
                     }else if(commandId == 3){
                         browser.loadURL(cefPluginInfo.indexPage)
+                    }else if(commandId == 5){
+                        SwingUtilities.invokeLater{
+                            val color = ColorChooser.chooseColor(jbBrowser.component, "自定义背景色", JBColor.BLACK)
+                            color?.let {
+                                jbBrowser.setPageBackgroundColor("rgba(%d, %d, %d, %.2f)".format(it.red,it.green,it.blue,it.alpha / 255.0))
+                            }
+                        }
                     }
                     return true
                 }
