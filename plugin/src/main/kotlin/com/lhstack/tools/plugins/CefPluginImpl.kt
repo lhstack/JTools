@@ -60,7 +60,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
         return browsers.computeIfAbsent(project.locationHash) { key ->
             val jbCefApp = JBCefApp.getInstance()
             val jbCefClient = jbCefApp.createClient()
-            val jbBrowser = JBCefBrowser.createBuilder().setClient(jbCefClient).build()
+            val jbBrowser = JBCefBrowser.createBuilder().setOffScreenRendering(true).setClient(jbCefClient).build()
             jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
                 override fun onBeforeDownload(
                     browser: CefBrowser?,
