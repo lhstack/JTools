@@ -6,7 +6,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.ColorChooser
 import com.intellij.ui.JBColor
-import com.intellij.ui.jcef.*
+import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefClient
 import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.ext.gson
 import org.apache.commons.lang3.StringUtils
@@ -16,6 +18,7 @@ import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
+import org.cef.browser.CefMessageRouter
 import org.cef.callback.*
 import org.cef.handler.*
 import org.cef.misc.BoolRef
@@ -73,6 +76,23 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
             val jbBrowser = JBCefBrowser.createBuilder()
                 .setOffScreenRendering(false)
                 .setClient(jbCefClient).build()
+            val cefMessageRouter = CefMessageRouter.create(object:CefMessageRouterHandlerAdapter(){
+                override fun onQuery(
+                    browser: CefBrowser,
+                    frame: CefFrame,
+                    queryId: Long,
+                    request: String,
+                    persistent: Boolean,
+                    callback: CefQueryCallback
+                ): Boolean {
+                    //cefQuery({request:"getPluginInfo",onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
+                    when (request){
+                        "getPluginInfo" -> callback.success(this.gson.toJson(cefPluginInfo))
+                    }
+                    return true
+                }
+            })
+            jbCefClient.cefClient.addMessageRouter(cefMessageRouter)
             jbCefClient.addKeyboardHandler(object : CefKeyboardHandlerAdapter() {
                 override fun onKeyEvent(browser: CefBrowser, event: CefKeyboardHandler.CefKeyEvent): Boolean {
                     if (event.type == CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN) {
@@ -104,11 +124,8 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     callback?.Continue(suggestedName, true)
                 }
             }, jbBrowser.cefBrowser)
-            val functions = jsFunctions(jbBrowser, cefPluginInfo)
             jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(browser: CefBrowser, frame: CefFrame?, httpStatusCode: Int) {
-                    val script = functions.joinToString("\r\n")
-                    browser.executeJavaScript(script,browser.url,0)
                     var bgColor = backgroundColor.get()
                     var color = fontColor.get()
                     if (StringUtils.isNotBlank(color) || StringUtils.isNotBlank(bgColor)) {
@@ -393,20 +410,4 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader, http
         // 处理取消请求的逻辑
         isOpen = false
     }
-}
-
-fun jsFunctions(cefBrowserBase: JBCefBrowserBase, cefPluginInfo: CefPluginInfo): Set<String> {
-    val getPluginInfo = JBCefJSQuery.create(cefBrowserBase)
-    getPluginInfo.addHandler {
-        JBCefJSQuery.Response(it.gson.toJson(cefPluginInfo))
-    }
-    val scripts = mutableSetOf<String>()
-    scripts.add(
-        """
-        window.pluginInfo = function(success,fail){
-            ${getPluginInfo.inject("", "success", "fail")}
-        };
-    """.trimIndent()
-    )
-    return scripts
 }
