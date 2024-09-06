@@ -6,6 +6,7 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.ui.components.JBTextField
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.*
+import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
 import org.jdesktop.swingx.VerticalLayout
@@ -76,12 +77,19 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                             //2. 修改插件信息里面的安装目录
                             this.pluginState().plugins.forEach { (k, v) ->
                                 try {
+                                    val classloader = this.pluginManager().classloaders.remove(v)
+                                    //卸载之前的实例
+                                    val pluginInstance = this.pluginManager().pluginInstances.remove(v)
                                     val oldFile = File(v.path)
                                     val newFile = File(this.absolutePath, oldFile.name)
-                                    FileUtils.copyFile(oldFile, newFile)
+                                    FileUtils.copyDirectory(oldFile, newFile)
                                     v.path = newFile.absolutePath
                                     this.pluginState().plugins[k] = v
-                                    java.nio.file.Files.delete(oldFile.toPath())
+                                    //更新实例
+                                    this.pluginManager().pluginInstances[v] = pluginInstance!!
+                                    this.pluginManager().classloaders[v] = classloader!!
+                                    classloader.addFile(newFile.toPath())
+                                    oldFile.forceDelete()
                                 } catch (e: Throwable) {
                                     project.errorNotify(
                                         "迁移插件通知",

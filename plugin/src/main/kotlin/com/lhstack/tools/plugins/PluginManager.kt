@@ -1,7 +1,6 @@
 package com.lhstack.tools.plugins
 
 import ai.grazie.utils.mpp.UUID
-import com.google.common.io.Files
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.util.io.ZipUtil
@@ -16,13 +15,29 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.nio.file.Paths
 
+
+class PluginClassLoader(builder: Builder) : UrlClassLoader(
+    builder, registerAsParallelCapable()
+) {
+    companion object {
+        fun newInstance(builder: Builder) = PluginClassLoader(builder)
+    }
+
+    fun addFile(path:Path){
+        classPath.appendFiles(listOf(path))
+    }
+}
+
+
 /**
  * 插件管理
  */
 @Service
 class PluginManager {
 
-    private val pluginInstances = mutableMapOf<PluginInfo, IPlugin>()
+    var pluginInstances = mutableMapOf<PluginInfo, IPlugin>()
+
+    var classloaders = mutableMapOf<PluginInfo, PluginClassLoader>()
 
     private val projectStatus = hashSetOf<String>()
 
@@ -32,14 +47,6 @@ class PluginManager {
         }
     }
 
-
-    private class PluginClassLoader(builder: Builder) : UrlClassLoader(
-        builder, registerAsParallelCapable()
-    ) {
-        companion object {
-            fun newInstance(builder: Builder) = PluginClassLoader(builder)
-        }
-    }
 
     fun plugins(consumer: (PluginInfo, IPlugin) -> Unit) {
         try {
@@ -86,6 +93,7 @@ class PluginManager {
                             String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
                                 val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
                                 pluginInstances[v] = pluginInstance
+                                classloaders[v] = classLoader
                                 //执行安装回调
                                 pluginInstance.install()
                                 consumer.invoke(v, pluginInstance, index, pluginInstances.size)
@@ -96,10 +104,11 @@ class PluginManager {
                                 )
                             }
                         }
-                        if(toolsPluginSource == null){
+                        if (toolsPluginSource == null) {
                             //加载js插件
                             val pluginInstance = CefPluginImpl(classLoader)
                             pluginInstances[v] = pluginInstance
+                            classloaders[v] = classLoader
                             //执行安装回调
                             pluginInstance.install()
                             consumer.invoke(v, pluginInstance, index, pluginInstances.size)
@@ -196,9 +205,9 @@ class PluginManager {
                     consumer.invoke(null, null, "插件已存在,请不要重复安装")
                     return
                 }
-                newPluginFile = File(this.pluginState().pluginBasePath, "${pluginId}.${file.extension}").parentMkdirs()
+                newPluginFile = File(this.pluginState().pluginBasePath, pluginId).parentMkdirs()
 //                Files.copy(file, newPluginFile)
-                ZipUtil.extract(file.toPath(),newPluginFile.toPath()){_,_ -> true}
+                ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
                 val classLoader = PluginClassLoader.newInstance(
                     UrlClassLoader.build().files(listOf(newPluginFile.toPath())).parent(this::class.java.classLoader)
                         .useCache().allowBootstrapResources(true).allowLock(false)
@@ -217,6 +226,7 @@ class PluginManager {
                             System.currentTimeMillis()
                         )
                         pluginInstances[pluginInfo] = pluginInstance
+                        classloaders[pluginInfo] = classLoader
                         pluginInstance.install()
                         consumer.invoke(pluginInstance, pluginInfo, null)
                         this.pluginState().plugins[pluginId] = pluginInfo
@@ -235,6 +245,7 @@ class PluginManager {
                         System.currentTimeMillis()
                     )
                     pluginInstances[pluginInfo] = pluginInstance
+                    classloaders[pluginInfo] = classLoader
                     //执行安装回调
                     pluginInstance.install()
                     consumer.invoke(pluginInstance, pluginInfo, null)
