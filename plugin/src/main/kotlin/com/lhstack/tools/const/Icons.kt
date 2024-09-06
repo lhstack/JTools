@@ -20,7 +20,7 @@ class Icons {
 
         fun developerIcon() = findIcon("icons/developer")
 
-        fun stopHoverIcon() = IconLoader.findIcon("icons/stop_hover.svg",ToolsMainWindowFactory::class.java)
+        fun stopHoverIcon() = IconLoader.findIcon("icons/stop_hover.svg", ToolsMainWindowFactory::class.java)
 
         fun stopIcon() = findIcon("icons/stop")
 
@@ -29,6 +29,8 @@ class Icons {
         fun notificationIcon() = findIcon("icons/notification")
 
         fun pluginWindowIcon() = findIcon("icons/pluginIcon")
+
+        fun jsIcon() = findIcon("icons/js")
 
     }
 }
