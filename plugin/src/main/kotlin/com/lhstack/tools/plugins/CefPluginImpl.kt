@@ -19,15 +19,18 @@ import org.cef.browser.CefFrame
 import org.cef.callback.*
 import org.cef.handler.*
 import org.cef.misc.BoolRef
+import org.cef.misc.EventFlags
 import org.cef.misc.IntRef
 import org.cef.misc.StringRef
 import org.cef.network.CefRequest
 import org.cef.network.CefResponse
+import java.awt.event.KeyEvent
 import java.nio.charset.StandardCharsets
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import kotlin.math.min
+
 
 class CefPluginInfo(
     val pluginIcon: String,
@@ -45,7 +48,6 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
     private val browsers: HashMap<String, JBCefBrowser> = hashMapOf()
 
     private val cefClients: HashMap<String, JBCefClient> = hashMapOf()
-
 
     private val httpClients: HashMap<String, CloseableHttpClient> = hashMapOf()
 
@@ -65,12 +67,33 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
     }
 
     override fun createPanel(project: Project): JComponent {
-        return browsers.computeIfAbsent(project.locationHash) { key ->
+        return browsers.computeIfAbsent(project.locationHash) {
             val jbCefApp = JBCefApp.getInstance()
             val jbCefClient = jbCefApp.createClient()
             val jbBrowser = JBCefBrowser.createBuilder()
                 .setOffScreenRendering(false)
                 .setClient(jbCefClient).build()
+            jbCefClient.addKeyboardHandler(object : CefKeyboardHandlerAdapter() {
+                override fun onKeyEvent(browser: CefBrowser, event: CefKeyboardHandler.CefKeyEvent): Boolean {
+                    if (event.type == CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN) {
+                        val keyCode = event.windows_key_code
+                        if (keyCode == KeyEvent.VK_F5 && !event.is_system_key) {
+                            browser.reload()
+                            return true
+                        }
+                        if (keyCode == KeyEvent.VK_F5 && (event.modifiers and EventFlags.EVENTFLAG_SHIFT_DOWN) != 0) {
+                            browser.reloadIgnoreCache()
+                            return true
+                        }
+
+                        if (keyCode == KeyEvent.VK_F12) {
+                            jbBrowser.openDevtools()
+                            return true
+                        }
+                    }
+                    return false
+                }
+            }, jbBrowser.cefBrowser)
             jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
                 override fun onBeforeDownload(
                     browser: CefBrowser?,
@@ -83,38 +106,28 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
             }, jbBrowser.cefBrowser)
             val functions = jsFunctions(jbBrowser, cefPluginInfo)
             jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
-                override fun onLoadingStateChange(
-                    browser: CefBrowser?,
-                    isLoading: Boolean,
-                    canGoBack: Boolean,
-                    canGoForward: Boolean
-                ) {
-                    if (isLoading) {
-                        val script = functions.joinToString("\r\n")
-                        browser?.executeJavaScript(script, browser.url, 0)
-                    }
-                }
-            }, jbBrowser.cefBrowser)
-
-            jbCefClient.addLoadHandler(object:CefLoadHandlerAdapter(){
                 override fun onLoadEnd(browser: CefBrowser, frame: CefFrame?, httpStatusCode: Int) {
+                    val script = functions.joinToString("\r\n")
+                    browser.executeJavaScript(script,browser.url,0)
                     var bgColor = backgroundColor.get()
                     var color = fontColor.get()
-                    if(StringUtils.isNotBlank(color) || StringUtils.isNotBlank(bgColor)){
-                        if(StringUtils.isNotBlank(color)){
+                    if (StringUtils.isNotBlank(color) || StringUtils.isNotBlank(bgColor)) {
+                        if (StringUtils.isNotBlank(color)) {
                             color = " color: $color !important;"
                         }
-                        if(StringUtils.isNotBlank(bgColor)){
+                        if (StringUtils.isNotBlank(bgColor)) {
                             bgColor = " background-color: $bgColor !important;"
                         }
-                        browser.executeJavaScript("""
+                        browser.executeJavaScript(
+                            """
                             var style = document.createElement('style');
                             style.innerHTML = '* { $color $bgColor }';
                             document.head.appendChild(style);
-                        """.trimIndent(),browser.url,0)
+                        """.trimIndent(), browser.url, 0
+                        )
                     }
                 }
-            },jbBrowser.cefBrowser)
+            }, jbBrowser.cefBrowser)
 
             jbCefClient.addRequestHandler(object : CefRequestHandlerAdapter() {
 
@@ -162,14 +175,12 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                 ) {
                     //清除之前的按钮
                     model.clear()
-                    model.addItem(1, "DevTools")
-                    if(browser.canGoBack()){
-                        model.addItem(2,"goBack")
+                    if (browser.canGoBack()) {
+                        model.addItem(1, "goBack")
                     }
-                    model.addItem(3,"返回首页")
-                    model.addItem(4, "重新加载")
-                    model.addItem(5, "自定义背景颜色")
-                    model.addItem(6, "自定义字体颜色")
+                    model.addItem(2, "返回首页")
+                    model.addItem(3, "自定义背景颜色")
+                    model.addItem(4, "自定义字体颜色")
                 }
 
                 override fun onContextMenuCommand(
@@ -181,45 +192,59 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                 ): Boolean {
                     //DevTools
                     if (commandId == 1) {
-                        SwingUtilities.invokeLater { jbBrowser.openDevtools() }
-                    } else if (commandId == 4) {
-                        browser.reload()
-                    }else if(commandId == 2){
                         if (browser.canGoBack()) {
                             browser.goBack()
                         }
-                    }else if(commandId == 3){
+                    } else if (commandId == 2) {
                         browser.loadURL(cefPluginInfo.indexPage)
-                    }else if(commandId == 5){
-                        SwingUtilities.invokeLater{
+                    } else if (commandId == 3) {
+                        SwingUtilities.invokeLater {
                             val color = ColorChooser.chooseColor(jbBrowser.component, "自定义背景色", JBColor.BLACK)
                             color?.let {
                                 var thisFontColor = backgroundColor.get()
-                                if(StringUtils.isNotBlank(thisFontColor)){
+                                if (StringUtils.isNotBlank(thisFontColor)) {
                                     thisFontColor = " color: $thisFontColor !important;"
                                 }
-                                backgroundColor.getAndSet("rgba(%d, %d, %d, %.2f)".format(it.red,it.green,it.blue,it.alpha / 255.0))
-                                browser.executeJavaScript("""
+                                backgroundColor.getAndSet(
+                                    "rgba(%d, %d, %d, %.2f)".format(
+                                        it.red,
+                                        it.green,
+                                        it.blue,
+                                        it.alpha / 255.0
+                                    )
+                                )
+                                browser.executeJavaScript(
+                                    """
                                     var style = document.createElement('style');
                                     style.innerHTML = '* { background-color: ${backgroundColor.get()} !important;$thisFontColor }';
                                     document.head.appendChild(style);
-                                """.trimIndent(),browser.url,0)
+                                """.trimIndent(), browser.url, 0
+                                )
                             }
                         }
-                    }else if(commandId == 6){
-                        SwingUtilities.invokeLater{
+                    } else if (commandId == 4) {
+                        SwingUtilities.invokeLater {
                             val color = ColorChooser.chooseColor(jbBrowser.component, "自定义字体颜色", JBColor.BLACK)
                             color?.let {
                                 var bgColor = backgroundColor.get()
-                                if(StringUtils.isNotBlank(bgColor)){
+                                if (StringUtils.isNotBlank(bgColor)) {
                                     bgColor = " background-color: $bgColor !important;"
                                 }
-                                fontColor.getAndSet("rgba(%d, %d, %d, %.2f)".format(it.red,it.green,it.blue,it.alpha / 255.0))
-                                browser.executeJavaScript("""
+                                fontColor.getAndSet(
+                                    "rgba(%d, %d, %d, %.2f)".format(
+                                        it.red,
+                                        it.green,
+                                        it.blue,
+                                        it.alpha / 255.0
+                                    )
+                                )
+                                browser.executeJavaScript(
+                                    """
                                     var style = document.createElement('style');
                                     style.innerHTML = '* { color: ${fontColor.get()} !important; ${bgColor}}';
                                     document.head.appendChild(style);
-                                """.trimIndent(),browser.url,0)
+                                """.trimIndent(), browser.url, 0
+                                )
                             }
                         }
                     }
