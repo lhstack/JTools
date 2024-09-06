@@ -4,6 +4,7 @@ import ai.grazie.utils.mpp.UUID
 import com.google.common.io.Files
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.util.io.ZipUtil
 import com.intellij.util.lang.UrlClassLoader
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
@@ -196,7 +197,8 @@ class PluginManager {
                     return
                 }
                 newPluginFile = File(this.pluginState().pluginBasePath, "${pluginId}.${file.extension}").parentMkdirs()
-                Files.copy(file, newPluginFile)
+//                Files.copy(file, newPluginFile)
+                ZipUtil.extract(file.toPath(),newPluginFile.toPath()){_,_ -> true}
                 val classLoader = PluginClassLoader.newInstance(
                     UrlClassLoader.build().files(listOf(newPluginFile.toPath())).parent(this::class.java.classLoader)
                         .useCache().allowBootstrapResources(true).allowLock(false)
@@ -265,7 +267,7 @@ class PluginManager {
         pluginInstances.remove(pluginInfo)
         this.pluginState().plugins.remove(pluginInfo.id)
         try {
-            java.nio.file.Files.delete(File(pluginInfo.path).toPath())
+            File(pluginInfo.path).forceDelete()
         } catch (e: Throwable) {
             e.message?.let {
                 this.errorNotify(
@@ -303,7 +305,7 @@ class PluginManager {
             val listFiles = file.listFiles()
             listFiles?.forEach { f ->
                 if (!pluginPaths.contains(f.absolutePath)) {
-                    f.delete()
+                    f.forceDelete()
                 }
             }
         }

@@ -21,6 +21,7 @@ import com.lhstack.tools.const.Icons
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
 import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
 import javax.swing.Icon
@@ -137,7 +138,11 @@ fun File.parentMkdirs(): File {
 }
 
 fun File.forceDelete() {
-    FileUtils.forceDelete(this)
+    if(this.isDirectory){
+        FileUtils.deleteDirectory(this)
+    }else {
+        Files.delete(this.toPath())
+    }
 }
 
 fun Project.openThisWindow() {
