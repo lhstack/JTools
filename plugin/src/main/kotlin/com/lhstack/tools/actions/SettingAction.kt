@@ -3,6 +3,7 @@ package com.lhstack.tools.actions
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.components.JBTextField
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.*
@@ -54,7 +55,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             this.add(textField)
             this.add(JButton("选择目录").apply {
                 this.addActionListener {
-                    project.chooseDirectory("选择插件安装目录") {
+                    project.chooseDirectory("选择插件安装目录",VirtualFileManager.getInstance().findFileByUrl("file://${textField.toolTipText}")) {
                         textField.text = it.presentableUrl.substr(0, 30) { s -> "$s..." }
                         textField.toolTipText = it.presentableUrl
                         textField.revalidate()

@@ -103,6 +103,13 @@ fun Project.chooseDirectory(title: String, consumer: (VirtualFile) -> Unit) {
         ?.let(consumer)
 }
 
+fun Project.chooseDirectory(title: String, toSelect: VirtualFile?, consumer: (VirtualFile) -> Unit) {
+    val fileChooserDescriptor = FileChooserDescriptor(false, true, false, false, false, false)
+    fileChooserDescriptor.title = title
+    FileChooser.chooseFile(fileChooserDescriptor, this, toSelect)
+        ?.let(consumer)
+}
+
 fun Module.allLibraryPaths(): List<Path> {
     val result = ArrayList<Path>()
     val moduleRootManager = ModuleRootManager.getInstance(this)
@@ -138,9 +145,9 @@ fun File.parentMkdirs(): File {
 }
 
 fun File.forceDelete() {
-    if(this.isDirectory){
+    if (this.isDirectory) {
         FileUtils.deleteDirectory(this)
-    }else {
+    } else {
         Files.delete(this.toPath())
     }
 }
