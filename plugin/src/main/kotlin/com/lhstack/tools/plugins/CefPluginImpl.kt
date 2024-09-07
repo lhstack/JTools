@@ -44,7 +44,7 @@ class CefPluginInfo(
 )
 
 class CefPluginImpl(
-    private val classLoader: ClassLoader,
+    private val classLoader: PluginClassLoader,
     private val cefPluginInfo: CefPluginInfo,
     private val cefCacheManager: CefCacheManager,
 ) : IPlugin {
@@ -364,11 +364,11 @@ class CefPluginImpl(
     }
 
     override fun pluginIcon(): Icon? {
-        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader)
+        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader.urlClassLoader)
     }
 
     override fun pluginTabIcon(): Icon? {
-        return IconLoader.findIcon(cefPluginInfo.pluginTabIcon, classLoader)
+        return IconLoader.findIcon(cefPluginInfo.pluginTabIcon, classLoader.urlClassLoader)
     }
 
     override fun pluginName(): String {
@@ -384,7 +384,7 @@ class CefPluginImpl(
     }
 }
 
-class CefResourceHandler(private var url: String, classLoader: ClassLoader, httpClient: CloseableHttpClient) :
+class CefResourceHandler(private var url: String, classLoader: PluginClassLoader, httpClient: CloseableHttpClient) :
     CefResourceHandlerAdapter() {
     private var bytes: ByteArray? = null
     private var offset: Int? = null

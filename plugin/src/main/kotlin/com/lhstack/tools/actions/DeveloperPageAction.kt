@@ -236,104 +236,105 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     }
 
     fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
-        comboBoxAction.selection?.let {
-            if (!developerState.isJavaPlugin()) {
 
-                val basePath = project.basePath
+        if (!developerState.isJavaPlugin()) {
 
-                val pluginInfo = File(basePath, "pluginInfo.json")
-                if (!pluginInfo.exists()) {
-                    project.errorNotify(
-                        "运行JS插件通知",
-                        "项目中不存在pluginInfo.json配置,请检查你的项目是否为标准的JS插件"
-                    )
-                    return
-                }
-                //不是java插件,就是js插件,移除之前的插件
-                contentPanel.removeAll()
-                pluginInstance.get()?.let { plugin ->
-                    plugin.catch("关闭插件面板回调") {
-                        if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                            closePanel(project)
-                        }
-                        this
-                    }?.catch("项目关闭回调") {
-                        closeProject(project)
-                        this
-                    }?.catch("插件卸载回调") {
-                        unInstall()
-                        this
-                    }?.catch("app关闭回调") {
-                        appClose()
-                    }
-                }
-                this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!)), object : CefCacheManager {
-                    override fun set(global: Boolean, project: Project, key: String, value: String) {
-                        developerState.jsCache[key] = value
-                    }
-
-                    override fun get(global: Boolean, project: Project, key: String): String? {
-                        return developerState.jsCache[key]
-                    }
-
-                    override fun getAll(global: Boolean, project: Project): Map<String, String> {
-                        return developerState.jsCache
-                    }
-
-                    override fun clear(global: Boolean, project: Project) {
-                        developerState.jsCache.clear()
-                    }
-
-                    override fun remove(global: Boolean, project: Project, key: String) {
-                        developerState.jsCache.remove(key)
-                    }
-
-                }) { plugin, _, err ->
-                    if (err != null) {
-                        if (err is PluginException) {
-                            project.errorNotify(err.title, err.msg)
-                        } else {
-                            project.errorNotify("插件运行失败", err.toString())
-                        }
-                    } else {
-                        plugin!!.catch("安装插件回调") {
-                            install()
-                            this
-                        }?.catch("打开插件回调") {
-                            openProject(project) {
-                                //开发者模式不支持此功能
-                                project.notify(
-                                    "插件开发通知",
-                                    "开发者模式不支持openThisPage功能",
-                                    NotificationType.INFORMATION
-                                )
-                            }
-                            this
-                        }?.catch("创建插件面板回调") {
-                            if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
-                                val pluginPanel = plugin.createPanel(project)
-                                showPanel(project)
-                                contentPanel.add(pluginPanel, BorderLayout.CENTER)
-                                contentPanel.validate()
-                                contentPanel.repaint()
-                            } else {
-                                contentPanel.add(
-                                    JLabel("当前插件不处于UI模式,无UI面板", JLabel.CENTER),
-                                    BorderLayout.CENTER
-                                )
-                                contentPanel.validate()
-                                contentPanel.repaint()
-                            }
-                            this
-                        }?.catch {
-                            pluginInstance.set(plugin)
-                            comboBoxAction.update()
-                        }
-                    }
-                }
-
+            val basePath = project.basePath
+            val pluginInfo = File(basePath, "pluginInfo.json")
+            if (!pluginInfo.exists()) {
+                project.errorNotify(
+                    "运行JS插件通知",
+                    "项目中不存在pluginInfo.json配置,请检查你的项目是否为标准的JS插件"
+                )
                 return
             }
+            //不是java插件,就是js插件,移除之前的插件
+            contentPanel.removeAll()
+            pluginInstance.get()?.let { plugin ->
+                plugin.catch("关闭插件面板回调") {
+                    if (this.pluginType() != PluginType.JAVA_NON_UI) {
+                        closePanel(project)
+                    }
+                    this
+                }?.catch("项目关闭回调") {
+                    closeProject(project)
+                    this
+                }?.catch("插件卸载回调") {
+                    unInstall()
+                    this
+                }?.catch("app关闭回调") {
+                    appClose()
+                }
+            }
+            this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!)), object : CefCacheManager {
+                override fun set(global: Boolean, project: Project, key: String, value: String) {
+                    developerState.jsCache[key] = value
+                }
+
+                override fun get(global: Boolean, project: Project, key: String): String? {
+                    return developerState.jsCache[key]
+                }
+
+                override fun getAll(global: Boolean, project: Project): Map<String, String> {
+                    return developerState.jsCache
+                }
+
+                override fun clear(global: Boolean, project: Project) {
+                    developerState.jsCache.clear()
+                }
+
+                override fun remove(global: Boolean, project: Project, key: String) {
+                    developerState.jsCache.remove(key)
+                }
+
+            }) { plugin, _, err ->
+                if (err != null) {
+                    if (err is PluginException) {
+                        project.errorNotify(err.title, err.msg)
+                    } else {
+                        project.errorNotify("插件运行失败", err.toString())
+                    }
+                } else {
+                    plugin!!.catch("安装插件回调") {
+                        install()
+                        this
+                    }?.catch("打开插件回调") {
+                        openProject(project) {
+                            //开发者模式不支持此功能
+                            project.notify(
+                                "插件开发通知",
+                                "开发者模式不支持openThisPage功能",
+                                NotificationType.INFORMATION
+                            )
+                        }
+                        this
+                    }?.catch("创建插件面板回调") {
+                        if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
+                            val pluginPanel = plugin.createPanel(project)
+                            showPanel(project)
+                            contentPanel.add(pluginPanel, BorderLayout.CENTER)
+                            contentPanel.validate()
+                            contentPanel.repaint()
+                        } else {
+                            contentPanel.add(
+                                JLabel("当前插件不处于UI模式,无UI面板", JLabel.CENTER),
+                                BorderLayout.CENTER
+                            )
+                            contentPanel.validate()
+                            contentPanel.repaint()
+                        }
+                        this
+                    }?.catch {
+                        pluginInstance.set(plugin)
+                        comboBoxAction.update()
+                    }
+                }
+            }
+
+            return
+        }
+
+        comboBoxAction.selection?.let {
             val moduleOutputDirectory = CompilerPaths.getModuleOutputDirectory(it, false)
             if (moduleOutputDirectory == null) {
                 project.errorNotify("插件开发", "当前项目未编译，或者不存在编译结果，请检查你的项目结构")
@@ -422,7 +423,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     }
 }
 
-@State(name = "data", storages = [Storage("ToolsPluginDeveloperState.xml")])
+@State(name = "ToolsPluginDeveloperState", storages = [Storage("ToolsPluginDeveloperState.xml")])
 @Service
 class DeveloperState : PersistentStateComponent<DeveloperState.State> {
 

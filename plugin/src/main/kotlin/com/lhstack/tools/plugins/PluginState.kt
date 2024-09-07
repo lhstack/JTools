@@ -6,7 +6,7 @@ import com.intellij.util.xmlb.annotations.OptionTag
 import com.lhstack.tools.converter.JsonConverter
 
 @Service
-@State(name = "data", storages = [Storage("ToolsPluginState.xml")])
+@State(name = "ToolsPluginState", storages = [Storage("ToolsPluginState.xml")])
 class PluginState : PersistentStateComponent<PluginState.State> {
 
     private var state = State()

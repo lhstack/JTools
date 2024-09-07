@@ -14,27 +14,31 @@ import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
 import org.jetbrains.annotations.NonNls
 import java.io.File
+import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.nio.file.Paths
 
 
-class PluginClassLoader(builder: Builder, val classpaths: ArrayList<Path>) : UrlClassLoader(
-    builder, registerAsParallelCapable()
-) {
+class PluginClassLoader(var builder: UrlClassLoader.Builder,var files: ArrayList<Path>) {
+
+    var urlClassLoader = builder.get()
+
     companion object {
-        fun newInstance(builder: Builder, classpaths: ArrayList<Path>) = PluginClassLoader(builder, classpaths)
+        fun newInstance(builder: UrlClassLoader.Builder,files:ArrayList<Path>) = PluginClassLoader(builder,files)
     }
 
-    fun addFile(path: Path) {
-        super.addFiles(listOf(path))
+    fun loadPlugin(classname: String): IPlugin {
+        return urlClassLoader.loadClass(classname).getConstructor().newInstance() as IPlugin
     }
 
-    fun reset(path: Path) {
-        classpaths.clear()
-        classpaths.add(path)
-        classPath.reset(classpaths)
+    fun reset(paths: ArrayList<Path>){
+//        files.clear()
+//        files.addAll(paths)
     }
+
+    fun getResourceAsStream(name: String): InputStream? = urlClassLoader.getResourceAsStream(name)
+
 }
 
 
@@ -96,12 +100,13 @@ class PluginManager {
                         val classLoader = PluginClassLoader.newInstance(
                             UrlClassLoader.build().files(files)
                                 .parent(this::class.java.classLoader)
-                                .useCache().allowBootstrapResources(true).allowLock(false),files
+                                .useCache(false).allowBootstrapResources(true).allowLock(false),
+                            files
                         )
                         val toolsPluginSource = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                         toolsPluginSource?.use {
                             String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
-                                val pluginInstance = classLoader.loadClass(s).getConstructor().newInstance() as IPlugin
+                                val pluginInstance = classLoader.loadPlugin(s)
                                 pluginInstances[v] = pluginInstance
                                 classloaders[v] = classLoader
                                 //执行安装回调
@@ -166,15 +171,14 @@ class PluginManager {
                 val list = arrayListOf<Path>()
                 list.addAll(paths)
                 val classLoader = PluginClassLoader.newInstance(
-                    UrlClassLoader.build().files(paths).parent(this::class.java.classLoader).useCache()
-                        .allowBootstrapResources(true).allowLock(false), list
+                    UrlClassLoader.build().useCache(false).files(paths).parent(this::class.java.classLoader).useCache()
+                        .allowBootstrapResources(true).allowLock(false),
+                    list
                 )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
-                        val pluginInstance = classLoader.loadClass(s).getConstructor().catch("构建插件实例失败") {
-                            this.newInstance()
-                        } as IPlugin
+                        val pluginInstance = classLoader.loadPlugin(s)
                         val pluginInfo = PluginInfo(
                             UUID.random().toString(),
                             paths.toString(),
@@ -249,16 +253,12 @@ class PluginManager {
                     ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
                 }
                 val list = arrayListOf(newPluginFile.toPath())
-                val classLoader = PluginClassLoader.newInstance(
-                    UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
-                        .useCache().allowBootstrapResources(true).allowLock(false),list
-                )
+                val classLoader = PluginClassLoader.newInstance(UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
+                    .useCache(false).allowBootstrapResources().allowLock(false),list)
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
-                        val pluginInstance = classLoader.loadClass(s).getConstructor().catch("构建插件实例失败") {
-                            this.newInstance()
-                        } as IPlugin
+                        val pluginInstance = classLoader.loadPlugin(s)
                         val pluginInfo = PluginInfo(
                             pluginId,
                             newPluginFile.absolutePath,

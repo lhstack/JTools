@@ -96,7 +96,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                                     this.pluginState().plugins[k] = v
 
                                     this.pluginManager().classloaders[v] = classloader!!
-                                    classloader.reset(newFile.toPath())
+                                    classloader.reset(arrayListOf(newFile.toPath()))
                                     oldFile.forceDelete()
                                 } catch (e: Throwable) {
                                     project.errorNotify(

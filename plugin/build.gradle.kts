@@ -55,6 +55,8 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
         "-keep class com.lhstack.tools.plugins.PluginState** { *; }",
         "-keep class com.lhstack.tools.plugins.PluginInfo** { *; }",
+        "-keep class com.lhstack.tools.plugins.CefPluginInfo** { *; }",
+        "-keep class com.lhstack.tools.plugins.CefQueryCommand** { *; }",
         "-keepattributes Signature,InnerClasses,*Annotation*",
         //不需要混淆类名,但是需要混淆里面的函数
 //        "-keepnames class com.lhstack.tools.plugins.PluginManager",
@@ -84,9 +86,16 @@ val proguardJar by tasks.registering(proguard.taskClass) {
                 protected *;
             }
            
+           -keepclassmember class com.intellij.util.lang.ClassPath** {
+                public *;
+                protected *;
+            }
+           
             -keep interface kotlin.jvm.functions.Function*
             
             -keep class kotlin.jvm.functions.Function*
+            
+            -keep class com.intellij.util.lang.ClassPath
                 
             -keepclassmember class com.lhstack.tools.components.** {
                 public *;
