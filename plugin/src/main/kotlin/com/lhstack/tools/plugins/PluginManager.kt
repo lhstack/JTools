@@ -10,6 +10,8 @@ import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
 import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.collections.CollectionUtils
+import org.apache.commons.io.FileUtils
+import org.apache.commons.lang3.StringUtils
 import org.jetbrains.annotations.NonNls
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -25,7 +27,7 @@ class PluginClassLoader(builder: Builder) : UrlClassLoader(
     }
 
     fun addFile(path: Path) {
-        classPath.appendFiles(listOf(path))
+        super.addFiles(listOf(path))
     }
 }
 
@@ -230,8 +232,11 @@ class PluginManager {
                     return
                 }
                 newPluginFile = File(this.pluginState().pluginBasePath, pluginId).parentMkdirs()
-//                Files.copy(file, newPluginFile)
-                ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
+                if (StringUtils.equalsIgnoreCase(file.extension, "jar")) {
+                    FileUtils.copyFile(file, newPluginFile)
+                } else {
+                    ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
+                }
                 val classLoader = PluginClassLoader.newInstance(
                     UrlClassLoader.build().files(listOf(newPluginFile.toPath())).parent(this::class.java.classLoader)
                         .useCache().allowBootstrapResources(true).allowLock(false)

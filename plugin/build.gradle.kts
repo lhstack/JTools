@@ -47,6 +47,7 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-dontwarn !com.lhstack.tools.**",
         "-flattenpackagehierarchy",
         "-libraryjars F:\\Repo\\Gradle\\wrapper\\dists\\gradle-8.6-all\\6itsypff3gopqo4yna2pr643r\\gradle-8.6\\lib\\kotlin-stdlib-1.9.20.jar",
+        "-libraryjars F:\\Repo\\Gradle\\caches\\modules-2\\files-2.1\\com.jetbrains.intellij.idea\\ideaIC\\2022.3\\4d343cadac04a0a31d70f6f96facfaa7f949df01\\ideaIC-2022.3\\lib\\util.jar",
         "-libraryjars D:\\Program Files\\java\\17/jmods/java.base.jmod(!.jar;!module-info.class)",
         "-keep class com.lhstack.tools.ToolsMainWindowFactory { *; }",
         "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
@@ -59,6 +60,11 @@ val proguardJar by tasks.registering(proguard.taskClass) {
 //        "-keepnames class com.lhstack.tools.plugins.PluginManager",
         """
             -keepclassmember class com.lhstack.tools.actions.** {
+                public *;
+                protected *;
+            }
+            
+            -keepclassmember class com.lhstack.tools.plugins.** {
                 public *;
                 protected *;
             }
