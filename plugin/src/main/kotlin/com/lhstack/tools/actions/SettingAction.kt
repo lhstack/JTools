@@ -7,6 +7,7 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.components.JBTextField
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.*
+import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
@@ -55,7 +56,10 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             this.add(textField)
             this.add(JButton("选择目录").apply {
                 this.addActionListener {
-                    project.chooseDirectory("选择插件安装目录",VirtualFileManager.getInstance().findFileByUrl("file://${textField.toolTipText}")) {
+                    project.chooseDirectory(
+                        "选择插件安装目录",
+                        VirtualFileManager.getInstance().findFileByUrl("file://${textField.toolTipText}")
+                    ) {
                         textField.text = it.presentableUrl.substr(0, 30) { s -> "$s..." }
                         textField.toolTipText = it.presentableUrl
                         textField.revalidate()
@@ -83,17 +87,16 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                                     val pluginInstance = this.pluginManager().pluginInstances.remove(v)
                                     val oldFile = File(v.path)
                                     val newFile = File(this.absolutePath, oldFile.name)
-                                    if(v.type == "js"){
+                                    if (v.type == "js") {
                                         FileUtils.copyDirectory(oldFile, newFile)
-                                    }else {
+                                    } else {
                                         FileUtils.copyFile(oldFile, newFile)
                                     }
                                     v.path = newFile.absolutePath
                                     this.pluginState().plugins[k] = v
-                                    //更新实例
-                                    this.pluginManager().pluginInstances[v] = pluginInstance!!
+
                                     this.pluginManager().classloaders[v] = classloader!!
-                                    classloader.addFile(newFile.toPath())
+                                    classloader.reset(newFile.toPath())
                                     oldFile.forceDelete()
                                 } catch (e: Throwable) {
                                     project.errorNotify(

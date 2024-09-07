@@ -19,15 +19,21 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 
-class PluginClassLoader(builder: Builder) : UrlClassLoader(
+class PluginClassLoader(builder: Builder, val classpaths: ArrayList<Path>) : UrlClassLoader(
     builder, registerAsParallelCapable()
 ) {
     companion object {
-        fun newInstance(builder: Builder) = PluginClassLoader(builder)
+        fun newInstance(builder: Builder, classpaths: ArrayList<Path>) = PluginClassLoader(builder, classpaths)
     }
 
     fun addFile(path: Path) {
         super.addFiles(listOf(path))
+    }
+
+    fun reset(path: Path) {
+        classpaths.clear()
+        classpaths.add(path)
+        classPath.reset(classpaths)
     }
 }
 
@@ -86,10 +92,11 @@ class PluginManager {
                             "插件加载失败,移除插件信息,插件名称:${v.name},插件版本:${v.version},错误信息: 插件jar未找到,请检查你的插件jar是否被删除"
                         )
                     } else {
+                        val files = arrayListOf(Paths.get(pluginPath))
                         val classLoader = PluginClassLoader.newInstance(
-                            UrlClassLoader.build().files(listOf(Paths.get(pluginPath)))
+                            UrlClassLoader.build().files(files)
                                 .parent(this::class.java.classLoader)
-                                .useCache().allowBootstrapResources(true).allowLock(false)
+                                .useCache().allowBootstrapResources(true).allowLock(false),files
                         )
                         val toolsPluginSource = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                         toolsPluginSource?.use {
@@ -156,9 +163,11 @@ class PluginManager {
     ) {
         if (CollectionUtils.isNotEmpty(paths)) {
             try {
+                val list = arrayListOf<Path>()
+                list.addAll(paths)
                 val classLoader = PluginClassLoader.newInstance(
                     UrlClassLoader.build().files(paths).parent(this::class.java.classLoader).useCache()
-                        .allowBootstrapResources(true).allowLock(false)
+                        .allowBootstrapResources(true).allowLock(false), list
                 )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
@@ -239,9 +248,10 @@ class PluginManager {
                 } else {
                     ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
                 }
+                val list = arrayListOf(newPluginFile.toPath())
                 val classLoader = PluginClassLoader.newInstance(
-                    UrlClassLoader.build().files(listOf(newPluginFile.toPath())).parent(this::class.java.classLoader)
-                        .useCache().allowBootstrapResources(true).allowLock(false)
+                    UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
+                        .useCache().allowBootstrapResources(true).allowLock(false),list
                 )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
