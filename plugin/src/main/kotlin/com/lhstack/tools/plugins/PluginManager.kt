@@ -171,7 +171,8 @@ class PluginManager {
                             paths.toString(),
                             pluginInstance.pluginName(),
                             pluginInstance.pluginVersion(),
-                            System.currentTimeMillis()
+                            System.currentTimeMillis(),
+                            "java"
                         )
                         consumer.invoke(pluginInstance, pluginInfo, null)
                     }) {
@@ -193,7 +194,8 @@ class PluginManager {
                             paths.toString(),
                             cefPluginInfo.pluginName,
                             cefPluginInfo.pluginVersion,
-                            System.currentTimeMillis()
+                            System.currentTimeMillis(),
+                            "js"
                         )
                         val pluginInstance = CefPluginImpl(classLoader, cefPluginInfo, cefCacheManager!!)
                         pluginInstances[pluginInfo] = pluginInstance
@@ -252,7 +254,8 @@ class PluginManager {
                             newPluginFile.absolutePath,
                             pluginInstance.pluginName(),
                             pluginInstance.pluginVersion(),
-                            System.currentTimeMillis()
+                            System.currentTimeMillis(),
+                            "java"
                         )
                         pluginInstances[pluginInfo] = pluginInstance
                         classloaders[pluginInfo] = classLoader
@@ -277,7 +280,8 @@ class PluginManager {
                             newPluginFile.absolutePath,
                             cefPluginInfo.pluginName,
                             cefPluginInfo.pluginVersion,
-                            System.currentTimeMillis()
+                            System.currentTimeMillis(),
+                            "js"
                         )
                         val pluginInstance =
                             CefPluginImpl(classLoader, cefPluginInfo, CefPluginCefCacheManager(pluginInfo))

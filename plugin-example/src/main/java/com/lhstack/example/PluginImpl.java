@@ -22,10 +22,6 @@ public class PluginImpl implements IPlugin {
         });
     }
 
-    @Override
-    public Boolean isUIPlugin() {
-        return true;
-    }
 
     @Override
     public void openProject(Project project, Runnable openThisPage) {

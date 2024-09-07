@@ -13,7 +13,9 @@ class PluginInfo(
     //插件版本
     var version: String,
     //创建时间
-    var created: Long
+    var created: Long,
+
+    val type: String,
 ) {
 
     override fun equals(other: Any?): Boolean {

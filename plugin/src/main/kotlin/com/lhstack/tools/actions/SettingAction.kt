@@ -88,7 +88,9 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                                     //更新实例
                                     this.pluginManager().pluginInstances[v] = pluginInstance!!
                                     this.pluginManager().classloaders[v] = classloader!!
-                                    classloader.addFile(newFile.toPath())
+                                    if(v.type == "js") {
+                                        classloader.addFile(newFile.toPath())
+                                    }
                                     oldFile.forceDelete()
                                 } catch (e: Throwable) {
                                     project.errorNotify(
