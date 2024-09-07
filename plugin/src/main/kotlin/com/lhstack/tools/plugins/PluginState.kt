@@ -1,12 +1,11 @@
 package com.lhstack.tools.plugins
 
 import com.intellij.openapi.components.*
-import com.intellij.openapi.project.Project
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.lhstack.tools.converter.JsonConverter
 
 @Service
-@State(name = "ToolsPluginState", storages = [Storage("ToolsPluginState.xml")])
+@State(name = "data", storages = [Storage("ToolsPluginState.xml")])
 class PluginState : PersistentStateComponent<PluginState.State> {
 
     private var state = State()
@@ -14,7 +13,6 @@ class PluginState : PersistentStateComponent<PluginState.State> {
     companion object {
         fun getInstance() = service<PluginState>()
 
-        fun getInstance(project: Project) = project.service<PluginState>()
     }
 
     class State {
@@ -24,9 +22,6 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)
         var plugins = hashMapOf<String, PluginInfo>()
-
-        //js插件缓存
-        var jsPluginCache = hashMapOf<String, HashMap<String,String>>()
 
     }
 
@@ -40,5 +35,3 @@ class PluginState : PersistentStateComponent<PluginState.State> {
 }
 
 fun Any.pluginState() = PluginState.getInstance().state
-
-fun Project.projectPluginState() = PluginState.getInstance(this).state

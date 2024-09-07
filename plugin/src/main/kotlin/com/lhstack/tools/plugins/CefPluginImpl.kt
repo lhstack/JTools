@@ -1,5 +1,6 @@
 package com.lhstack.tools.plugins
 
+import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
@@ -33,6 +34,29 @@ import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import kotlin.math.min
 
+@State(name = "cef", storages = [Storage("ToolsPluginState.xml")])
+@Service
+class CefPluginCacheState : PersistentStateComponent<CefPluginCacheState.State> {
+    private var state = State()
+
+    class State {
+        var jsPluginCache = hashMapOf<String, HashMap<String, String>>()
+    }
+
+    companion object {
+        fun getInstance(project: Project) = project.getService(CefPluginCacheState::class.java).state
+
+        fun getInstance() = service<CefPluginCacheState>().state
+    }
+
+    override fun getState(): State {
+        return state
+    }
+
+    override fun loadState(state: State) {
+        this.state = state
+    }
+}
 
 class CefPluginInfo(
     val pluginIcon: String,
@@ -489,11 +513,11 @@ interface CefCacheManager {
 class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
     override fun set(global: Boolean, project: Project, key: String, value: String) {
         val jsCache = if (global) {
-            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance().jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         } else {
-            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance(project).jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         }
@@ -502,11 +526,11 @@ class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
 
     override fun get(global: Boolean, project: Project, key: String): String? {
         val jsCache = if (global) {
-            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance().jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         } else {
-            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance(project).jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         }
@@ -515,11 +539,11 @@ class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
 
     override fun getAll(global: Boolean, project: Project): Map<String, String> {
         return if (global) {
-            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance().jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         } else {
-            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance(project).jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         }
@@ -527,11 +551,11 @@ class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
 
     override fun clear(global: Boolean, project: Project) {
         val jsCache = if (global) {
-            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance().jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         } else {
-            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance(project).jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         }
@@ -540,11 +564,11 @@ class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
 
     override fun remove(global: Boolean, project: Project, key: String) {
         val jsCache = if (global) {
-            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance().jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         } else {
-            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            CefPluginCacheState.getInstance(project).jsPluginCache.computeIfAbsent(pluginInfo.id) {
                 hashMapOf()
             }
         }

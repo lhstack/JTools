@@ -423,7 +423,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     }
 }
 
-@State(name = "ToolsPluginDeveloperState", storages = [Storage("ToolsPluginDeveloperState.xml")])
+@State(name = "dev", storages = [Storage("ToolsPluginState.xml")])
 @Service
 class DeveloperState : PersistentStateComponent<DeveloperState.State> {
 
