@@ -100,7 +100,7 @@ class PluginManager {
                         val classLoader = PluginClassLoader.newInstance(
                             UrlClassLoader.build().files(files)
                                 .parent(this::class.java.classLoader)
-                                .useCache(false).allowBootstrapResources(true).allowLock(false),
+                                .useCache().allowBootstrapResources(true).allowLock(false),
                             files
                         )
                         val toolsPluginSource = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
@@ -171,7 +171,7 @@ class PluginManager {
                 val list = arrayListOf<Path>()
                 list.addAll(paths)
                 val classLoader = PluginClassLoader.newInstance(
-                    UrlClassLoader.build().useCache(false).files(paths).parent(this::class.java.classLoader).useCache()
+                    UrlClassLoader.build().useCache().files(paths).parent(this::class.java.classLoader).useCache()
                         .allowBootstrapResources(true).allowLock(false),
                     list
                 )
@@ -254,7 +254,7 @@ class PluginManager {
                 }
                 val list = arrayListOf(newPluginFile.toPath())
                 val classLoader = PluginClassLoader.newInstance(UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
-                    .useCache(false).allowBootstrapResources().allowLock(false),list)
+                    .useCache().allowBootstrapResources().allowLock(false),list)
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
