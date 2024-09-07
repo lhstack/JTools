@@ -237,13 +237,16 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
     fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
         comboBoxAction.selection?.let {
-            if(!developerState.isJavaPlugin()){
+            if (!developerState.isJavaPlugin()) {
 
                 val basePath = project.basePath
 
                 val pluginInfo = File(basePath, "pluginInfo.json")
-                if(!pluginInfo.exists()) {
-                    project.errorNotify("运行JS插件通知","项目中不存在pluginInfo.json配置,请检查你的项目是否为标准的JS插件")
+                if (!pluginInfo.exists()) {
+                    project.errorNotify(
+                        "运行JS插件通知",
+                        "项目中不存在pluginInfo.json配置,请检查你的项目是否为标准的JS插件"
+                    )
                     return
                 }
                 //不是java插件,就是js插件,移除之前的插件
@@ -264,28 +267,28 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         appClose()
                     }
                 }
-                this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!)),object:CefCacheManager{
-                    override fun set(key: String, value: String) {
+                this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!)), object : CefCacheManager {
+                    override fun set(global: Boolean, project: Project, key: String, value: String) {
                         developerState.jsCache[key] = value
                     }
 
-                    override fun get(key: String): String? {
+                    override fun get(global: Boolean, project: Project, key: String): String? {
                         return developerState.jsCache[key]
                     }
 
-                    override fun getAll(): Map<String, String> {
+                    override fun getAll(global: Boolean, project: Project): Map<String, String> {
                         return developerState.jsCache
                     }
 
-                    override fun clear() {
+                    override fun clear(global: Boolean, project: Project) {
                         developerState.jsCache.clear()
                     }
 
-                    override fun remove(key: String) {
+                    override fun remove(global: Boolean, project: Project, key: String) {
                         developerState.jsCache.remove(key)
                     }
 
-                }){ plugin, _, err ->
+                }) { plugin, _, err ->
                     if (err != null) {
                         if (err is PluginException) {
                             project.errorNotify(err.title, err.msg)
@@ -362,7 +365,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         addAll(resourcePaths)
                         addAll(it.allLibraryPaths())
                     }
-                    this.pluginManager().loadInstanceByDir(list,null) { plugin, _, err ->
+                    this.pluginManager().loadInstanceByDir(list, null) { plugin, _, err ->
                         if (err != null) {
                             if (err is PluginException) {
                                 project.errorNotify(err.title, err.msg)
@@ -427,6 +430,7 @@ class DeveloperState : PersistentStateComponent<DeveloperState.State> {
 
     class State {
         var pluginType = "java"
+
         //js插件缓存
         var jsCache = hashMapOf<String, String>()
 

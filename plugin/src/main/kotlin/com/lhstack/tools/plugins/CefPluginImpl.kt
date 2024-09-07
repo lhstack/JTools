@@ -80,20 +80,67 @@ class CefPluginImpl(
                         //cefQuery({request:"getPluginInfo",onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
                         when (queryCommand.type) {
                             "getPluginInfo" -> callback.success(this.gson.toJson(cefPluginInfo))
-                            "cache.set" -> {
-                                cefCacheManager.set(queryCommand.commands[0], queryCommand.commands[1])
+                            "global.cache.set" -> {
+                                cefCacheManager.set(true, project, queryCommand.commands[0], queryCommand.commands[1])
                                 callback.success("success")
                             }
 
-                            "cache.get" -> callback.success(cefCacheManager.get(queryCommand.commands[0]))
-                            "cache.getAll" -> callback.success(this.gson.toJson(cefCacheManager.getAll()))
-                            "cache.clear" -> {
-                                cefCacheManager.clear()
+                            "global.cache.get" -> callback.success(
+                                cefCacheManager.get(
+                                    true,
+                                    project,
+                                    queryCommand.commands[0]
+                                )
+                            )
+
+                            "global.cache.getAll" -> callback.success(
+                                this.gson.toJson(
+                                    cefCacheManager.getAll(
+                                        true,
+                                        project
+                                    )
+                                )
+                            )
+
+                            "global.cache.clear" -> {
+                                cefCacheManager.clear(true, project)
                                 callback.success("success")
                             }
 
-                            "cache.remove" -> {
-                                cefCacheManager.remove(queryCommand.commands[0])
+                            "global.cache.remove" -> {
+                                cefCacheManager.remove(true, project, queryCommand.commands[0])
+                                callback.success("success")
+                            }
+
+                            "project.cache.set" -> {
+                                cefCacheManager.set(false, project, queryCommand.commands[0], queryCommand.commands[1])
+                                callback.success("success")
+                            }
+
+                            "project.cache.get" -> callback.success(
+                                cefCacheManager.get(
+                                    false,
+                                    project,
+                                    queryCommand.commands[0]
+                                )
+                            )
+
+                            "project.cache.getAll" -> callback.success(
+                                this.gson.toJson(
+                                    cefCacheManager.getAll(
+                                        false,
+                                        project
+                                    )
+                                )
+                            )
+
+                            "project.cache.clear" -> {
+                                cefCacheManager.clear(false, project)
+                                callback.success("success")
+                            }
+
+                            "project.cache.remove" -> {
+                                cefCacheManager.remove(false, project, queryCommand.commands[0])
                                 callback.success("success")
                             }
                         }
@@ -428,45 +475,78 @@ class CefQueryCommand(val type: String, val commands: Array<String>) {
 }
 
 interface CefCacheManager {
-    fun set(key: String, value: String)
+    fun set(global: Boolean, project: Project, key: String, value: String)
 
-    fun get(key: String): String?
+    fun get(global: Boolean, project: Project, key: String): String?
 
-    fun getAll(): Map<String, String>
+    fun getAll(global: Boolean, project: Project): Map<String, String>
 
-    fun clear()
+    fun clear(global: Boolean, project: Project)
 
-    fun remove(key: String)
+    fun remove(global: Boolean, project: Project, key: String)
 }
 
 class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
-    override fun set(key: String, value: String) {
-        val jsCache = this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
-            hashMapOf()
+    override fun set(global: Boolean, project: Project, key: String, value: String) {
+        val jsCache = if (global) {
+            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
+        } else {
+            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
         }
         jsCache[key] = value
     }
 
-    override fun get(key: String): String? {
-        val jsCache = this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
-            hashMapOf()
+    override fun get(global: Boolean, project: Project, key: String): String? {
+        val jsCache = if (global) {
+            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
+        } else {
+            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
         }
         return jsCache[key]
     }
 
-    override fun getAll(): Map<String, String> {
-        return this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
-            hashMapOf()
+    override fun getAll(global: Boolean, project: Project): Map<String, String> {
+        return if (global) {
+            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
+        } else {
+            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
         }
     }
 
-    override fun clear() {
-        this.pluginState().jsPluginCache.remove(pluginInfo.id)
+    override fun clear(global: Boolean, project: Project) {
+        val jsCache = if (global) {
+            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
+        } else {
+            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
+        }
+        jsCache.clear()
     }
 
-    override fun remove(key: String) {
-        val jsCache = this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
-            hashMapOf()
+    override fun remove(global: Boolean, project: Project, key: String) {
+        val jsCache = if (global) {
+            this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
+        } else {
+            project.projectPluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+                hashMapOf()
+            }
         }
         jsCache.remove(key)
     }
