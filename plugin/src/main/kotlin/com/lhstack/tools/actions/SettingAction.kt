@@ -83,7 +83,11 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                                     val pluginInstance = this.pluginManager().pluginInstances.remove(v)
                                     val oldFile = File(v.path)
                                     val newFile = File(this.absolutePath, oldFile.name)
-                                    FileUtils.copyDirectory(oldFile, newFile)
+                                    if(v.type == "js"){
+                                        FileUtils.copyDirectory(oldFile, newFile)
+                                    }else {
+                                        FileUtils.copyFile(oldFile, newFile)
+                                    }
                                     v.path = newFile.absolutePath
                                     this.pluginState().plugins[k] = v
                                     //更新实例
