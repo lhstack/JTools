@@ -22,6 +22,9 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         @field:OptionTag(converter = JsonConverter::class)
         var plugins = hashMapOf<String, PluginInfo>()
 
+        //js插件缓存
+        var jsPluginCache = hashMapOf<String, HashMap<String,String>>()
+
     }
 
     override fun getState(): State {

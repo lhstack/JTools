@@ -1,6 +1,7 @@
 package com.lhstack.tools.plugins
 
 import ai.grazie.utils.mpp.UUID
+import com.google.gson.GsonBuilder
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.util.io.ZipUtil
@@ -23,7 +24,7 @@ class PluginClassLoader(builder: Builder) : UrlClassLoader(
         fun newInstance(builder: Builder) = PluginClassLoader(builder)
     }
 
-    fun addFile(path:Path){
+    fun addFile(path: Path) {
         classPath.appendFiles(listOf(path))
     }
 }
@@ -105,13 +106,23 @@ class PluginManager {
                             }
                         }
                         if (toolsPluginSource == null) {
-                            //加载js插件
-                            val pluginInstance = CefPluginImpl(classLoader)
-                            pluginInstances[v] = pluginInstance
-                            classloaders[v] = classLoader
-                            //执行安装回调
-                            pluginInstance.install()
-                            consumer.invoke(v, pluginInstance, index, pluginInstances.size)
+                            val resource =
+                                classLoader.getResourceAsStream("pluginInfo.json")
+                                    ?: throw RuntimeException("pluginInfo.json cannot null")
+                            resource.use {
+                                val cefPluginInfo = String(it.readAllBytes(), StandardCharsets.UTF_8).let { s ->
+                                    GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)
+                                }
+
+                                //加载js插件
+                                val pluginInstance =
+                                    CefPluginImpl(classLoader, cefPluginInfo, CefPluginCefCacheManager(v))
+                                pluginInstances[v] = pluginInstance
+                                classloaders[v] = classLoader
+                                //执行安装回调
+                                pluginInstance.install()
+                                consumer.invoke(v, pluginInstance, index, pluginInstances.size)
+                            }
                         }
                     }
                 }
@@ -136,7 +147,11 @@ class PluginManager {
 
     }
 
-    fun loadInstanceByDir(paths: MutableList<Path>, consumer: (IPlugin?, PluginInfo?, RuntimeException?) -> Unit) {
+    fun loadInstanceByDir(
+        paths: MutableList<Path>,
+        cefCacheManager: CefCacheManager?,
+        consumer: (IPlugin?, PluginInfo?, RuntimeException?) -> Unit,
+    ) {
         if (CollectionUtils.isNotEmpty(paths)) {
             try {
                 val classLoader = PluginClassLoader.newInstance(
@@ -164,16 +179,25 @@ class PluginManager {
                     }
                 }
                 if (toolsPluginTxt == null) {
-                    val pluginInstance = CefPluginImpl(classLoader)
-                    val pluginInfo = PluginInfo(
-                        UUID.random().toString(),
-                        paths.toString(),
-                        pluginInstance.pluginName(),
-                        pluginInstance.pluginVersion(),
-                        System.currentTimeMillis()
-                    )
-                    pluginInstances[pluginInfo] = pluginInstance
-                    consumer.invoke(pluginInstance, pluginInfo, null)
+                    val resource =
+                        classLoader.getResourceAsStream("pluginInfo.json")
+                            ?: throw RuntimeException("pluginInfo.json cannot null")
+                    resource.use {
+                        val cefPluginInfo = String(it.readAllBytes(), StandardCharsets.UTF_8).let { s ->
+                            GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)
+                        }
+                        val pluginInfo = PluginInfo(
+                            UUID.random().toString(),
+                            paths.toString(),
+                            cefPluginInfo.pluginName,
+                            cefPluginInfo.pluginVersion,
+                            System.currentTimeMillis()
+                        )
+                        val pluginInstance = CefPluginImpl(classLoader, cefPluginInfo, cefCacheManager!!)
+                        pluginInstances[pluginInfo] = pluginInstance
+                        consumer.invoke(pluginInstance, pluginInfo, null)
+                    }
+
                 }
             } catch (e: Throwable) {
                 if (e is PluginException) {
@@ -236,20 +260,30 @@ class PluginManager {
                     }
                 }
                 if (toolsPluginTxt == null) {
-                    val pluginInstance = CefPluginImpl(classLoader)
-                    val pluginInfo = PluginInfo(
-                        pluginId,
-                        newPluginFile.absolutePath,
-                        pluginInstance.pluginName(),
-                        pluginInstance.pluginVersion(),
-                        System.currentTimeMillis()
-                    )
-                    pluginInstances[pluginInfo] = pluginInstance
-                    classloaders[pluginInfo] = classLoader
-                    //执行安装回调
-                    pluginInstance.install()
-                    consumer.invoke(pluginInstance, pluginInfo, null)
-                    this.pluginState().plugins[pluginId] = pluginInfo
+                    val resource =
+                        classLoader.getResourceAsStream("pluginInfo.json")
+                            ?: throw RuntimeException("pluginInfo.json cannot null")
+                    resource.use {
+                        val cefPluginInfo = String(it.readAllBytes(), StandardCharsets.UTF_8).let { s ->
+                            GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)
+                        }
+                        val pluginInfo = PluginInfo(
+                            pluginId,
+                            newPluginFile.absolutePath,
+                            cefPluginInfo.pluginName,
+                            cefPluginInfo.pluginVersion,
+                            System.currentTimeMillis()
+                        )
+                        val pluginInstance =
+                            CefPluginImpl(classLoader, cefPluginInfo, CefPluginCefCacheManager(pluginInfo))
+                        pluginInstances[pluginInfo] = pluginInstance
+                        classloaders[pluginInfo] = classLoader
+                        //执行安装回调
+                        pluginInstance.install()
+                        consumer.invoke(pluginInstance, pluginInfo, null)
+                        this.pluginState().plugins[pluginId] = pluginInfo
+                    }
+
                 }
             } catch (e: Throwable) {
                 newPluginFile?.forceDelete()
@@ -276,6 +310,7 @@ class PluginManager {
      */
     fun uninstsall(pluginInfo: PluginInfo) {
         pluginInstances.remove(pluginInfo)
+        classloaders.remove(pluginInfo)
         this.pluginState().plugins.remove(pluginInfo.id)
         try {
             File(pluginInfo.path).forceDelete()

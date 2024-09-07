@@ -15,7 +15,7 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
-import com.lhstack.tools.plugins.CefPluginImpl
+import com.lhstack.tools.plugins.CefCacheManager
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
@@ -264,7 +264,28 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         appClose()
                     }
                 }
-                this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!))){ plugin, _, err ->
+                this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!)),object:CefCacheManager{
+                    override fun set(key: String, value: String) {
+                        developerState.jsCache[key] = value
+                    }
+
+                    override fun get(key: String): String? {
+                        return developerState.jsCache[key]
+                    }
+
+                    override fun getAll(): Map<String, String> {
+                        return developerState.jsCache
+                    }
+
+                    override fun clear() {
+                        developerState.jsCache.clear()
+                    }
+
+                    override fun remove(key: String) {
+                        developerState.jsCache.remove(key)
+                    }
+
+                }){ plugin, _, err ->
                     if (err != null) {
                         if (err is PluginException) {
                             project.errorNotify(err.title, err.msg)
@@ -341,7 +362,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         addAll(resourcePaths)
                         addAll(it.allLibraryPaths())
                     }
-                    this.pluginManager().loadInstanceByDir(list) { plugin, _, err ->
+                    this.pluginManager().loadInstanceByDir(list,null) { plugin, _, err ->
                         if (err != null) {
                             if (err is PluginException) {
                                 project.errorNotify(err.title, err.msg)
@@ -406,6 +427,8 @@ class DeveloperState : PersistentStateComponent<DeveloperState.State> {
 
     class State {
         var pluginType = "java"
+        //js插件缓存
+        var jsCache = hashMapOf<String, String>()
 
         fun isJavaPlugin() = pluginType == "java"
     }

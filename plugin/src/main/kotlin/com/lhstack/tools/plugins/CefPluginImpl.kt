@@ -1,6 +1,5 @@
 package com.lhstack.tools.plugins
 
-import com.google.gson.GsonBuilder
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
@@ -10,6 +9,7 @@ import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefClient
 import com.jetbrains.rd.util.AtomicReference
+import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.gson
 import org.apache.commons.lang3.StringUtils
 import org.apache.http.client.methods.HttpGet
@@ -28,7 +28,6 @@ import org.cef.misc.StringRef
 import org.cef.network.CefRequest
 import org.cef.network.CefResponse
 import java.awt.event.KeyEvent
-import java.nio.charset.StandardCharsets
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
@@ -41,12 +40,14 @@ class CefPluginInfo(
     val pluginName: String,
     val pluginDesc: String,
     val pluginVersion: String,
-    val indexPage: String
+    val indexPage: String,
 )
 
-class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
-
-    private val cefPluginInfo: CefPluginInfo
+class CefPluginImpl(
+    private val classLoader: ClassLoader,
+    private val cefPluginInfo: CefPluginInfo,
+    private val cefCacheManager: CefCacheManager,
+) : IPlugin {
 
     private val browsers: HashMap<String, JBCefBrowser> = hashMapOf()
 
@@ -58,17 +59,6 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
 
     private val fontColor: AtomicReference<String> = AtomicReference("")
 
-    init {
-        val resource =
-            classLoader.getResourceAsStream("pluginInfo.json") ?: throw RuntimeException("pluginInfo.json cannot null")
-        resource.use {
-            cefPluginInfo = String(it.readAllBytes(), StandardCharsets.UTF_8).let { s ->
-                GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)
-            }
-        }
-
-    }
-
     override fun createPanel(project: Project): JComponent {
         return browsers.computeIfAbsent(project.locationHash) {
             val jbCefApp = JBCefApp.getInstance()
@@ -76,18 +66,39 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
             val jbBrowser = JBCefBrowser.createBuilder()
                 .setOffScreenRendering(false)
                 .setClient(jbCefClient).build()
-            val cefMessageRouter = CefMessageRouter.create(object:CefMessageRouterHandlerAdapter(){
+            val cefMessageRouter = CefMessageRouter.create(object : CefMessageRouterHandlerAdapter() {
                 override fun onQuery(
                     browser: CefBrowser,
                     frame: CefFrame,
                     queryId: Long,
                     request: String,
                     persistent: Boolean,
-                    callback: CefQueryCallback
+                    callback: CefQueryCallback,
                 ): Boolean {
-                    //cefQuery({request:"getPluginInfo",onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
-                    when (request){
-                        "getPluginInfo" -> callback.success(this.gson.toJson(cefPluginInfo))
+                    try {
+                        val queryCommand = this.gson.fromJson(request, CefQueryCommand::class.java)
+                        //cefQuery({request:"getPluginInfo",onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
+                        when (queryCommand.type) {
+                            "getPluginInfo" -> callback.success(this.gson.toJson(cefPluginInfo))
+                            "cache.set" -> {
+                                cefCacheManager.set(queryCommand.commands[0], queryCommand.commands[1])
+                                callback.success("success")
+                            }
+
+                            "cache.get" -> callback.success(cefCacheManager.get(queryCommand.commands[0]))
+                            "cache.getAll" -> callback.success(this.gson.toJson(cefCacheManager.getAll()))
+                            "cache.clear" -> {
+                                cefCacheManager.clear()
+                                callback.success("success")
+                            }
+
+                            "cache.remove" -> {
+                                cefCacheManager.remove(queryCommand.commands[0])
+                                callback.success("success")
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        callback.failure(500, e.fullMsg())
                     }
                     return true
                 }
@@ -119,7 +130,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     browser: CefBrowser?,
                     downloadItem: CefDownloadItem?,
                     suggestedName: String?,
-                    callback: CefBeforeDownloadCallback?
+                    callback: CefBeforeDownloadCallback?,
                 ) {
                     callback?.Continue(suggestedName, true)
                 }
@@ -155,7 +166,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     isNavigation: Boolean,
                     isDownload: Boolean,
                     requestInitiator: String?,
-                    disableDefaultHandling: BoolRef?
+                    disableDefaultHandling: BoolRef?,
                 ): CefResourceRequestHandler? {
                     if (StringUtils.startsWithAny(request?.url, "https://", "http://")) {
                         return null
@@ -165,7 +176,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                         override fun onBeforeResourceLoad(
                             browser: CefBrowser?,
                             frame: CefFrame?,
-                            request: CefRequest?
+                            request: CefRequest?,
                         ): Boolean {
                             return super.onBeforeResourceLoad(browser, frame, request)
                         }
@@ -173,7 +184,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                         override fun getResourceHandler(
                             browser: CefBrowser?,
                             frame: CefFrame?,
-                            request: CefRequest
+                            request: CefRequest,
                         ): org.cef.handler.CefResourceHandler {
                             return CefResourceHandler(request.url, classLoader, httpClients[project.locationHash]!!)
                         }
@@ -188,7 +199,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     browser: CefBrowser,
                     frame: CefFrame?,
                     params: CefContextMenuParams,
-                    model: CefMenuModel
+                    model: CefMenuModel,
                 ) {
                     //清除之前的按钮
                     model.clear()
@@ -205,7 +216,7 @@ class CefPluginImpl(private val classLoader: ClassLoader) : IPlugin {
                     frame: CefFrame?,
                     params: CefContextMenuParams?,
                     commandId: Int,
-                    eventFlags: Int
+                    eventFlags: Int,
                 ): Boolean {
                     //DevTools
                     if (commandId == 1) {
@@ -410,4 +421,54 @@ class CefResourceHandler(private var url: String, classLoader: ClassLoader, http
         // 处理取消请求的逻辑
         isOpen = false
     }
+}
+
+class CefQueryCommand(val type: String, val commands: Array<String>) {
+
+}
+
+interface CefCacheManager {
+    fun set(key: String, value: String)
+
+    fun get(key: String): String?
+
+    fun getAll(): Map<String, String>
+
+    fun clear()
+
+    fun remove(key: String)
+}
+
+class CefPluginCefCacheManager(val pluginInfo: PluginInfo) : CefCacheManager {
+    override fun set(key: String, value: String) {
+        val jsCache = this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            hashMapOf()
+        }
+        jsCache[key] = value
+    }
+
+    override fun get(key: String): String? {
+        val jsCache = this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            hashMapOf()
+        }
+        return jsCache[key]
+    }
+
+    override fun getAll(): Map<String, String> {
+        return this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            hashMapOf()
+        }
+    }
+
+    override fun clear() {
+        this.pluginState().jsPluginCache.remove(pluginInfo.id)
+    }
+
+    override fun remove(key: String) {
+        val jsCache = this.pluginState().jsPluginCache.computeIfAbsent(pluginInfo.id) {
+            hashMapOf()
+        }
+        jsCache.remove(key)
+    }
+
 }
