@@ -280,6 +280,7 @@ class CefPluginImpl(
                     model.addItem(2, "返回首页")
                     model.addItem(3, "自定义背景颜色")
                     model.addItem(4, "自定义字体颜色")
+                    model.addItem(5,"清除自定义颜色")
                 }
 
                 override fun onContextMenuCommand(
@@ -346,6 +347,10 @@ class CefPluginImpl(
                                 )
                             }
                         }
+                    }else if(commandId == 5){
+                        backgroundColor.getAndSet("")
+                        fontColor.getAndSet("")
+                        browser.reload()
                     }
                     return true
                 }
