@@ -22,12 +22,12 @@ class HoverAttachPanel : JPanel(), UserDataHolder {
         this.addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent?) {
                 setBackground(hoverColor)
-                setCursor(Cursor(12))
+                setCursor(Cursor(Cursor.HAND_CURSOR))
             }
 
             override fun mouseExited(e: MouseEvent?) {
                 setBackground(null as Color?)
-                setCursor(Cursor(0))
+                setCursor(Cursor(Cursor.DEFAULT_CURSOR))
             }
         })
     }

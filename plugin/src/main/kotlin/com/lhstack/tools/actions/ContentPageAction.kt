@@ -12,6 +12,7 @@ import com.intellij.ui.tabs.TabInfo
 import com.intellij.ui.tabs.TabsListener
 import com.intellij.ui.tabs.impl.TabLabel
 import com.intellij.util.messages.MessageBusConnection
+import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.components.EmptyPanel
 import com.lhstack.tools.components.FloatingDialog
 import com.lhstack.tools.components.PluginTabPanel
@@ -23,9 +24,16 @@ import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginInfo
 import java.awt.BorderLayout
 import java.awt.CardLayout
+import java.awt.Cursor
+import java.awt.Dimension
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
+import kotlin.math.min
+
 
 class ContentPageAction(
     windowPanel: SimpleToolWindowPanel,
@@ -46,9 +54,44 @@ class ContentPageAction(
 
     private val cardEmpty = "empty"
 
-    private val goToPluginButton: JButton = JButton().apply {
-        this.icon = Icons.addIcon()
+    private val goToPluginIcon = AtomicReference(Icons.addIcon())
+
+    private val goToPluginButton: JButton = object:JButton(){
+        override fun contains(x: Int, y: Int): Boolean {
+            val width = width
+            val height = height
+            // 计算圆心坐标和半径
+            val radius = (min(width.toDouble(), height.toDouble()) / 2).toInt()
+            val centerX = width / 2
+            val centerY = height / 2
+            // 计算点 (x, y) 到圆心的距离
+            val dx = x - centerX
+            val dy = y - centerY
+            // 如果点在圆内，返回 true；否则返回 false
+            return (dx * dx + dy * dy) <= radius * radius
+        }
+    }.apply {
+        this.icon = goToPluginIcon.get()
+        this.setContentAreaFilled(false);   // 禁用按钮的背景填充
+        this.setBorderPainted(false);       // 去掉边框
+        this.setFocusPainted(false);        // 去掉焦点框
+        this.setOpaque(false);
+        this.preferredSize = Dimension(icon.iconWidth, icon.iconHeight)
+        this.addMouseListener(object:MouseAdapter(){
+            override fun mouseEntered(e: MouseEvent?) {
+                setCursor(Cursor(Cursor.HAND_CURSOR))
+                icon = Icons.addHoverIcon()
+                goToPluginIcon.getAndSet(Icons.addHoverIcon())
+            }
+
+            override fun mouseExited(e: MouseEvent?) {
+                icon = Icons.addIcon()
+                setCursor(Cursor(Cursor.DEFAULT_CURSOR))
+                goToPluginIcon.getAndSet(Icons.addIcon())
+            }
+        })
         this.addActionListener {
+            goToPluginIcon.getAndSet(Icons.addIcon())
             goToPage.invoke("plugin")
         }
     }
@@ -113,7 +156,7 @@ class ContentPageAction(
 
     override fun update(e: AnActionEvent) {
         super.update(e)
-        this.goToPluginButton.icon = Icons.addIcon()
+        this.goToPluginButton.icon = goToPluginIcon.get()
         this.goToPluginButton.revalidate()
         this.goToPluginButton.repaint()
     }

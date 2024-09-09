@@ -18,6 +18,8 @@ class Icons {
 
         fun addIcon() = findIcon("icons/add", "svg")
 
+        fun addHoverIcon() = IconLoader.findIcon("icons/add_hover.svg",ToolsMainWindowFactory::class.java)!!
+
         fun developerIcon() = findIcon("icons/developer")
 
         fun stopHoverIcon() = IconLoader.findIcon("icons/stop_hover.svg", ToolsMainWindowFactory::class.java)
