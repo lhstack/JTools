@@ -13,10 +13,6 @@ import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.gson
 import org.apache.commons.lang3.StringUtils
-import org.apache.http.client.methods.HttpGet
-import org.apache.http.impl.client.CloseableHttpClient
-import org.apache.http.impl.client.HttpClients
-import org.apache.http.util.EntityUtils
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefMessageRouter
@@ -29,6 +25,9 @@ import org.cef.misc.StringRef
 import org.cef.network.CefRequest
 import org.cef.network.CefResponse
 import java.awt.event.KeyEvent
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
@@ -77,8 +76,6 @@ class CefPluginImpl(
 
     private val cefClients: HashMap<String, JBCefClient> = hashMapOf()
 
-    private val httpClients: HashMap<String, CloseableHttpClient> = hashMapOf()
-
     private val backgroundColor: AtomicReference<String> = AtomicReference("")
 
     private val fontColor: AtomicReference<String> = AtomicReference("")
@@ -104,6 +101,23 @@ class CefPluginImpl(
                         //cefQuery({request:"getPluginInfo",onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
                         when (queryCommand.type) {
                             "getPluginInfo" -> callback.success(this.gson.toJson(cefPluginInfo))
+
+                            "getSysEnv" -> callback.success(System.getenv(queryCommand.commands[0]))
+
+                            "getSysProperty" -> callback.success(System.getProperty(queryCommand.commands[0]))
+
+                            //读取系统文件内容
+                            "readSysFile" -> {
+                                callback.success( Files.readString(Paths.get(queryCommand.commands[0])))
+                            }
+
+                            //读取本插件文件内容
+                            "readPluginFile" -> {
+                                classLoader.getResourceAsStream(queryCommand.commands[0])?.use {
+                                    callback.success(String(it.readAllBytes(),StandardCharsets.UTF_8))
+                                }
+                            }
+
                             "global.cache.set" -> {
                                 cefCacheManager.set(true, project, queryCommand.commands[0], queryCommand.commands[1])
                                 callback.success("success")
@@ -229,7 +243,6 @@ class CefPluginImpl(
             }, jbBrowser.cefBrowser)
 
             jbCefClient.addRequestHandler(object : CefRequestHandlerAdapter() {
-
                 override fun getResourceRequestHandler(
                     browser: CefBrowser?,
                     frame: CefFrame?,
@@ -257,7 +270,7 @@ class CefPluginImpl(
                             frame: CefFrame?,
                             request: CefRequest,
                         ): org.cef.handler.CefResourceHandler {
-                            return CefResourceHandler(request.url, classLoader, httpClients[project.locationHash]!!)
+                            return CefResourceHandler(request.url, classLoader)
                         }
                     }
                 }
@@ -362,7 +375,6 @@ class CefPluginImpl(
                 jbCefClient.dispose()
             }
             cefClients[project.locationHash] = jbCefClient
-            httpClients[project.locationHash] = HttpClients.createSystem()
             jbBrowser.loadURL(cefPluginInfo.indexPage)
             jbBrowser
         }.component
@@ -378,18 +390,15 @@ class CefPluginImpl(
 
     override fun closeProject(project: Project) {
         browsers.remove(project.locationHash)
-        httpClients.remove(project.locationHash)?.close()
     }
 
     override fun unInstall() {
-        browsers.forEach { (k, v) -> v.dispose() }
-        cefClients.forEach { (k, v) -> v.dispose() }
-        httpClients.forEach { (k, v) -> v.close() }
+        browsers.forEach { (_, v) -> v.dispose() }
+        cefClients.forEach { (_, v) -> v.dispose() }
     }
 
     override fun appClose() {
         browsers.clear()
-        httpClients.clear()
     }
 
     override fun pluginIcon(): Icon? {
@@ -413,7 +422,7 @@ class CefPluginImpl(
     }
 }
 
-class CefResourceHandler(private var url: String, classLoader: PluginClassLoader, httpClient: CloseableHttpClient) :
+class CefResourceHandler(private var url: String, classLoader: PluginClassLoader) :
     CefResourceHandlerAdapter() {
     private var bytes: ByteArray? = null
     private var offset: Int? = null
@@ -428,15 +437,11 @@ class CefResourceHandler(private var url: String, classLoader: PluginClassLoader
                 bytes = classLoader.getResourceAsStream(url)?.use {
                     it.readAllBytes()
                 }
+                offset = 0
+                isOpen = true
             } else {
-                //需要http客户端
-                val httpResponse = httpClient.execute(HttpGet(url))
-                httpResponse.allHeaders.forEach { responseHeader[it.name] = it.value }
-                bytes = EntityUtils.toByteArray(httpResponse.entity)
-                httpResource = true
+                isOpen = false
             }
-            offset = 0
-            isOpen = true
         } catch (e: Throwable) {
             isOpen = false
         }
