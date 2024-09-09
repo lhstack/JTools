@@ -140,6 +140,7 @@ class ContentPageAction(
                     tabsPanel.tabs.forEach { tab ->
                         if (tab.component is PluginTabPanel) {
                             if(tab.component != tabInfo.component){
+                                (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project) }
                                 tabsPanel.removeTab(tab)
                             }
                         }
