@@ -28,7 +28,6 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -118,7 +117,7 @@ class ContentPageAction(
 
     private fun createTabsPopup() {
         val tabsPopupGroup = DefaultActionGroup()
-        tabsPopupGroup.add(object : AnAction({ "关闭所有标签" }, AllIcons.Actions.Close) {
+        tabsPopupGroup.add(object : DynamicIconAction({ "关闭所有标签" }, {Icons.closeAllIcon()}) {
             override fun actionPerformed(e: AnActionEvent) {
                 tabsPanel.tabs.forEach { tab ->
                     if (tab.component is PluginTabPanel) {
@@ -127,8 +126,33 @@ class ContentPageAction(
                     }
                 }
             }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.EDT
+            }
         })
-        tabsPopupGroup.add(object : AnAction({ "在新窗口中打开" }, AllIcons.Actions.OpenNewTab) {
+
+        tabsPopupGroup.add(object:DynamicIconAction({"关闭其他标签"},{Icons.closeOtherIcon()}){
+            override fun actionPerformed(e: AnActionEvent) {
+                val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
+                if(component is TabLabel){
+                    val tabInfo = component.info
+                    tabsPanel.tabs.forEach { tab ->
+                        if (tab.component is PluginTabPanel) {
+                            if(tab.component != tabInfo.component){
+                                tabsPanel.removeTab(tab)
+                            }
+                        }
+                    }
+                }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.EDT
+            }
+        })
+
+        tabsPopupGroup.add(object : DynamicIconAction({ "在新窗口中打开" }, {Icons.newTabIcon()}) {
             override fun actionPerformed(e: AnActionEvent) {
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
                 if (component is TabLabel) {
@@ -149,6 +173,10 @@ class ContentPageAction(
                     }
                     dialog.show()
                 }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.EDT
             }
         })
         tabsPanel.setPopupGroup(tabsPopupGroup, "ContentPage@Tabs", true)

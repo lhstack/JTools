@@ -34,5 +34,11 @@ class Icons {
 
         fun jsIcon() = findIcon("icons/js")
 
+        fun closeAllIcon() = findIcon("icons/close_all")
+
+        fun newTabIcon() = findIcon("icons/new_tab")
+
+        fun closeOtherIcon() = findIcon("icons/close_other")
+
     }
 }
