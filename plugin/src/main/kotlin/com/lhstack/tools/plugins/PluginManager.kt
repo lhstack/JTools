@@ -211,7 +211,7 @@ class PluginManager {
                             "js"
                         )
                         val pluginInstance = CefPluginImpl(classLoader, cefPluginInfo, cefCacheManager!!)
-                        pluginInstances[pluginInfo] = pluginInstance
+//                        pluginInstances[pluginInfo] = pluginInstance
                         consumer.invoke(pluginInstance, pluginInfo, null)
                     }
 
