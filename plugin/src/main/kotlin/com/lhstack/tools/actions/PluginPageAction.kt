@@ -1,5 +1,6 @@
 package com.lhstack.tools.actions
 
+import com.google.common.io.Files
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -13,6 +14,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
+import com.intellij.util.CompressionUtil
+import com.intellij.util.io.ZipUtil
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.WrapLayout
@@ -21,14 +24,13 @@ import com.lhstack.tools.components.HoverAttachPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.const.Keys
 import com.lhstack.tools.exception.PluginException
-import com.lhstack.tools.ext.catch
-import com.lhstack.tools.ext.errorNotify
-import com.lhstack.tools.ext.fullMsg
-import com.lhstack.tools.ext.notify
+import com.lhstack.tools.ext.*
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.*
+import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
+import org.apache.tools.zip.ZipOutputStream
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.datatransfer.DataFlavor
@@ -185,6 +187,30 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         boxPanel: HoverAttachPanel, pluginInfo: PluginInfo, plugin: IPlugin,
     ): DefaultActionGroup {
         val group = DefaultActionGroup()
+       
+        group.add(object:DynamicIconAction({"导出插件"},{Icons.exportIcon()}){
+            override fun actionPerformed(e: AnActionEvent) {
+                //js插件
+                if(StringUtils.equalsAnyIgnoreCase(pluginInfo.type,"js")){
+                    project.chooseSaveFile("插件导出",pluginInfo.name,plugin.pluginDesc()?:"","zip"){
+                        val filePath = it.presentableUrl
+                        File(pluginInfo.path).zip(File(filePath))
+                        project.infoNotify("插件导出","导出插件成功")
+                    }
+                }else {
+                    //jar插件
+                    project.chooseSaveFile("插件导出",pluginInfo.name,plugin.pluginDesc()?:"","jar"){
+                        Files.copy(File(pluginInfo.path),File(it.presentableUrl))
+                        project.infoNotify("插件导出","导出插件成功")
+                    }
+                }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.EDT
+            }
+        })
+
         group.add(object : DynamicIconAction({ "卸载插件" }, { Icons.unInstallIcon() }) {
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)

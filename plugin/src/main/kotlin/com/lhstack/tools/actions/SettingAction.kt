@@ -11,6 +11,7 @@ import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
+import org.apache.commons.lang3.StringUtils
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
@@ -83,11 +84,9 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                             this.pluginState().plugins.forEach { (k, v) ->
                                 try {
                                     val classloader = this.pluginManager().classloaders.remove(v)
-                                    //卸载之前的实例
-                                    val pluginInstance = this.pluginManager().pluginInstances.remove(v)
                                     val oldFile = File(v.path)
                                     val newFile = File(this.absolutePath, oldFile.name)
-                                    if (v.type == "js") {
+                                    if (StringUtils.equalsAnyIgnoreCase(v.type,"js")) {
                                         FileUtils.copyDirectory(oldFile, newFile)
                                     } else {
                                         FileUtils.copyFile(oldFile, newFile)

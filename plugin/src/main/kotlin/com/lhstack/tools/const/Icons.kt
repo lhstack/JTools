@@ -40,5 +40,7 @@ class Icons {
 
         fun closeOtherIcon() = findIcon("icons/close_other")
 
+        fun exportIcon() = findIcon("icons/export")
+
     }
 }

@@ -7,6 +7,8 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
@@ -18,9 +20,15 @@ import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.io.FileUtils
+import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.StringUtils
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
@@ -110,6 +118,22 @@ fun Project.chooseDirectory(title: String, toSelect: VirtualFile?, consumer: (Vi
         ?.let(consumer)
 }
 
+fun Project.chooseSaveFile(
+    title: String,
+    filename: String,
+    description: String,
+    extension: String,
+    consumer: (VirtualFile) -> Unit
+) {
+    val fileSaverDescriptor = FileSaverDescriptor(title, description, extension)
+    val saveFileDialog = FileChooserFactory.getInstance().createSaveFileDialog(fileSaverDescriptor, this)
+    saveFileDialog.let { save ->
+        save.save(filename)?.let {
+            it.getVirtualFile(true)?.let(consumer)
+        }
+    }
+}
+
 fun Module.allLibraryPaths(): List<Path> {
     val result = ArrayList<Path>()
     val moduleRootManager = ModuleRootManager.getInstance(this)
@@ -182,3 +206,33 @@ fun Throwable.fullMsg(): String {
 
 val Any.gson: Gson
     get() = GsonBuilder().create()
+
+
+@Throws(IOException::class)
+fun File.zip(targetFile: File) {
+    ZipArchiveOutputStream(FileOutputStream(targetFile)).use { zipOut ->
+        zipDirectoryHelper(this, this, zipOut)
+    }
+}
+
+@Throws(IOException::class)
+private fun zipDirectoryHelper(rootDir: File, currentDir: File, zipOut: ZipArchiveOutputStream) {
+    currentDir.listFiles()?.let {
+        for (file in it) {
+            val entryName = rootDir.toPath().relativize(file.toPath()).toString().replace("\\", "/")
+            if (file.isDirectory) {
+                // 处理子目录
+                zipDirectoryHelper(rootDir, file, zipOut)
+            } else {
+                // 添加文件到 ZIP
+                val entry = ZipArchiveEntry(file, entryName)
+                zipOut.putArchiveEntry(entry)
+                FileInputStream(file).use { fis ->
+                    IOUtils.copy(fis, zipOut)
+                }
+                zipOut.closeArchiveEntry()
+            }
+        }
+    }
+
+}
