@@ -100,7 +100,7 @@ class PluginManager {
                         val classLoader = PluginClassLoader.newInstance(
                             UrlClassLoader.build().files(files)
                                 .parent(this::class.java.classLoader)
-                                .useCache().allowBootstrapResources(true).allowLock(false),
+                                .useCache().allowBootstrapResources(false).allowLock(false),
                             files
                         )
                         val toolsPluginSource = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
@@ -172,7 +172,7 @@ class PluginManager {
                 list.addAll(paths)
                 val classLoader = PluginClassLoader.newInstance(
                     UrlClassLoader.build().useCache().files(paths).parent(this::class.java.classLoader).useCache()
-                        .allowBootstrapResources(true).allowLock(false),
+                        .allowBootstrapResources(false).allowLock(false),
                     list
                 )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
@@ -254,7 +254,7 @@ class PluginManager {
                 }
                 val list = arrayListOf(newPluginFile.toPath())
                 val classLoader = PluginClassLoader.newInstance(UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
-                    .useCache().allowBootstrapResources().allowLock(false),list)
+                    .useCache().allowBootstrapResources(false).allowLock(false),list)
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
@@ -305,7 +305,6 @@ class PluginManager {
 
                 }
             } catch (e: Throwable) {
-                newPluginFile?.forceDelete()
                 if (e is PluginException) {
                     consumer.invoke(null, null, "插件安装出错,插件名称: ${e.pluginInfo.name},错误信息: ${e.msg}")
                 } else if (e.cause is PluginException) {
@@ -318,6 +317,7 @@ class PluginManager {
                 } else {
                     consumer.invoke(null, null, "插件安装出错,插件名称: ${file.name},错误信息: ${e.fullMsg()}")
                 }
+                newPluginFile?.forceDelete()
             }
         } else {
             consumer.invoke(null, null, "插件路径错误")

@@ -215,7 +215,10 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                     .uninstall(plugin, pluginInfo)
-                plugin.catch("卸载插件回调异常,插件信息: $pluginInfo") { unInstall() }
+                project.catch("卸载插件回调异常,插件信息: $pluginInfo") {
+                    plugin.unInstall()
+                }
+
                 pluginManager.uninstsall(pluginInfo)
             }
 
