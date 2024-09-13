@@ -1,5 +1,6 @@
 package com.lhstack.tools.plugins
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -73,12 +74,11 @@ class CefPluginImpl(
 ) : IPlugin {
 
     private val browsers: HashMap<String, JBCefBrowser> = hashMapOf()
-
-    private val cefClients: HashMap<String, JBCefClient> = hashMapOf()
-
     private val backgroundColor: AtomicReference<String> = AtomicReference("")
 
     private val fontColor: AtomicReference<String> = AtomicReference("")
+
+    private val disposables:HashMap<String,Disposable> = hashMapOf()
 
     override fun createPanel(project: Project): JComponent {
         return browsers.computeIfAbsent(project.locationHash) {
@@ -370,11 +370,9 @@ class CefPluginImpl(
 
 
             }, jbBrowser.cefBrowser)
-            Disposer.register(project) {
-                jbBrowser.dispose()
-                jbCefClient.dispose()
-            }
-            cefClients[project.locationHash] = jbCefClient
+            val disposable = Disposer.newDisposable()
+            Disposer.register(disposable,jbBrowser)
+            disposables[project.locationHash] = disposable
             jbBrowser.loadURL(cefPluginInfo.indexPage)
             jbBrowser
         }.component
@@ -390,14 +388,17 @@ class CefPluginImpl(
 
     override fun closeProject(project: Project) {
         browsers.remove(project.locationHash)
+        disposables.remove(project.locationHash)?.let { Disposer.dispose(it) }
     }
 
     override fun unInstall() {
-        browsers.forEach { (_, v) -> v.dispose() }
-        cefClients.forEach { (_, v) -> v.dispose() }
+        disposables.values.forEach { Disposer.dispose(it) }
+        disposables.clear()
     }
 
     override fun appClose() {
+        disposables.values.forEach { Disposer.dispose(it) }
+        disposables.clear()
         browsers.clear()
     }
 
