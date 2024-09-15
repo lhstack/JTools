@@ -14,8 +14,6 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
-import com.intellij.util.CompressionUtil
-import com.intellij.util.io.ZipUtil
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.WrapLayout
@@ -28,9 +26,7 @@ import com.lhstack.tools.ext.*
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.*
-import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
-import org.apache.tools.zip.ZipOutputStream
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.datatransfer.DataFlavor
@@ -49,7 +45,7 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
-    AbstractPageAction({ "插件管理" }, { Icons.pluginIcon() }, windowPanel), Disposable, PluginListener {
+    AbstractPageAction({ "插件管理" }, Icons.pluginIcon(), windowPanel), Disposable, PluginListener {
     private val panel: JComponent
     private val connect: MessageBusConnection
     private val pluginManager: PluginManager
@@ -79,7 +75,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                         return
                     }
                     val file = files[0]
-                    if (StringUtils.equalsAnyIgnoreCase(file.extension,".jar",".zip")) {
+                    if (StringUtils.equalsAnyIgnoreCase(file.extension, ".jar", ".zip")) {
                         project.errorNotify("插件安装", "插件仅支持jar,zip包方式安装")
                         return
                     }
@@ -120,7 +116,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         val actionGroup = DefaultActionGroup()
         actionGroup.add(InstallPluginAction())
         actionGroup.add(object :
-            DynamicIconAction({ "帮助" }, { Icons.helpIcon() }) {
+            AnAction({ "帮助" }, Icons.helpIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 Messages.showInfoMessage("点击安装按钮或者将插件拖入插件面板进行安装", "提示")
             }
@@ -187,21 +183,21 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         boxPanel: HoverAttachPanel, pluginInfo: PluginInfo, plugin: IPlugin,
     ): DefaultActionGroup {
         val group = DefaultActionGroup()
-       
-        group.add(object:DynamicIconAction({"导出插件"},{Icons.exportIcon()}){
+
+        group.add(object : AnAction({ "导出插件" }, Icons.exportIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 //js插件
-                if(StringUtils.equalsAnyIgnoreCase(pluginInfo.type,"js")){
-                    project.chooseSaveFile("插件导出",pluginInfo.name,plugin.pluginDesc()?:"","zip"){
+                if (StringUtils.equalsAnyIgnoreCase(pluginInfo.type, "js")) {
+                    project.chooseSaveFile("插件导出", pluginInfo.name, plugin.pluginDesc() ?: "", "zip") {
                         val filePath = it.presentableUrl
                         File(pluginInfo.path).zip(File(filePath))
-                        project.infoNotify("插件导出","导出插件成功")
+                        project.infoNotify("插件导出", "导出插件成功")
                     }
-                }else {
+                } else {
                     //jar插件
-                    project.chooseSaveFile("插件导出",pluginInfo.name,plugin.pluginDesc()?:"","jar"){
-                        Files.copy(File(pluginInfo.path),File(it.presentableUrl))
-                        project.infoNotify("插件导出","导出插件成功")
+                    project.chooseSaveFile("插件导出", pluginInfo.name, plugin.pluginDesc() ?: "", "jar") {
+                        Files.copy(File(pluginInfo.path), File(it.presentableUrl))
+                        project.infoNotify("插件导出", "导出插件成功")
                     }
                 }
             }
@@ -211,7 +207,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             }
         })
 
-        group.add(object : DynamicIconAction({ "卸载插件" }, { Icons.unInstallIcon() }) {
+        group.add(object : AnAction({ "卸载插件" }, Icons.unInstallIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                     .uninstall(plugin, pluginInfo)

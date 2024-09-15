@@ -6,41 +6,41 @@ import com.lhstack.tools.ext.findIcon
 
 class Icons {
     companion object {
-        fun pluginIcon() = findIcon("icons/plugin")
+        fun pluginIcon() = findIcon("icons/plugin.svg")
 
-        fun installIcon() = findIcon("icons/install")
+        fun installIcon() = findIcon("icons/install.svg")
 
-        fun unInstallIcon() = findIcon("icons/uninstall")
+        fun unInstallIcon() = findIcon("icons/uninstall.svg")
 
-        fun toolIcon() = findIcon("icons/tool")
+        fun toolIcon() = findIcon("icons/tool.svg")
 
-        fun settingIcon() = findIcon("icons/setting")
+        fun settingIcon() = findIcon("icons/setting.svg")
 
-        fun addIcon() = findIcon("icons/add", "svg")
+        fun addIcon() = findIcon("icons/add.svg")
 
-        fun addHoverIcon() = IconLoader.findIcon("icons/add_hover.svg",ToolsMainWindowFactory::class.java)!!
+        fun addHoverIcon() = findIcon("icons/add_hover.svg")
 
-        fun developerIcon() = findIcon("icons/developer")
+        fun developerIcon() = findIcon("icons/developer.svg")
 
-        fun stopHoverIcon() = IconLoader.findIcon("icons/stop_hover.svg", ToolsMainWindowFactory::class.java)
+        fun stopHoverIcon() = findIcon("icons/stop_hover.svg")
 
-        fun stopIcon() = findIcon("icons/stop")
+        fun stopIcon() = findIcon("icons/stop.svg")
 
-        fun helpIcon() = findIcon("icons/help")
+        fun helpIcon() = findIcon("icons/help.svg")
 
-        fun notificationIcon() = findIcon("icons/notification")
+        fun notificationIcon() = findIcon("icons/notification.svg")
 
-        fun pluginWindowIcon() = findIcon("icons/pluginIcon")
+        fun pluginWindowIcon() = findIcon("icons/pluginIcon.svg")
 
-        fun jsIcon() = findIcon("icons/js")
+        fun jsIcon() = findIcon("icons/js.svg")
 
-        fun closeAllIcon() = findIcon("icons/close_all")
+        fun closeAllIcon() = findIcon("icons/close_all.svg")
 
-        fun newTabIcon() = findIcon("icons/new_tab")
+        fun newTabIcon() = findIcon("icons/new_tab.svg")
 
-        fun closeOtherIcon() = findIcon("icons/close_other")
+        fun closeOtherIcon() = findIcon("icons/close_other.svg")
 
-        fun exportIcon() = findIcon("icons/export")
+        fun exportIcon() = findIcon("icons/export.svg")
 
     }
 }

@@ -16,7 +16,6 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
-import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
@@ -74,11 +73,8 @@ fun <T> T.notify(title: String, msg: String, notificationType: NotificationType)
     }
 }
 
-fun Any.findIcon(iconPath: String, ext: String = "svg"): Icon {
-    if (UIUtil.isUnderDarcula()) {
-        return IconLoader.findIcon("${iconPath}_light.${ext}", ToolsMainWindowFactory::class.java)!!
-    }
-    return IconLoader.findIcon("${iconPath}_dark.${ext}", ToolsMainWindowFactory::class.java)!!
+fun Any.findIcon(iconPath: String): Icon {
+    return IconLoader.findIcon(iconPath, ToolsMainWindowFactory::class.java)!!
 }
 
 

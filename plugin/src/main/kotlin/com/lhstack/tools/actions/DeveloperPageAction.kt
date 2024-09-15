@@ -29,7 +29,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
-    AbstractPageAction({ "插件开发调试" }, { Icons.developerIcon() }, windowPanel) {
+    AbstractPageAction({ "插件开发调试" }, Icons.developerIcon(), windowPanel) {
 
     private val panel: SimpleToolWindowPanel = SimpleToolWindowPanel(true, true)
 
@@ -85,7 +85,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
         }
         actionGroup.add(comboBoxAction)
-        actionGroup.add(object : DynamicToggleIconAction({ "开启JS插件" }, { Icons.jsIcon() }) {
+        actionGroup.add(object : ToggleAction({ "开启JS插件" }, Icons.jsIcon()) {
             override fun isSelected(e: AnActionEvent): Boolean {
                 return !developerState.isJavaPlugin()
             }

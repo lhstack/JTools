@@ -12,7 +12,6 @@ import com.intellij.ui.tabs.TabInfo
 import com.intellij.ui.tabs.TabsListener
 import com.intellij.ui.tabs.impl.TabLabel
 import com.intellij.util.messages.MessageBusConnection
-import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.components.EmptyPanel
 import com.lhstack.tools.components.FloatingDialog
 import com.lhstack.tools.components.PluginTabPanel
@@ -39,7 +38,7 @@ class ContentPageAction(
     private val project: Project,
     private val goToPage: (String) -> Unit
 ) :
-    AbstractPageAction({ "插件面板" }, { Icons.toolIcon() }, windowPanel), Disposable, ProjectPluginListener {
+    AbstractPageAction({ "插件面板" }, Icons.toolIcon(), windowPanel), Disposable, ProjectPluginListener {
 
     private val tabsPanel: JBEditorTabsBase
 
@@ -52,8 +51,6 @@ class ContentPageAction(
     private val cardView = "view"
 
     private val cardEmpty = "empty"
-
-    private val goToPluginIcon = AtomicReference(Icons.addIcon())
 
     private val goToPluginButton: JButton = object:JButton(){
         override fun contains(x: Int, y: Int): Boolean {
@@ -70,7 +67,7 @@ class ContentPageAction(
             return (dx * dx + dy * dy) <= radius * radius
         }
     }.apply {
-        this.icon = goToPluginIcon.get()
+        this.icon = Icons.addIcon()
         this.setContentAreaFilled(false);   // 禁用按钮的背景填充
         this.setBorderPainted(false);       // 去掉边框
         this.setFocusPainted(false);        // 去掉焦点框
@@ -80,17 +77,15 @@ class ContentPageAction(
             override fun mouseEntered(e: MouseEvent?) {
                 setCursor(Cursor(Cursor.HAND_CURSOR))
                 icon = Icons.addHoverIcon()
-                goToPluginIcon.getAndSet(Icons.addHoverIcon())
             }
 
             override fun mouseExited(e: MouseEvent?) {
                 icon = Icons.addIcon()
                 setCursor(Cursor(Cursor.DEFAULT_CURSOR))
-                goToPluginIcon.getAndSet(Icons.addIcon())
             }
         })
         this.addActionListener {
-            goToPluginIcon.getAndSet(Icons.addIcon())
+            icon = Icons.addIcon()
             goToPage.invoke("plugin")
         }
     }
@@ -117,7 +112,7 @@ class ContentPageAction(
 
     private fun createTabsPopup() {
         val tabsPopupGroup = DefaultActionGroup()
-        tabsPopupGroup.add(object : DynamicIconAction({ "关闭所有标签" }, {Icons.closeAllIcon()}) {
+        tabsPopupGroup.add(object : AnAction({ "关闭所有标签" }, Icons.closeAllIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 tabsPanel.tabs.forEach { tab ->
                     if (tab.component is PluginTabPanel) {
@@ -132,7 +127,7 @@ class ContentPageAction(
             }
         })
 
-        tabsPopupGroup.add(object:DynamicIconAction({"关闭其他标签"},{Icons.closeOtherIcon()}){
+        tabsPopupGroup.add(object:AnAction({"关闭其他标签"},Icons.closeOtherIcon()){
             override fun actionPerformed(e: AnActionEvent) {
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
                 if(component is TabLabel){
@@ -153,7 +148,7 @@ class ContentPageAction(
             }
         })
 
-        tabsPopupGroup.add(object : DynamicIconAction({ "在新窗口中打开" }, {Icons.newTabIcon()}) {
+        tabsPopupGroup.add(object : AnAction({ "在新窗口中打开" }, Icons.newTabIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
                 if (component is TabLabel) {
@@ -181,13 +176,6 @@ class ContentPageAction(
             }
         })
         tabsPanel.setPopupGroup(tabsPopupGroup, "ContentPage@Tabs", true)
-    }
-
-    override fun update(e: AnActionEvent) {
-        super.update(e)
-        this.goToPluginButton.icon = goToPluginIcon.get()
-        this.goToPluginButton.revalidate()
-        this.goToPluginButton.repaint()
     }
 
     override fun getPanel(): JComponent {

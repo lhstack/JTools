@@ -14,7 +14,7 @@ import com.lhstack.tools.plugins.pluginManager
 class ProjectStartupActivity : StartupActivity, DumbAware {
 
     override fun runActivity(project: Project) {
-        ApplicationManager.getApplication().runReadAction {
+        ApplicationManager.getApplication().invokeLater {
             this.pluginManager().plugins { pluginInfo, plugin ->
                 try {
 

@@ -394,6 +394,7 @@ class CefPluginImpl(
     override fun unInstall() {
         disposables.values.forEach { Disposer.dispose(it) }
         disposables.clear()
+        browsers.clear()
     }
 
     override fun appClose() {

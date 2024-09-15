@@ -22,7 +22,7 @@ import javax.swing.*
 
 class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : AbstractPageAction(
     { "设置" },
-    { Icons.settingIcon() }, windowPanel
+    Icons.settingIcon(), windowPanel
 ) {
     private var panel: JPanel = JPanel()
     private var pluginInstallDirHelpLabel: JLabel = JLabel(Icons.helpIcon()).apply {
@@ -111,13 +111,6 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                 }
             })
         })
-    }
-
-    override fun update(e: AnActionEvent) {
-        super.update(e)
-        pluginInstallDirHelpLabel.icon = Icons.helpIcon()
-        pluginInstallDirHelpLabel.revalidate()
-        pluginInstallDirHelpLabel.repaint()
     }
 
     override fun getPanel(): JComponent {

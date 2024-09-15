@@ -6,7 +6,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
-import com.lhstack.tools.actions.DynamicIconAction
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.chooseJarFile
@@ -18,7 +17,7 @@ import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 
-class InstallPluginAction : DynamicIconAction({ "安装插件" }, {Icons.installIcon()}) {
+class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project
         project?.chooseJarFile("选择要安装的插件") {
