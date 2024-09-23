@@ -42,5 +42,7 @@ class Icons {
 
         fun exportIcon() = findIcon("icons/export.svg")
 
+        fun libraryIcon() = findIcon("icons/library.svg")
+
     }
 }

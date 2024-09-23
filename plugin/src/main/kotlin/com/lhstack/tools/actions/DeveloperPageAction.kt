@@ -1,17 +1,26 @@
 package com.lhstack.tools.actions
 
+import com.android.tools.idea.gradle.dsl.api.ProjectBuildModel
+import com.android.tools.idea.gradle.dsl.api.dependencies.FileDependencyModel
 import com.intellij.designer.actions.AbstractComboBoxAction
 import com.intellij.icons.AllIcons
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.compiler.CompilerManager
 import com.intellij.openapi.compiler.CompilerPaths
 import com.intellij.openapi.components.*
+import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
+import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
+import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.testFramework.fixtures.MavenDependencyUtil
+import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
@@ -19,7 +28,17 @@ import com.lhstack.tools.plugins.CefCacheManager
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
+import org.apache.commons.io.FileUtils
+import org.apache.commons.lang3.StringUtils
+import org.jetbrains.idea.maven.dsl.MavenDependencyModificator
+import org.jetbrains.idea.maven.importing.MavenProjectModelModifier
+import org.jetbrains.idea.maven.model.MavenArtifact
+import org.jetbrains.idea.maven.model.MavenBuild
+import org.jetbrains.idea.maven.model.MavenId
+import org.jetbrains.idea.maven.project.MavenProject
+import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.jps.model.java.JavaResourceRootType
+import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.awt.BorderLayout
 import java.io.File
 import java.nio.file.Paths
@@ -27,6 +46,7 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+
 
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
     AbstractPageAction({ "插件开发调试" }, Icons.developerIcon(), windowPanel) {
@@ -42,6 +62,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     private val developerState = project.service<DeveloperState>().state
 
     init {
+
         val actionGroup = DefaultActionGroup()
         initActionGroup(actionGroup)
         val actionToolbar = ActionManager.getInstance().createActionToolbar("DeveloperPage@Toolbar", actionGroup, true)
@@ -84,6 +105,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
         }
+        if (developerState.installSdk) {
+            this.installLibrary(comboBoxAction)
+        }
         actionGroup.add(comboBoxAction)
         actionGroup.add(object : ToggleAction({ "开启JS插件" }, Icons.jsIcon()) {
             override fun isSelected(e: AnActionEvent): Boolean {
@@ -104,6 +128,38 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
         })
+
+        actionGroup.add(object : ToggleAction({ "安装开发依赖" }, Icons.libraryIcon()) {
+
+            override fun update(e: AnActionEvent) {
+                super.update(e)
+                if (!developerState.isJavaPlugin()) {
+                    e.presentation.isEnabledAndVisible = false
+                    return
+                }
+            }
+
+            override fun isSelected(e: AnActionEvent): Boolean {
+                return developerState.installSdk
+            }
+
+            override fun setSelected(e: AnActionEvent, state: Boolean) {
+                if (developerState.installSdk != state && state) {
+                    developerState.installSdk = true
+                    installLibrary(comboBoxAction)
+                } else {
+                    developerState.installSdk = false
+                    unInstallLibrary(comboBoxAction)
+                }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.BGT
+            }
+
+
+        })
+
         actionGroup.add(object : AnAction({ "刷新模块" }, AllIcons.Actions.Refresh) {
             override fun update(e: AnActionEvent) {
                 super.update(e)
@@ -235,7 +291,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         })
     }
 
-    fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
+    private fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
 
         if (!developerState.isJavaPlugin()) {
 
@@ -421,6 +477,86 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     override fun getPanel(): JComponent {
         return panel
     }
+
+    private fun unInstallLibrary(moduleComboBox: AbstractComboBoxAction<Module>) {
+        DumbService.getInstance(project).runWhenSmart {
+            WriteCommandAction.runWriteCommandAction(project){
+                moduleComboBox.selection?.apply {
+                    val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
+                    val systemId = modulePropertyManager.getExternalSystemId()
+                    if (StringUtils.equalsAnyIgnoreCase(systemId,GradleConstants.SYSTEM_ID.id)) {
+                        ProjectBuildModel.get(project).getModuleBuildModel(this)?.let {
+                            for (dependencyModel in it.dependencies().all()) {
+                                if(dependencyModel is FileDependencyModel){
+                                    if(dependencyModel.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH){
+                                        it.dependencies().remove(dependencyModel)
+                                    }
+                                }
+                            }
+                            it.applyChanges()
+                        }
+                        ExternalSystemUtil.refreshProject(
+                            project, GradleConstants.SYSTEM_ID, project.basePath!!, false,
+                            ProgressExecutionMode.IN_BACKGROUND_ASYNC
+                        )
+                    }else if(StringUtils.equalsAnyIgnoreCase(systemId,"maven")){
+
+                    }
+                }
+            }
+        }
+    }
+
+    private fun installLibrary(moduleComboBox: AbstractComboBoxAction<Module>) {
+        DumbService.getInstance(project).runWhenSmart {
+            WriteCommandAction.runWriteCommandAction(project){
+                moduleComboBox.selection?.apply {
+                    File(Const.JTOOLS_SDK_INSTALL_PATH).apply {
+                        if (!this.exists()) {
+                            //创建父级目录
+                            File(this.parent).mkdirs()
+                        }
+                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/sdk.jar")?.use {
+                            FileUtils.writeByteArrayToFile(this, it.readAllBytes())
+                        }
+                    }
+                    val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
+                    val systemId = modulePropertyManager.getExternalSystemId()
+                    if (StringUtils.equalsAnyIgnoreCase(systemId,GradleConstants.SYSTEM_ID.id)) {
+                        ProjectBuildModel.get(project).getModuleBuildModel(this)?.let {
+                            if (!it.dependencies().files().any { f -> f.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH }) {
+                                it.dependencies().addFile("implementation",Const.JTOOLS_SDK_INSTALL_PATH)
+                                it.applyChanges()
+                            }
+                        }
+                        ExternalSystemUtil.refreshProject(
+                            project, GradleConstants.SYSTEM_ID, project.basePath!!, false,
+                            ProgressExecutionMode.IN_BACKGROUND_ASYNC
+                        )
+                    }else if(StringUtils.equalsAnyIgnoreCase(systemId,"maven")){
+                        val projectsManager = MavenProjectsManager.getInstance(project)
+                        val mavenProject = projectsManager
+                            .findProject(this)
+                        mavenProject?.let {
+                            val dependencies = it.findDependencies("JTools-Sdk", "JTools-Sdk")
+                            if(dependencies.isNotEmpty()){
+                                it.dependencies.add(MavenArtifact("JTools-Sdk","JTools-Sdk","0.0.1","0.0.1","jar","","system",true,"",
+                                    File(Const.JTOOLS_SDK_INSTALL_PATH),
+                                    projectsManager.localRepository,
+                                    true,false
+                                ))
+                                MavenProjectsManager.getInstance(project).evaluateEffectivePom(it){
+
+                                }
+                            }
+
+                        }
+                    }
+
+                }
+            }
+        }
+    }
 }
 
 @State(name = "dev", storages = [Storage("ToolsPluginState.xml")])
@@ -429,8 +565,16 @@ class DeveloperState : PersistentStateComponent<DeveloperState.State> {
 
     private var state: State = State()
 
+    companion object {
+        fun instance(project: Project) = project.service<DeveloperState>().state
+    }
+
     class State {
+        //插件类型
         var pluginType = "java"
+
+        //安装sdk
+        var installSdk = false
 
         //js插件缓存
         var jsCache = hashMapOf<String, String>()

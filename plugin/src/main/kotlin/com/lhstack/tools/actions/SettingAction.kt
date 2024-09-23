@@ -1,13 +1,12 @@
 package com.lhstack.tools.actions
 
-import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.components.JBTextField
+import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.*
-import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
@@ -27,9 +26,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
     private var panel: JPanel = JPanel()
     private var pluginInstallDirHelpLabel: JLabel = JLabel(Icons.helpIcon()).apply {
         val toolTipText =
-            "修改插件安装的目录,默认安装目录为: ${
-                System.getProperty("user.home").replace("\\", "/")
-            }/.ideaTools/plugins"
+            "修改插件安装的目录,默认安装目录为: ${Const.JTOOLS_PLUGIN_HOME}/plugins"
         this.toolTipText = toolTipText
         this.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {

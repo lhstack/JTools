@@ -14,8 +14,16 @@
          Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
     <description><![CDATA[
-    Enter short description for your plugin here.<br>
-    <em>most HTML tags may be used</em>
+    <div>
+        <span> <a href="https://github.com/lhstack/JTools">Help</a></span>
+    </div>
+    <h1>JTools</h1>
+    <p>JTools是一个集成管理,开发,运行的插件管理容器,它可以简化idea的插件开发流程,有完整的插件生命周期,支持插件热插拔,而不影响idea</p>
+    <h1>主要功能</h1>
+    <p>1. 它有插件面板,可拖动,点击安装插件,可右键卸载插件</p>
+    <p>2. 它有插件开发模块,可方便开发者在这个容器上快速调试插件</p>
+    <p>3. 它支持原生java插件和js插件</p>
+    <p>4. 它可以手动配置插件的安装目录</p>
   ]]></description>
 
     <!-- Product and plugin compatibility requirements.
@@ -23,7 +31,9 @@
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
     <depends>org.jetbrains.plugins.yaml</depends>
+    <depends>org.jetbrains.idea.maven</depends>
     <depends>org.intellij.groovy</depends>
+    <depends>org.jetbrains.plugins.gradle.dependency.updater</depends>
 
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"

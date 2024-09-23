@@ -20,7 +20,7 @@ intellij {
     version.set("2022.3")
     type.set("IC") // Target IDE Platform
 
-    plugins.set(listOf("com.intellij.java", "org.jetbrains.plugins.yaml", "org.intellij.groovy"))
+    plugins.set(listOf("com.intellij.java", "org.jetbrains.plugins.yaml", "org.intellij.groovy","org.jetbrains.idea.maven", "org.jetbrains.plugins.gradle.dependency.updater"))
 }
 
 dependencies {
@@ -46,8 +46,8 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-useuniqueclassmembernames",
         "-dontwarn !com.lhstack.tools.**",
         "-flattenpackagehierarchy",
-        "-libraryjars C:\\Users\\lhstack\\.m2\\repository\\org\\jetbrains\\kotlin\\kotlin-stdlib\\1.9.22\\kotlin-stdlib-1.9.22.jar",
-        "-libraryjars F:\\Repo\\Gradle\\caches\\modules-2\\files-2.1\\com.jetbrains.intellij.idea\\ideaIC\\2022.3\\4d343cadac04a0a31d70f6f96facfaa7f949df01\\ideaIC-2022.3\\lib\\util.jar",
+        "-libraryjars C:\\Users\\Administrator.20240226-110259\\.m2\\repository\\org\\jetbrains\\kotlin\\kotlin-stdlib\\1.9.22\\kotlin-stdlib-1.9.22.jar",
+        "-libraryjars E:\\gradle\\caches\\modules-2\\files-2.1\\com.jetbrains.intellij.idea\\ideaIC\\2022.3\\4d343cadac04a0a31d70f6f96facfaa7f949df01\\ideaIC-2022.3\\lib\\util.jar",
         "-libraryjars D:\\Program Files\\java\\17/jmods/java.base.jmod(!.jar;!module-info.class)",
         "-keep class com.lhstack.tools.ToolsMainWindowFactory { *; }",
         "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
@@ -133,7 +133,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("223")
-        untilBuild.set("242.*")
+        untilBuild.set("243.*")
     }
 
     signPlugin {
