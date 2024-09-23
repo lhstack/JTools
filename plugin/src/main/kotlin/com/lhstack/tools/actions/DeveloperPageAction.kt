@@ -13,13 +13,15 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
 import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.testFramework.fixtures.MavenDependencyUtil
+import com.intellij.psi.PsiManager
+import com.intellij.psi.xml.XmlFile
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
@@ -30,13 +32,9 @@ import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
-import org.jetbrains.idea.maven.dsl.MavenDependencyModificator
-import org.jetbrains.idea.maven.importing.MavenProjectModelModifier
-import org.jetbrains.idea.maven.model.MavenArtifact
-import org.jetbrains.idea.maven.model.MavenBuild
-import org.jetbrains.idea.maven.model.MavenId
-import org.jetbrains.idea.maven.project.MavenProject
+import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import org.jetbrains.idea.maven.utils.MavenUtil
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.awt.BorderLayout
@@ -480,15 +478,15 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
     private fun unInstallLibrary(moduleComboBox: AbstractComboBoxAction<Module>) {
         DumbService.getInstance(project).runWhenSmart {
-            WriteCommandAction.runWriteCommandAction(project){
+            WriteCommandAction.runWriteCommandAction(project) {
                 moduleComboBox.selection?.apply {
                     val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
                     val systemId = modulePropertyManager.getExternalSystemId()
-                    if (StringUtils.equalsAnyIgnoreCase(systemId,GradleConstants.SYSTEM_ID.id)) {
+                    if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
                         ProjectBuildModel.get(project).getModuleBuildModel(this)?.let {
                             for (dependencyModel in it.dependencies().all()) {
-                                if(dependencyModel is FileDependencyModel){
-                                    if(dependencyModel.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH){
+                                if (dependencyModel is FileDependencyModel) {
+                                    if (dependencyModel.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH) {
                                         it.dependencies().remove(dependencyModel)
                                     }
                                 }
@@ -499,8 +497,28 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             project, GradleConstants.SYSTEM_ID, project.basePath!!, false,
                             ProgressExecutionMode.IN_BACKGROUND_ASYNC
                         )
-                    }else if(StringUtils.equalsAnyIgnoreCase(systemId,"maven")){
+                    } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
+                        MavenProjectsManager.getInstance(project).findProject(this)?.let {
+                            PsiManager.getInstance(project).findFile(it.file)?.apply {
+                                if(this is XmlFile){
+                                    var forDelete = false
+                                    val dependencies = this.rootTag?.findFirstSubTag("dependencies")
+                                    dependencies?.findSubTags("dependency")?.forEach { dependency ->
+                                        val groupId = dependency.findFirstSubTag("groupId")?.value?.text
+                                        val artifactId = dependency.findFirstSubTag("artifactId")?.value?.text
+                                        if(groupId == "JTools-Sdk" && artifactId == "JTools-Sdk"){
+                                            dependency.delete()
+                                            forDelete = true
+                                        }
+                                    }
+                                    if(forDelete){
+                                        FileDocumentManager.getInstance().saveAllDocuments()
+                                        MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                    }
 
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -509,7 +527,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
     private fun installLibrary(moduleComboBox: AbstractComboBoxAction<Module>) {
         DumbService.getInstance(project).runWhenSmart {
-            WriteCommandAction.runWriteCommandAction(project){
+            WriteCommandAction.runWriteCommandAction(project) {
                 moduleComboBox.selection?.apply {
                     File(Const.JTOOLS_SDK_INSTALL_PATH).apply {
                         if (!this.exists()) {
@@ -522,10 +540,12 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     }
                     val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
                     val systemId = modulePropertyManager.getExternalSystemId()
-                    if (StringUtils.equalsAnyIgnoreCase(systemId,GradleConstants.SYSTEM_ID.id)) {
+                    if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
                         ProjectBuildModel.get(project).getModuleBuildModel(this)?.let {
-                            if (!it.dependencies().files().any { f -> f.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH }) {
-                                it.dependencies().addFile("implementation",Const.JTOOLS_SDK_INSTALL_PATH)
+                            if (!it.dependencies().files()
+                                    .any { f -> f.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH }
+                            ) {
+                                it.dependencies().addFile("implementation", Const.JTOOLS_SDK_INSTALL_PATH)
                                 it.applyChanges()
                             }
                         }
@@ -533,24 +553,23 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             project, GradleConstants.SYSTEM_ID, project.basePath!!, false,
                             ProgressExecutionMode.IN_BACKGROUND_ASYNC
                         )
-                    }else if(StringUtils.equalsAnyIgnoreCase(systemId,"maven")){
-                        val projectsManager = MavenProjectsManager.getInstance(project)
-                        val mavenProject = projectsManager
-                            .findProject(this)
-                        mavenProject?.let {
-                            val dependencies = it.findDependencies("JTools-Sdk", "JTools-Sdk")
-                            if(dependencies.isNotEmpty()){
-                                it.dependencies.add(MavenArtifact("JTools-Sdk","JTools-Sdk","0.0.1","0.0.1","jar","","system",true,"",
-                                    File(Const.JTOOLS_SDK_INSTALL_PATH),
-                                    projectsManager.localRepository,
-                                    true,false
-                                ))
-                                MavenProjectsManager.getInstance(project).evaluateEffectivePom(it){
-
+                    } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
+                        MavenProjectsManager.getInstance(project).findProject(this)?.let {
+                            MavenDomUtil.getMavenDomProjectModel(project,it.file)?.let { module ->
+                                if(!module.dependencies.dependencies.any { i -> i.groupId.value == "JTools-Sdk" && i.artifactId.value == "JTools-Sdk" }){
+                                    val dependency = module.dependencies.addDependency()
+                                    dependency.scope.value = "system"
+                                    dependency.systemPath.stringValue = Const.JTOOLS_SDK_INSTALL_PATH
+                                    dependency.version.value = "0.0.1"
+                                    dependency.groupId.value = "JTools-Sdk"
+                                    dependency.artifactId.value = "JTools-Sdk"
+                                    dependency.optional.value = true
+                                    FileDocumentManager.getInstance().saveAllDocuments()
+                                    MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                 }
                             }
-
                         }
+
                     }
 
                 }
