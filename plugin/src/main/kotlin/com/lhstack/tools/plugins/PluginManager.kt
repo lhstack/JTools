@@ -197,7 +197,7 @@ class PluginManager {
                 if (toolsPluginTxt == null) {
                     val resource =
                         classLoader.getResourceAsStream("pluginInfo.json")
-                            ?: throw RuntimeException("pluginInfo.json cannot null")
+                            ?: throw RuntimeException("pluginInfo.json或者META-INF/ToolsPlugin.txt未找到")
                     resource.use {
                         val cefPluginInfo = String(it.readAllBytes(), StandardCharsets.UTF_8).let { s ->
                             GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)

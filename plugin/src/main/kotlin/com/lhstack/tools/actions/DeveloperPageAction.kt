@@ -18,8 +18,10 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.*
+import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.lhstack.tools.const.Const
@@ -479,6 +481,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         DumbService.getInstance(project).runWhenSmart {
             WriteCommandAction.runWriteCommandAction(project) {
                 moduleComboBox.selection?.apply {
+                    val that = this
                     val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
                     val systemId = modulePropertyManager.getExternalSystemId()
                     if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
@@ -499,25 +502,41 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
                             PsiManager.getInstance(project).findFile(it.file)?.apply {
-                                if(this is XmlFile){
+                                if (this is XmlFile) {
                                     var forDelete = false
                                     val dependencies = this.rootTag?.findFirstSubTag("dependencies")
                                     dependencies?.findSubTags("dependency")?.forEach { dependency ->
                                         val groupId = dependency.findFirstSubTag("groupId")?.value?.text
                                         val artifactId = dependency.findFirstSubTag("artifactId")?.value?.text
-                                        if(groupId == "JTools-Sdk" && artifactId == "JTools-Sdk"){
+                                        if (groupId == "JTools-Sdk" && artifactId == "JTools-Sdk") {
                                             dependency.delete()
                                             forDelete = true
                                         }
                                     }
-                                    if(forDelete){
+                                    if (forDelete) {
                                         FileDocumentManager.getInstance().saveAllDocuments()
-                                        MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                        MavenProjectsManager.getInstance(project)
+                                            .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                     }
 
                                 }
                             }
                         }
+                    } else {
+                        val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
+                        val library = libraryTablesRegistrar.libraryTable.getLibraryByName("JTools:Sdk")
+                        if (library != null) {
+                            val modifiableModel = libraryTablesRegistrar.libraryTable.modifiableModel
+                            modifiableModel.removeLibrary(library)
+                            modifiableModel.commit()
+
+                            ModuleRootModificationUtil.updateModel(that) { model ->
+                                model.findLibraryOrderEntry(library)?.apply {
+                                    model.removeOrderEntry(this)
+                                }
+                            }
+                        }
+
                     }
                 }
             }
@@ -528,6 +547,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         DumbService.getInstance(project).runWhenSmart {
             WriteCommandAction.runWriteCommandAction(project) {
                 moduleComboBox.selection?.apply {
+                    val that = this
                     File(Const.JTOOLS_SDK_INSTALL_PATH).apply {
                         if (!this.exists()) {
                             //创建父级目录
@@ -554,8 +574,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         )
                     } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
-                            MavenDomUtil.getMavenDomProjectModel(project,it.file)?.let { module ->
-                                if(!module.dependencies.dependencies.any { i -> i.groupId.value == "JTools-Sdk" && i.artifactId.value == "JTools-Sdk" }){
+                            MavenDomUtil.getMavenDomProjectModel(project, it.file)?.let { module ->
+                                if (!module.dependencies.dependencies.any { i -> i.groupId.value == "JTools-Sdk" && i.artifactId.value == "JTools-Sdk" }) {
                                     val dependency = module.dependencies.addDependency()
                                     dependency.scope.value = "system"
                                     dependency.systemPath.stringValue = Const.JTOOLS_SDK_INSTALL_PATH
@@ -564,11 +584,35 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                     dependency.artifactId.value = "JTools-Sdk"
                                     dependency.optional.value = true
                                     FileDocumentManager.getInstance().saveAllDocuments()
-                                    MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                    MavenProjectsManager.getInstance(project)
+                                        .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                 }
                             }
                         }
 
+                    } else {
+                        val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
+                        var library = libraryTablesRegistrar.libraryTable.getLibraryByName("JTools:Sdk")
+                        if (library == null) {
+                            val libraryModifiableModel = libraryTablesRegistrar.libraryTable.modifiableModel
+                            library = libraryModifiableModel.createLibrary("JTools:Sdk")
+                            val modifiableModel = library.modifiableModel
+                            VirtualFileManager.getInstance().findFileByUrl(
+                                VirtualFileManager.constructUrl(
+                                    "jar",
+                                    Const.JTOOLS_SDK_INSTALL_PATH + "!/"
+                                )
+                            )?.apply {
+                                modifiableModel.addRoot(this, OrderRootType.CLASSES)
+                            }
+                            modifiableModel.commit()
+                            libraryModifiableModel.commit()
+                        }
+                        if (!ModuleRootManager.getInstance(that).orderEntries.filterIsInstance<LibraryOrderEntry>()
+                                .any { o -> o.libraryName == "JTools:Sdk" }
+                        ) {
+                            ModuleRootModificationUtil.addDependency(that, library, DependencyScope.PROVIDED, false)
+                        }
                     }
 
                 }
