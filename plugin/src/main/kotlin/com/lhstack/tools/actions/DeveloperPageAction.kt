@@ -22,6 +22,7 @@ import com.intellij.openapi.roots.*
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.lhstack.tools.const.Const
@@ -508,15 +509,17 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                     dependencies?.findSubTags("dependency")?.forEach { dependency ->
                                         val groupId = dependency.findFirstSubTag("groupId")?.value?.text
                                         val artifactId = dependency.findFirstSubTag("artifactId")?.value?.text
-                                        if (groupId == "JTools-Sdk" && artifactId == "JTools-Sdk") {
+                                        if (groupId == Const.JTOOLS_SDK_MAVEN_GROUP_ID && artifactId == Const.JTOOLS_SDK_MAVEN_ARTIFACT_ID) {
                                             dependency.delete()
                                             forDelete = true
                                         }
                                     }
                                     if (forDelete) {
-                                        FileDocumentManager.getInstance().saveAllDocuments()
+                                        PsiDocumentManager.getInstance(project).getDocument(this)?.apply {
+                                            FileDocumentManager.getInstance().saveDocument(this)
+                                        }
                                         MavenProjectsManager.getInstance(project)
-                                            .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                            .forceUpdateProjects(mutableListOf(it))
                                     }
 
                                 }
@@ -524,7 +527,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }
                     } else {
                         val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
-                        val library = libraryTablesRegistrar.libraryTable.getLibraryByName("JTools:Sdk")
+                        val library = libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
                         if (library != null) {
                             val modifiableModel = libraryTablesRegistrar.libraryTable.modifiableModel
                             modifiableModel.removeLibrary(library)
@@ -575,27 +578,31 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
                             MavenDomUtil.getMavenDomProjectModel(project, it.file)?.let { module ->
-                                if (!module.dependencies.dependencies.any { i -> i.groupId.value == "JTools-Sdk" && i.artifactId.value == "JTools-Sdk" }) {
+                                if (!module.dependencies.dependencies.any { i -> i.groupId.value == Const.JTOOLS_SDK_MAVEN_GROUP_ID && i.artifactId.value == Const.JTOOLS_SDK_MAVEN_ARTIFACT_ID }) {
                                     val dependency = module.dependencies.addDependency()
                                     dependency.scope.value = "system"
                                     dependency.systemPath.stringValue = Const.JTOOLS_SDK_INSTALL_PATH
-                                    dependency.version.value = "0.0.1"
-                                    dependency.groupId.value = "JTools-Sdk"
-                                    dependency.artifactId.value = "JTools-Sdk"
+                                    dependency.version.value = Const.JTOOLS_SDK_MAVEN_VERSION
+                                    dependency.groupId.value = Const.JTOOLS_SDK_MAVEN_GROUP_ID
+                                    dependency.artifactId.value = Const.JTOOLS_SDK_MAVEN_ARTIFACT_ID
                                     dependency.optional.value = true
-                                    FileDocumentManager.getInstance().saveAllDocuments()
+                                    PsiManager.getInstance(project).findFile(it.file)?.apply {
+                                        PsiDocumentManager.getInstance(project).getDocument(this)?.apply {
+                                            FileDocumentManager.getInstance().saveDocument(this)
+                                        }
+                                    }
                                     MavenProjectsManager.getInstance(project)
-                                        .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                        .forceUpdateProjects(mutableListOf(it))
                                 }
                             }
                         }
 
                     } else {
                         val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
-                        var library = libraryTablesRegistrar.libraryTable.getLibraryByName("JTools:Sdk")
+                        var library = libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
                         if (library == null) {
                             val libraryModifiableModel = libraryTablesRegistrar.libraryTable.modifiableModel
-                            library = libraryModifiableModel.createLibrary("JTools:Sdk")
+                            library = libraryModifiableModel.createLibrary(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
                             val modifiableModel = library.modifiableModel
                             VirtualFileManager.getInstance().findFileByUrl(
                                 VirtualFileManager.constructUrl(
@@ -609,7 +616,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             libraryModifiableModel.commit()
                         }
                         if (!ModuleRootManager.getInstance(that).orderEntries.filterIsInstance<LibraryOrderEntry>()
-                                .any { o -> o.libraryName == "JTools:Sdk" }
+                                .any { o -> o.libraryName == Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY }
                         ) {
                             ModuleRootModificationUtil.addDependency(that, library, DependencyScope.PROVIDED, false)
                         }
