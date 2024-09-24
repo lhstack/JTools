@@ -105,7 +105,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
         }
-        if (developerState.installSdk) {
+        if (developerState.installSdk.contains(comboBoxAction.selection?.name)) {
             this.installLibrary(comboBoxAction)
         }
         actionGroup.add(comboBoxAction)
@@ -140,24 +140,24 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun isSelected(e: AnActionEvent): Boolean {
-                return developerState.installSdk
+                return comboBoxAction.selection?.name?.let { developerState.installSdk.contains(it) }?:false
             }
 
             override fun setSelected(e: AnActionEvent, state: Boolean) {
-                if (developerState.installSdk != state && state) {
-                    developerState.installSdk = true
-                    installLibrary(comboBoxAction)
-                } else {
-                    developerState.installSdk = false
-                    unInstallLibrary(comboBoxAction)
+                comboBoxAction.selection?.name?.let {
+                    if(!developerState.installSdk.contains(it) && state){
+                        developerState.installSdk.add(it)
+                        installLibrary(comboBoxAction)
+                    }else {
+                        developerState.installSdk.remove(it)
+                        unInstallLibrary(comboBoxAction)
+                    }
                 }
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
                 return ActionUpdateThread.BGT
             }
-
-
         })
 
         actionGroup.add(object : AnAction({ "刷新模块" }, AllIcons.Actions.Refresh) {
@@ -643,7 +643,7 @@ class DeveloperState : PersistentStateComponent<DeveloperState.State> {
         var pluginType = "java"
 
         //安装sdk
-        var installSdk = false
+        var installSdk = hashSetOf<String>()
 
         //js插件缓存
         var jsCache = hashMapOf<String, String>()
