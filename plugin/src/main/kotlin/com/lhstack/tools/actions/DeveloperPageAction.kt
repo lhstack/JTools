@@ -140,16 +140,15 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun isSelected(e: AnActionEvent): Boolean {
-                return comboBoxAction.selection?.name?.let { developerState.installSdk.contains(it) }?:false
+
+                return comboBoxAction.selection?.let { hasInstallLibrary(it) }?:false
             }
 
             override fun setSelected(e: AnActionEvent, state: Boolean) {
-                comboBoxAction.selection?.name?.let {
-                    if(!developerState.installSdk.contains(it) && state){
-                        developerState.installSdk.add(it)
+                comboBoxAction.selection?.let {
+                    if(!hasInstallLibrary(it)){
                         installLibrary(comboBoxAction)
                     }else {
-                        developerState.installSdk.remove(it)
                         unInstallLibrary(comboBoxAction)
                     }
                 }
@@ -476,6 +475,51 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
     override fun getPanel(): JComponent {
         return panel
+    }
+
+    private fun hasInstallLibrary(module:Module):Boolean{
+        val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(module)
+        val systemId = modulePropertyManager.getExternalSystemId()
+        if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
+            ProjectBuildModel.get(project).getModuleBuildModel(module)?.let {
+                for (dependencyModel in it.dependencies().all()) {
+                    if (dependencyModel is FileDependencyModel) {
+                        if (dependencyModel.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH) {
+                            return true
+                        }
+                    }
+                }
+            }
+            return false
+        } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
+            MavenProjectsManager.getInstance(project).findProject(module)?.let {
+                PsiManager.getInstance(project).findFile(it.file)?.apply {
+                    if (this is XmlFile) {
+                        val dependencies = this.rootTag?.findFirstSubTag("dependencies")
+                        dependencies?.findSubTags("dependency")?.forEach { dependency ->
+                            val groupId = dependency.findFirstSubTag("groupId")?.value?.text
+                            val artifactId = dependency.findFirstSubTag("artifactId")?.value?.text
+                            if (groupId == Const.JTOOLS_SDK_MAVEN_GROUP_ID && artifactId == Const.JTOOLS_SDK_MAVEN_ARTIFACT_ID) {
+                                return true
+                            }
+                        }
+                        return false
+                    }
+                }
+            }
+        } else {
+            val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
+            val library = libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
+            if (library != null) {
+                for (orderEntry in ModuleRootManager.getInstance(module).orderEntries) {
+                    if(orderEntry is LibraryOrderEntry && orderEntry.libraryName == Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY){
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        return false
     }
 
     private fun unInstallLibrary(moduleComboBox: AbstractComboBoxAction<Module>) {
