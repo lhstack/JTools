@@ -27,6 +27,7 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.util.*
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -36,7 +37,7 @@ import kotlin.math.min
 class ContentPageAction(
     windowPanel: SimpleToolWindowPanel,
     private val project: Project,
-    private val goToPage: (String) -> Unit
+    private val goToPage: (String) -> Unit,
 ) :
     AbstractPageAction({ "插件面板" }, Icons.toolIcon(), windowPanel), Disposable, ProjectPluginListener {
 
@@ -52,7 +53,7 @@ class ContentPageAction(
 
     private val cardEmpty = "empty"
 
-    private val goToPluginButton: JButton = object:JButton(){
+    private val goToPluginButton: JButton = object : JButton() {
         override fun contains(x: Int, y: Int): Boolean {
             val width = width
             val height = height
@@ -73,7 +74,7 @@ class ContentPageAction(
         this.setFocusPainted(false);        // 去掉焦点框
         this.setOpaque(false);
         this.preferredSize = Dimension(icon.iconWidth, icon.iconHeight)
-        this.addMouseListener(object:MouseAdapter(){
+        this.addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent?) {
                 setCursor(Cursor(Cursor.HAND_CURSOR))
                 icon = Icons.addHoverIcon()
@@ -127,14 +128,14 @@ class ContentPageAction(
             }
         })
 
-        tabsPopupGroup.add(object:AnAction({"关闭其他标签"},Icons.closeOtherIcon()){
+        tabsPopupGroup.add(object : AnAction({ "关闭其他标签" }, Icons.closeOtherIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
-                if(component is TabLabel){
+                if (component is TabLabel) {
                     val tabInfo = component.info
                     tabsPanel.tabs.forEach { tab ->
                         if (tab.component is PluginTabPanel) {
-                            if(tab.component != tabInfo.component){
+                            if (tab.component != tabInfo.component) {
                                 (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project) }
                                 tabsPanel.removeTab(tab)
                             }
@@ -240,6 +241,11 @@ class ContentPageAction(
                 }
 
             }), "tabActionGroup")
+
+            Optional.ofNullable(plugin.tabPanelActions()).filter { it.isNotEmpty() }.ifPresent {
+                tabInfo.setTabPaneActions(DefaultActionGroup(it))
+            }
+
             cardLayout.show(contentPanel, cardView)
             tabsPanel.addTab(tabInfo)
             tabsPanel.select(tabInfo, true)

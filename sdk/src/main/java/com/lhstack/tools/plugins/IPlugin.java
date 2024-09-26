@@ -1,8 +1,17 @@
 package com.lhstack.tools.plugins;
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public interface IPlugin {
 
@@ -131,4 +140,30 @@ public interface IPlugin {
      * @return
      */
     String pluginVersion();
+
+
+    default List<AnAction> tabPanelActions(){
+        return this.swingTabPanelActions().stream().map(item -> {
+            AnAction action = new AnAction(item::title) {
+
+                @Override
+                public void actionPerformed(@NotNull AnActionEvent e) {
+                    item.actionPerformed();
+                }
+
+                @Override
+                public @NotNull ActionUpdateThread getActionUpdateThread() {
+                    return ActionUpdateThread.BGT;
+                }
+            };
+            Presentation presentation = action.getTemplatePresentation();
+            Optional.ofNullable(item.description()).filter(str -> !str.isEmpty()).ifPresent(presentation::setDescription);
+            Optional.ofNullable(item.icon()).ifPresent(presentation::setIcon);
+            return action;
+        }).collect(Collectors.toList());
+    }
+
+    default List<Action> swingTabPanelActions(){
+        return Collections.emptyList();
+    }
 }
