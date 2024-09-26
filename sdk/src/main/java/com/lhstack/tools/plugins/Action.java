@@ -13,4 +13,5 @@ public interface Action {
     }
 
     void actionPerformed();
+
 }

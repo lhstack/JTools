@@ -242,7 +242,7 @@ class ContentPageAction(
 
             }), "tabActionGroup")
 
-            Optional.ofNullable(plugin.tabPanelActions()).filter { it.isNotEmpty() }.ifPresent {
+            Optional.ofNullable(plugin.tabPanelActions(project)).filter { it.isNotEmpty() }.ifPresent {
                 tabInfo.setTabPaneActions(DefaultActionGroup(it))
             }
 
