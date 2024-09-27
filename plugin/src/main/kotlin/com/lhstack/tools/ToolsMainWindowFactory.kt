@@ -39,10 +39,11 @@ class ToolsMainWindowFactory : ToolWindowFactory {
         //插件重新安装处理
         this.pluginManager().add(toolWindow.project.locationHash)
         toolWindow.setIcon(Icons.pluginWindowIcon())
+        val factory = toolWindow.contentManager.factory
+        toolWindow.contentManager.addContent(factory.createContent(ToolsMainView(toolWindow.project), "", true))
     }
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val factory = toolWindow.contentManager.factory
-        toolWindow.contentManager.addContent(factory.createContent(ToolsMainView(project), "", true))
+
     }
 }
