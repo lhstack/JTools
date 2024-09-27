@@ -16,7 +16,9 @@ class PluginAppLifecycleListener : AppLifecycleListener {
                     indicator.text = "安装插件: ${pluginInfo.name}成功"
                     indicator.fraction = index.toDouble() / total
                 }
-                this.pluginManager().clearUnloadingResidue()
+                this.pluginManager().catch("删除插件残留卸载文件") {
+                    this.clearUnloadingResidue()
+                }
             }
         })
     }
