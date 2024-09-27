@@ -24,7 +24,7 @@ class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false)
         toolBarActionGroup.add(DeveloperPageAction(this,project))
         toolBarActionGroup.add(SettingAction(this,project))
         val actionToolbar =
-            ActionManager.getInstance().createActionToolbar("Tools@ToolBar", toolBarActionGroup, false)
+            ActionManager.getInstance().createActionToolbar("JTools@ToolBar", toolBarActionGroup, false)
         toolbar = actionToolbar.component
         actionToolbar.targetComponent = this
         setContent(contentPageAction.getPanel())

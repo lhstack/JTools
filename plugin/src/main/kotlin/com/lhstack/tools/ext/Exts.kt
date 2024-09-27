@@ -60,13 +60,13 @@ fun <T> T.errorNotify(title: String, msg: String) {
 fun <T> T.notify(title: String, msg: String, notificationType: NotificationType) {
     if (this is Project) {
         Notifications.Bus.notify(
-            Notification("ToolsNotification", title, msg, notificationType).setIcon(
+            Notification("JToolsNotification", title, msg, notificationType).setIcon(
                 Icons.notificationIcon()
             ), this
         )
     } else {
         Notifications.Bus.notify(
-            Notification("ToolsNotification", title, msg, notificationType).setIcon(
+            Notification("JToolsNotification", title, msg, notificationType).setIcon(
                 Icons.notificationIcon()
             )
         )
