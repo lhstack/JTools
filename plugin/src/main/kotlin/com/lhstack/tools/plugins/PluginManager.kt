@@ -270,8 +270,8 @@ class PluginManager {
                         pluginInstances[pluginInfo] = pluginInstance
                         classloaders[pluginInfo] = classLoader
                         pluginInstance.install()
-                        consumer.invoke(pluginInstance, pluginInfo, null)
                         this.pluginState().plugins[pluginId] = pluginInfo
+                        consumer.invoke(pluginInstance, pluginInfo, null)
                     }) {
                         newPluginFile.forceDelete()
                         consumer.invoke(null, null, "META-INF/ToolsPlugin.txt未找到实现IPlugin的插件全类限定名")
@@ -299,8 +299,8 @@ class PluginManager {
                         classloaders[pluginInfo] = classLoader
                         //执行安装回调
                         pluginInstance.install()
-                        consumer.invoke(pluginInstance, pluginInfo, null)
                         this.pluginState().plugins[pluginId] = pluginInfo
+                        consumer.invoke(pluginInstance, pluginInfo, null)
                     }
 
                 }
