@@ -32,7 +32,7 @@ val proguardJar by tasks.registering(proguard.taskClass) {
 //        classpath.from(tasks.shadowJar)
 //    }
     addInput {
-        classpath.from(base.libsDirectory.file("instrumented-plugin-1.0-SNAPSHOT.jar"))
+        classpath.from(base.libsDirectory.file("instrumented-plugin-1.0.0.jar"))
     }
     addOutput {
         archiveFile.set(base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar"))

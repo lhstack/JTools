@@ -27,20 +27,21 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
                 } else {
                     plugin?.let { p ->
                         try {
-                            if(!p.installRestart()){
-                                //安装成功,需要通知所有项目的打开事件
-                                ProjectManager.getInstance().openProjects.forEach { openProject ->
-                                    p.openProject(openProject) {
-                                        if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
-                                            openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
-                                                .openPanel(pluginInfo!!, plugin)
-                                        } else {
-                                            openProject.notify(
-                                                "插件点击通知",
-                                                "此插件不是UI插件,不存在面板",
-                                                NotificationType.WARNING
-                                            )
-                                        }
+                            if (p.installRestart()) {
+                                ApplicationManager.getApplication().restart()
+                                return@install
+                            }
+                            ProjectManager.getInstance().openProjects.forEach { openProject ->
+                                p.openProject(openProject) {
+                                    if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
+                                        openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
+                                            .openPanel(pluginInfo!!, plugin)
+                                    } else {
+                                        openProject.notify(
+                                            "插件点击通知",
+                                            "此插件不是UI插件,不存在面板",
+                                            NotificationType.WARNING
+                                        )
                                     }
                                 }
                             }
@@ -49,9 +50,6 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
                         }
                         ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                             .install(p, pluginInfo!!)
-                        if (p.installRestart()) {
-                            ApplicationManager.getApplication().restart()
-                        }
                     }
                 }
             }
