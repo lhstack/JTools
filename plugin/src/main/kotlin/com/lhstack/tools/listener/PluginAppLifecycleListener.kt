@@ -13,7 +13,7 @@ class PluginAppLifecycleListener : AppLifecycleListener {
     override fun appFrameCreated(commandLineArgs: MutableList<String>) {
         ProgressManager.getInstance().run(object : Task.Backgroundable(null, "插件安装中...", false) {
             override fun run(indicator: ProgressIndicator) {
-                indicator.isIndeterminate = true
+                indicator.isIndeterminate = false
                 ApplicationManager.getApplication().invokeLater {
                     this.pluginManager().installs { pluginInfo, _, index, total ->
                         indicator.text = "安装插件: ${pluginInfo.name}成功"
