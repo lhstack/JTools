@@ -39,6 +39,7 @@ import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.plugins.gradle.util.GradleConstants
+import org.jetbrains.plugins.gradle.util.GradleUtil
 import java.awt.BorderLayout
 import java.io.File
 import java.nio.file.Paths
@@ -47,6 +48,19 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
+
+
+fun Project.getModules():MutableList<Module>{
+    return ModuleManager.getInstance(this).modules.filter {
+        val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(it)
+        val systemId = modulePropertyManager.getExternalSystemId()
+        if(StringUtils.equalsAnyIgnoreCase(systemId,"gradle")){
+            it.name.endsWith(".main")
+        }else {
+            true
+        }
+    }.toMutableList()
+}
 
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
     AbstractPageAction({ "插件开发调试" }, Icons.developerIcon(), windowPanel) {
@@ -76,8 +90,12 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         val comboBoxAction = object : AbstractComboBoxAction<Module>() {
 
             init {
-                val modules = ModuleManager.getInstance(project).modules
-                setItems(modules.toMutableList(), modules[0])
+                project.getModules().apply {
+                    if(this.isNotEmpty()){
+                        setItems(this, this[0])
+                    }
+                }
+
             }
 
             override fun update(e: AnActionEvent) {
@@ -169,9 +187,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun actionPerformed(e: AnActionEvent) {
-                val modules = ModuleManager.getInstance(project).modules
-                comboBoxAction.setItems(modules.toMutableList(), modules[0])
-                comboBoxAction.update()
+                project.getModules().apply {
+                    comboBoxAction.setItems(this, this[0])
+                    comboBoxAction.update()
+                }
+
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
