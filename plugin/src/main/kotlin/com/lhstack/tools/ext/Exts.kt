@@ -175,7 +175,7 @@ fun File.forceDelete() {
 fun Project.openThisWindow() {
     val windowManager = ToolWindowManager.getInstance(this)
     val toolWindow = windowManager.getToolWindow(Const.TOOLS_WINDOW_ID)
-    toolWindow?.show()
+    toolWindow?.activate {  }
 }
 
 inline fun <T, R> T.catch(block: T.() -> R): R? {
