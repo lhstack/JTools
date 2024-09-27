@@ -8,6 +8,7 @@ import com.intellij.openapi.startup.StartupActivity
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
+import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 
@@ -19,6 +20,8 @@ class ProjectStartupActivity : StartupActivity, DumbAware {
                 try {
                     plugin.openProject(project) {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
+                            //需要打开Tools面板
+                            project.openThisWindow()
                             project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
                         } else {
                             project.notify("插件点击通知", "此插件不是UI插件,不存在面板", NotificationType.WARNING)

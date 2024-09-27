@@ -9,6 +9,7 @@ import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.notify
+import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
@@ -21,6 +22,8 @@ class ToolsMainWindowFactory : ToolWindowFactory {
                 plugin.openProject(openProject) {
                     try {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
+                            //需要打开Tools面板
+                            openProject.openThisWindow()
                             openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
                                 .openPanel(pluginInfo, plugin)
                         } else {
@@ -39,11 +42,10 @@ class ToolsMainWindowFactory : ToolWindowFactory {
         //插件重新安装处理
         this.pluginManager().add(toolWindow.project.locationHash)
         toolWindow.setIcon(Icons.pluginWindowIcon())
-        val factory = toolWindow.contentManager.factory
-        toolWindow.contentManager.addContent(factory.createContent(ToolsMainView(toolWindow.project), "", true))
     }
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-
+        val factory = toolWindow.contentManager.factory
+        toolWindow.contentManager.addContent(factory.createContent(ToolsMainView(toolWindow.project), "", true))
     }
 }

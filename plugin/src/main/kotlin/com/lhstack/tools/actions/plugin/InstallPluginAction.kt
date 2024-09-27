@@ -8,10 +8,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
-import com.lhstack.tools.ext.chooseJarFile
-import com.lhstack.tools.ext.errorNotify
-import com.lhstack.tools.ext.fullMsg
-import com.lhstack.tools.ext.notify
+import com.lhstack.tools.ext.*
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.PluginType
@@ -34,6 +31,8 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
                             ProjectManager.getInstance().openProjects.forEach { openProject ->
                                 p.openProject(openProject) {
                                     if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
+                                        //需要打开Tools面板
+                                        openProject.openThisWindow()
                                         openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
                                             .openPanel(pluginInfo!!, plugin)
                                     } else {

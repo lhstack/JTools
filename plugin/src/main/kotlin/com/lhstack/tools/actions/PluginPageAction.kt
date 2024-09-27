@@ -93,6 +93,8 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                                         }
                                         p.openProject(openProject) {
                                             if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
+                                                //需要打开Tools面板
+                                                openProject.openThisWindow()
                                                 openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
                                                     .openPanel(pluginInfo!!, plugin)
                                             } else {
