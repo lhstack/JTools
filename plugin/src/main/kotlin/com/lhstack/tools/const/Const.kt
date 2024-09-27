@@ -3,7 +3,7 @@ package com.lhstack.tools.const
 class Const {
 
     companion object{
-        const val TOOLS_WINDOW_ID = "Tools"
+        const val TOOLS_WINDOW_ID = "JTools"
 
         val JTOOLS_PLUGIN_HOME = "${System.getProperty("user.home")}/.ideaTools".replace("\\", "/")
 

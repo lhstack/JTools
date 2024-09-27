@@ -39,7 +39,6 @@ import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.plugins.gradle.util.GradleConstants
-import org.jetbrains.plugins.gradle.util.GradleUtil
 import java.awt.BorderLayout
 import java.io.File
 import java.nio.file.Paths
@@ -47,7 +46,6 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-
 
 
 fun Project.getModules():MutableList<Module>{

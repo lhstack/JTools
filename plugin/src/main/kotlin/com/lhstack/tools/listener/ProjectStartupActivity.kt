@@ -17,7 +17,6 @@ class ProjectStartupActivity : StartupActivity, DumbAware {
         ApplicationManager.getApplication().invokeLater {
             this.pluginManager().plugins { pluginInfo, plugin ->
                 try {
-
                     plugin.openProject(project) {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).openPanel(pluginInfo, plugin)
