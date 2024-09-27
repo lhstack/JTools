@@ -27,6 +27,9 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
                 } else {
                     plugin?.let { p ->
                         try {
+                            if (p.installRestart()) {
+                                ApplicationManager.getApplication().restart()
+                            }
                             //安装成功,需要通知所有项目的打开事件
                             ProjectManager.getInstance().openProjects.forEach { openProject ->
                                 p.openProject(openProject) {

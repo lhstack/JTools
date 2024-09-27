@@ -86,6 +86,14 @@ public interface IPlugin {
     }
 
     /**
+     * 安装成功之后是否需要重启
+     * @return
+     */
+    default boolean installRestart(){
+        return false;
+    }
+
+    /**
      * app启动时会触发 安装
      */
     default void install() {

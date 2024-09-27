@@ -87,6 +87,9 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                                 //安装成功,需要通知所有项目的打开事件
                                 ProjectManager.getInstance().openProjects.forEach { openProject ->
                                     try {
+                                        if(p.installRestart()){
+                                            ApplicationManager.getApplication().restart()
+                                        }
                                         p.openProject(openProject) {
                                             if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                                 openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
