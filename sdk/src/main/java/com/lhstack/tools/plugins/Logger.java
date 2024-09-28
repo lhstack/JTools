@@ -9,4 +9,6 @@ public interface Logger {
     void debug(Object msg);
 
     void error(Object msg);
+
+    void activeConsolePanel();
 }

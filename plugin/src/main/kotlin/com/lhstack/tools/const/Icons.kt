@@ -44,5 +44,7 @@ class Icons {
 
         fun libraryIcon() = findIcon("icons/library.svg")
 
+        fun openConsolePanel() = findIcon("icons/console.svg")
+
     }
 }

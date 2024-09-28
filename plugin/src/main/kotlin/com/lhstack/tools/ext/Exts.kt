@@ -300,11 +300,11 @@ fun Project.initConsoleLog() {
 }
 
 fun PluginInfo.logImpl(project: Project):LoggerImpl {
-    return LoggerImpl(this.name,this.version,project.getConsoleLog())
+    return LoggerImpl(this.name,this.version,project.getConsoleLog(),project)
 }
 
 
-class LoggerImpl(private val loggerName: String, val version: String, private val consoleView: BuildTextConsoleView) :
+class LoggerImpl(private val loggerName: String, val version: String, private val consoleView: BuildTextConsoleView,private val project: Project) :
     Logger {
     override fun info(msg: Any) {
         this.message("INFO", msg)
@@ -361,5 +361,9 @@ class LoggerImpl(private val loggerName: String, val version: String, private va
 
     override fun error(msg: Any) {
         this.message("ERROR", msg)
+    }
+
+    override fun activeConsolePanel() {
+        project.activeConsolePanel()
     }
 }
