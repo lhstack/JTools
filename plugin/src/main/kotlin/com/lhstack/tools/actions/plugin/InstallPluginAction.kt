@@ -29,7 +29,7 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
                                 return@install
                             }
                             ProjectManager.getInstance().openProjects.forEach { openProject ->
-                                p.openProject(openProject) {
+                                p.openProject(openProject, pluginInfo!!.logImpl(openProject)) {
                                     if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                         //需要打开Tools面板
                                         openProject.openThisWindow()

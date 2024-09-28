@@ -2,6 +2,8 @@ package com.lhstack.tools.ext
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.intellij.build.BuildTextConsoleView
+import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -14,11 +16,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.plugins.Logger
+import com.lhstack.tools.plugins.PluginInfo
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.io.FileUtils
@@ -30,6 +35,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.stream.Collectors
 import javax.swing.Icon
 
@@ -119,7 +126,7 @@ fun Project.chooseSaveFile(
     filename: String,
     description: String,
     extension: String,
-    consumer: (VirtualFile) -> Unit
+    consumer: (VirtualFile) -> Unit,
 ) {
     val fileSaverDescriptor = FileSaverDescriptor(title, description, extension)
     val saveFileDialog = FileChooserFactory.getInstance().createSaveFileDialog(fileSaverDescriptor, this)
@@ -175,7 +182,7 @@ fun File.forceDelete() {
 fun Project.openThisWindow() {
     val windowManager = ToolWindowManager.getInstance(this)
     val toolWindow = windowManager.getToolWindow(Const.TOOLS_WINDOW_ID)
-    toolWindow?.activate {  }
+    toolWindow?.activate { }
 }
 
 inline fun <T, R> T.catch(block: T.() -> R): R? {
@@ -230,5 +237,109 @@ private fun zipDirectoryHelper(rootDir: File, currentDir: File, zipOut: ZipArchi
             }
         }
     }
+}
 
+fun Project.getConsoleLog(): BuildTextConsoleView {
+    var consoleView = this.getUserData(Const.LOG_CONSOLE_KEY)
+    if (consoleView == null) {
+        this.initConsoleLog()
+        consoleView = this.getUserData(Const.LOG_CONSOLE_KEY)
+        if (consoleView == null) {
+            val windowManager = ToolWindowManager.getInstance(this)
+            val toolWindow = windowManager.getToolWindow("Run")
+            if (toolWindow != null) {
+                val contentManager = toolWindow.contentManager
+                val factory = contentManager.factory
+                consoleView = BuildTextConsoleView(this, true, listOf())
+                val content = factory.createContent(consoleView.component, "JTools", false)
+                contentManager.addContent(content)
+                this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
+            }
+        }
+    }
+    return consoleView!!
+}
+
+fun Project.initConsoleLog() {
+    val windowManager = ToolWindowManager.getInstance(this)
+    var toolWindow = windowManager.getToolWindow("Run")
+    if (toolWindow == null) {
+        toolWindow = windowManager.registerToolWindow("Run") {
+            this.anchor = ToolWindowAnchor.BOTTOM
+            this.canCloseContent = false
+            this.sideTool = true
+            this.icon = this.findIcon("icons/run.svg")
+        }
+        val contentManager = toolWindow.contentManager
+        val factory = contentManager.factory
+        val consoleView = BuildTextConsoleView(this, true, listOf())
+        val content = factory.createContent(consoleView.component, "JTools", false)
+        contentManager.addContent(content)
+        this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
+    }
+}
+
+fun PluginInfo.logImpl(project: Project):LoggerImpl {
+    return LoggerImpl(this.name,this.version,project.getConsoleLog())
+}
+
+
+class LoggerImpl(private val loggerName: String, val version: String, private val consoleView: BuildTextConsoleView) :
+    Logger {
+    override fun info(msg: Any) {
+        this.message("INFO", msg)
+    }
+
+    override fun warn(msg: Any) {
+        this.message("WARN", msg)
+    }
+
+    override fun debug(msg: Any) {
+        this.message("DEBUG", msg)
+    }
+
+    private fun message(level: String, msg: Any?) {
+        val message = msg?.toString() ?: ""
+        val log = String.format(
+            "%s [%-10s] %-5s %-8s - %s",
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")),
+            substr(
+                Thread.currentThread().name, 10
+            ),
+            level,
+            "#$loggerName#$version",
+            message
+        )
+        val contentSize = consoleView.contentSize
+        if (contentSize > 0) {
+            consoleView.print(
+                """
+                    
+                    $log
+                    """.trimIndent(), getType(level)
+            )
+        } else {
+            consoleView.print(log, getType(level))
+        }
+    }
+
+    private fun substr(text: String, len: Int): String {
+        if (text.length <= len) {
+            return text
+        }
+        return text.substring(0, len - 2) + ".."
+    }
+
+    private fun getType(level: String): ConsoleViewContentType {
+        return when (level) {
+            "INFO" -> ConsoleViewContentType.LOG_INFO_OUTPUT
+            "WARN" -> ConsoleViewContentType.LOG_WARNING_OUTPUT
+            "DEBUG" -> ConsoleViewContentType.LOG_DEBUG_OUTPUT
+            else -> ConsoleViewContentType.ERROR_OUTPUT
+        }
+    }
+
+    override fun error(msg: Any) {
+        this.message("ERROR", msg)
+    }
 }

@@ -1,5 +1,8 @@
 package com.lhstack.tools.const
 
+import com.intellij.build.BuildTextConsoleView
+import com.intellij.openapi.util.Key
+
 class Const {
 
     companion object{
@@ -16,5 +19,7 @@ class Const {
         val JTOOLS_SDK_MAVEN_VERSION = "0.0.1"
 
         val JTOOLS_SDK_IDEA_PROJECT_LIBRARY = "JTools: Sdk"
+
+        val LOG_CONSOLE_KEY = Key.create<BuildTextConsoleView>("JTOOLS_LOG_CONSOLE_KEY")
     }
 }

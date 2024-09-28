@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.StartupActivity
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.fullMsg
+import com.lhstack.tools.ext.logImpl
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.plugins.PluginType
@@ -18,7 +19,7 @@ class ProjectStartupActivity : StartupActivity, DumbAware {
         ApplicationManager.getApplication().invokeLater {
             this.pluginManager().plugins { pluginInfo, plugin ->
                 try {
-                    plugin.openProject(project) {
+                    plugin.openProject(project, pluginInfo.logImpl(project)) {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             //需要打开Tools面板
                             project.openThisWindow()

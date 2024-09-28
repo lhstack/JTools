@@ -1,5 +1,6 @@
 package com.lhstack.tools.actions
 
+import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -32,6 +33,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             override fun mouseClicked(e: MouseEvent) {
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     project.infoNotify("提示", toolTipText)
+                    project.getConsoleLog().print(toolTipText, ConsoleViewContentType.LOG_DEBUG_OUTPUT)
                 }
             }
         })

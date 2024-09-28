@@ -21,11 +21,11 @@ public interface IPlugin {
      * @param project      项目
      * @param openThisPage 打开此页面,此功能仅UIPlugin有效
      */
-    default void openProject(Project project, Runnable openThisPage) {
-        this.openProject(project.getLocationHash(), openThisPage);
+    default void openProject(Project project, Logger logger, Runnable openThisPage) {
+        this.openProject(project.getLocationHash(), logger, openThisPage);
     }
 
-    default void openProject(String projectHash, Runnable openThisPage) {
+    default void openProject(String projectHash, Logger logger, Runnable openThisPage) {
 
     }
 
@@ -87,9 +87,10 @@ public interface IPlugin {
 
     /**
      * 安装成功之后是否需要重启
+     *
      * @return
      */
-    default boolean installRestart(){
+    default boolean installRestart() {
         return false;
     }
 
@@ -150,7 +151,7 @@ public interface IPlugin {
     String pluginVersion();
 
 
-    default List<AnAction> tabPanelActions(Project project){
+    default List<AnAction> tabPanelActions(Project project) {
         return this.swingTabPanelActions(project.getLocationHash()).stream().map(item -> {
             AnAction action = new AnAction(item::title) {
 
@@ -171,7 +172,7 @@ public interface IPlugin {
         }).collect(Collectors.toList());
     }
 
-    default List<Action> swingTabPanelActions(String locationHash){
+    default List<Action> swingTabPanelActions(String locationHash) {
         return Collections.emptyList();
     }
 }

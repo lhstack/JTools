@@ -48,13 +48,13 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 
 
-fun Project.getModules():MutableList<Module>{
+fun Project.getModules(): MutableList<Module> {
     return ModuleManager.getInstance(this).modules.filter {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(it)
         val systemId = modulePropertyManager.getExternalSystemId()
-        if(StringUtils.equalsAnyIgnoreCase(systemId,"gradle")){
+        if (StringUtils.equalsAnyIgnoreCase(systemId, "gradle")) {
             it.name.endsWith(".main")
-        }else {
+        } else {
             true
         }
     }.toMutableList()
@@ -89,7 +89,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
             init {
                 project.getModules().apply {
-                    if(this.isNotEmpty()){
+                    if (this.isNotEmpty()) {
                         setItems(this, this[0])
                     }
                 }
@@ -157,14 +157,14 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
             override fun isSelected(e: AnActionEvent): Boolean {
 
-                return comboBoxAction.selection?.let { hasInstallLibrary(it) }?:false
+                return comboBoxAction.selection?.let { hasInstallLibrary(it) } ?: false
             }
 
             override fun setSelected(e: AnActionEvent, state: Boolean) {
                 comboBoxAction.selection?.let {
-                    if(!hasInstallLibrary(it)){
+                    if (!hasInstallLibrary(it)) {
                         installLibrary(comboBoxAction)
-                    }else {
+                    } else {
                         unInstallLibrary(comboBoxAction)
                     }
                 }
@@ -360,7 +360,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     developerState.jsCache.remove(key)
                 }
 
-            }) { plugin, _, err ->
+            }) { plugin, info, err ->
                 if (err != null) {
                     if (err is PluginException) {
                         project.errorNotify(err.title, err.msg)
@@ -372,7 +372,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         install()
                         this
                     }?.catch("打开插件回调") {
-                        openProject(project) {
+                        openProject(project, info!!.logImpl(project)) {
                             //开发者模式不支持此功能
                             project.notify(
                                 "插件开发通知",
@@ -439,7 +439,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         addAll(resourcePaths)
                         addAll(it.allLibraryPaths())
                     }
-                    this.pluginManager().loadInstanceByDir(list, null) { plugin, _, err ->
+                    this.pluginManager().loadInstanceByDir(list, null) { plugin, pluginInfo, err ->
                         if (err != null) {
                             if (err is PluginException) {
                                 project.errorNotify(err.title, err.msg)
@@ -451,7 +451,10 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 install()
                                 this
                             }?.catch("打开插件回调") {
-                                openProject(project) {
+                                openProject(
+                                    project,
+                                    pluginInfo!!.logImpl(project)
+                                ) {
                                     //开发者模式不支持此功能
                                     project.notify(
                                         "插件开发通知",
@@ -495,7 +498,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         return panel
     }
 
-    private fun hasInstallLibrary(module:Module):Boolean{
+    private fun hasInstallLibrary(module: Module): Boolean {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(module)
         val systemId = modulePropertyManager.getExternalSystemId()
         if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
@@ -530,7 +533,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             val library = libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
             if (library != null) {
                 for (orderEntry in ModuleRootManager.getInstance(module).orderEntries) {
-                    if(orderEntry is LibraryOrderEntry && orderEntry.libraryName == Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY){
+                    if (orderEntry is LibraryOrderEntry && orderEntry.libraryName == Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY) {
                         return true
                     }
                 }
@@ -589,7 +592,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }
                     } else {
                         val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
-                        val library = libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
+                        val library =
+                            libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
                         if (library != null) {
                             val modifiableModel = libraryTablesRegistrar.libraryTable.modifiableModel
                             modifiableModel.removeLibrary(library)
@@ -661,7 +665,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
                     } else {
                         val libraryTablesRegistrar = LibraryTablesRegistrar.getInstance()
-                        var library = libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
+                        var library =
+                            libraryTablesRegistrar.libraryTable.getLibraryByName(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)
                         if (library == null) {
                             val libraryModifiableModel = libraryTablesRegistrar.libraryTable.modifiableModel
                             library = libraryModifiableModel.createLibrary(Const.JTOOLS_SDK_IDEA_PROJECT_LIBRARY)

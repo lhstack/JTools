@@ -9,7 +9,6 @@ import com.intellij.ui.ColorChooser
 import com.intellij.ui.JBColor
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
-import com.intellij.ui.jcef.JBCefClient
 import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.gson
@@ -78,7 +77,9 @@ class CefPluginImpl(
 
     private val fontColor: AtomicReference<String> = AtomicReference("")
 
-    private val disposables:HashMap<String,Disposable> = hashMapOf()
+    private val disposables: HashMap<String, Disposable> = hashMapOf()
+
+    private val loggerMap: HashMap<String, Logger> = hashMapOf()
 
     override fun createPanel(project: Project): JComponent {
         return browsers.computeIfAbsent(project.locationHash) {
@@ -98,8 +99,20 @@ class CefPluginImpl(
                 ): Boolean {
                     try {
                         val queryCommand = this.gson.fromJson(request, CefQueryCommand::class.java)
-                        //cefQuery({request:"getPluginInfo",onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
+                        //cefQuery({request:JSON.stringify({"type":"log",commands:["debug","this is debug log"]}),onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
                         when (queryCommand.type) {
+                            "log" -> {
+                                loggerMap[project.locationHash]?.let {
+                                    when (queryCommand.commands[0]) {
+                                        "debug" -> it.debug(queryCommand.commands[1])
+                                        "info" -> it.info(queryCommand.commands[1])
+                                        "warn" -> it.warn(queryCommand.commands[1])
+                                        "error" -> it.error(queryCommand.commands[1])
+                                    }
+                                }
+                                callback.success("success")
+                            }
+
                             "getPluginInfo" -> callback.success(this.gson.toJson(cefPluginInfo))
 
                             "getSysEnv" -> callback.success(System.getenv(queryCommand.commands[0]))
@@ -108,13 +121,13 @@ class CefPluginImpl(
 
                             //读取系统文件内容
                             "readSysFile" -> {
-                                callback.success( Files.readString(Paths.get(queryCommand.commands[0])))
+                                callback.success(Files.readString(Paths.get(queryCommand.commands[0])))
                             }
 
                             //读取本插件文件内容
                             "readPluginFile" -> {
                                 classLoader.getResourceAsStream(queryCommand.commands[0])?.use {
-                                    callback.success(String(it.readAllBytes(),StandardCharsets.UTF_8))
+                                    callback.success(String(it.readAllBytes(), StandardCharsets.UTF_8))
                                 }
                             }
 
@@ -371,7 +384,7 @@ class CefPluginImpl(
 
             }, jbBrowser.cefBrowser)
             val disposable = Disposer.newDisposable()
-            Disposer.register(disposable,jbBrowser)
+            Disposer.register(disposable, jbBrowser)
             disposables[project.locationHash] = disposable
             jbBrowser.loadURL(cefPluginInfo.indexPage)
             jbBrowser
@@ -382,8 +395,8 @@ class CefPluginImpl(
         return PluginType.JAVA
     }
 
-    override fun openProject(project: Project, openThisPage: Runnable) {
-
+    override fun openProject(project: Project, logger: Logger, openThisPage: Runnable) {
+        loggerMap[project.locationHash] = logger
     }
 
     override fun closeProject(project: Project) {

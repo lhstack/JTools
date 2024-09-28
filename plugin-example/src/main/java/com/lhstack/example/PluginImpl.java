@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.IconLoader;
 import com.lhstack.tools.plugins.IPlugin;
+import com.lhstack.tools.plugins.Logger;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
@@ -24,7 +25,7 @@ public class PluginImpl implements IPlugin {
 
 
     @Override
-    public void openProject(Project project, Runnable openThisPage) {
+    public void openProject(Project project, Logger logger, Runnable openThisPage) {
 //        throw new RuntimeException("111");
         openThisPage.run();
     }

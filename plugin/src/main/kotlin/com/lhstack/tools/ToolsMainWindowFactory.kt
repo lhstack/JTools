@@ -7,9 +7,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
-import com.lhstack.tools.ext.fullMsg
-import com.lhstack.tools.ext.notify
-import com.lhstack.tools.ext.openThisWindow
+import com.lhstack.tools.ext.*
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
@@ -19,7 +17,7 @@ class ToolsMainWindowFactory : ToolWindowFactory {
     override fun init(toolWindow: ToolWindow) {
         this.pluginManager().installs { pluginInfo, plugin, _, _ ->
             ProjectManager.getInstance().openProjects.forEach { openProject ->
-                plugin.openProject(openProject) {
+                plugin.openProject(openProject, pluginInfo.logImpl(openProject)) {
                     try {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             //需要打开Tools面板
@@ -42,6 +40,7 @@ class ToolsMainWindowFactory : ToolWindowFactory {
         //插件重新安装处理
         this.pluginManager().add(toolWindow.project.locationHash)
         toolWindow.setIcon(Icons.pluginWindowIcon())
+        toolWindow.project.initConsoleLog()
     }
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
