@@ -260,6 +260,26 @@ fun Project.getConsoleLog(): BuildTextConsoleView {
     return consoleView!!
 }
 
+/**
+ * 激活console面板
+ */
+fun Project.activeConsolePanel(){
+    val windowManager = ToolWindowManager.getInstance(this)
+    var toolWindow = windowManager.getToolWindow("Run")
+    if (toolWindow == null) {
+        this.initConsoleLog()
+        toolWindow = windowManager.getToolWindow("Run")
+    }
+    toolWindow?.let {
+        it.contentManager.contents.forEach { c ->
+            if(c.displayName == Const.TOOLS_WINDOW_ID){
+                it.contentManager.setSelectedContent(c)
+            }
+        }
+        it.activate {  }
+    }
+}
+
 fun Project.initConsoleLog() {
     val windowManager = ToolWindowManager.getInstance(this)
     var toolWindow = windowManager.getToolWindow("Run")
@@ -273,7 +293,7 @@ fun Project.initConsoleLog() {
         val contentManager = toolWindow.contentManager
         val factory = contentManager.factory
         val consoleView = BuildTextConsoleView(this, true, listOf())
-        val content = factory.createContent(consoleView.component, "JTools", false)
+        val content = factory.createContent(consoleView.component, Const.TOOLS_WINDOW_ID, false)
         contentManager.addContent(content)
         this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
     }
