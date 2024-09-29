@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.intellij.build.BuildTextConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
+import com.intellij.icons.AllIcons
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -30,7 +31,6 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.StringUtils
-import org.jetbrains.plugins.notebooks.visualization.ui.yOffsetFromEditor
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -291,7 +291,7 @@ fun Project.initConsoleLog() {
             this.anchor = ToolWindowAnchor.BOTTOM
             this.canCloseContent = false
             this.sideTool = true
-            this.icon = this.findIcon("icons/run.svg")
+            this.icon = AllIcons.Toolwindows.ToolWindowRun
         }
         val contentManager = toolWindow.contentManager
         val factory = contentManager.factory
@@ -304,6 +304,7 @@ fun Project.initConsoleLog() {
             editorEx.scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
         }
         val content = factory.createContent(component, Const.TOOLS_WINDOW_ID, false)
+        content.icon = Icons.pluginWindowIcon()
         contentManager.addContent(content)
         this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
     }
