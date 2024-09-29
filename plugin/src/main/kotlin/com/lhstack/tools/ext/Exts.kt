@@ -7,6 +7,7 @@ import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserFactory
@@ -29,6 +30,7 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.StringUtils
+import org.jetbrains.plugins.notebooks.visualization.ui.yOffsetFromEditor
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -39,6 +41,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.stream.Collectors
 import javax.swing.Icon
+import javax.swing.JScrollPane
 
 
 fun String.ifNotBlank(consumer: (String) -> Unit, empty: () -> Unit) {
@@ -293,7 +296,14 @@ fun Project.initConsoleLog() {
         val contentManager = toolWindow.contentManager
         val factory = contentManager.factory
         val consoleView = BuildTextConsoleView(this, true, listOf())
-        val content = factory.createContent(consoleView.component, Const.TOOLS_WINDOW_ID, false)
+        val component = consoleView.component
+        val editor = consoleView.editor
+        editor?.let {
+            val editorEx = it as EditorEx
+            editorEx.settings.isUseSoftWraps = true
+            editorEx.scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+        val content = factory.createContent(component, Const.TOOLS_WINDOW_ID, false)
         contentManager.addContent(content)
         this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
     }
@@ -324,7 +334,7 @@ class LoggerImpl(private val loggerName: String, val version: String, private va
             "%s [%-10s] %-5s %-8s - %s",
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")),
             substr(
-                Thread.currentThread().name, 10
+                Thread.currentThread().name, 15
             ),
             level,
             "#$loggerName#$version",
@@ -332,12 +342,7 @@ class LoggerImpl(private val loggerName: String, val version: String, private va
         )
         val contentSize = consoleView.contentSize
         if (contentSize > 0) {
-            consoleView.print(
-                """
-                    
-                    $log
-                    """.trimIndent(), getType(level)
-            )
+            consoleView.print("\n" + log, getType(level))
         } else {
             consoleView.print(log, getType(level))
         }

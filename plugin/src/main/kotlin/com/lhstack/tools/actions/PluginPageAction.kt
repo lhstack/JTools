@@ -96,7 +96,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                                                 //需要打开Tools面板
                                                 openProject.openThisWindow()
                                                 openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
-                                                    .openPanel(pluginInfo!!, plugin)
+                                                    .openPanel(pluginInfo, plugin)
                                             } else {
                                                 openProject.notify(
                                                     "插件点击通知",
@@ -174,7 +174,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 } else if (SwingUtilities.isRightMouseButton(e)) {
                     val listPopup = JBPopupFactory.getInstance().createActionGroupPopup(
                         pluginInfo.name,
-                        createPopupActionGroup(boxPanel, pluginInfo, plugin),
+                        createPopupActionGroup(pluginInfo, plugin),
                         DataContext.EMPTY_CONTEXT,
                         JBPopupFactory.ActionSelectionAid.MNEMONICS,
                         true
@@ -187,7 +187,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
     }
 
     fun createPopupActionGroup(
-        boxPanel: HoverAttachPanel, pluginInfo: PluginInfo, plugin: IPlugin,
+        pluginInfo: PluginInfo, plugin: IPlugin,
     ): DefaultActionGroup {
         val group = DefaultActionGroup()
 

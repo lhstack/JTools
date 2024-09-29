@@ -34,7 +34,7 @@ class InstallPluginAction : AnAction({ "安装插件" }, Icons.installIcon()) {
                                         //需要打开Tools面板
                                         openProject.openThisWindow()
                                         openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
-                                            .openPanel(pluginInfo!!, plugin)
+                                            .openPanel(pluginInfo, plugin)
                                     } else {
                                         openProject.notify(
                                             "插件点击通知",
