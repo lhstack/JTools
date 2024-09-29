@@ -24,8 +24,9 @@
     <p>2. 它有插件开发模块,可方便开发者在这个容器上快速调试插件,支持Js,Java,Kotlin方式开发插件</p>
     <p>3. 它支持原生java插件和js插件</p>
     <p>4. 它可以手动配置插件的安装目录</p>
-    <p>5. Java插件开发支持动态安装Sdk依赖,不限于idea,maven,gradle项目</p>
-    <p>6. Js插件暂无太多需求,后续根据用户需求扩展功能</p>
+    <p>5. 它内部集成集成了日志模块,以便于插件运行和开发的过程中通过日志排查问题</p>
+    <p>6. Java插件开发支持动态安装Sdk依赖,不限于idea,maven,gradle项目</p>
+    <p>7. Js插件支持配置的方式集成公网页面,也可以自己开发页面,非常灵活</p>
   ]]></description>
 
     <!-- Product and plugin compatibility requirements.
