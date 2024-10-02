@@ -1,8 +1,10 @@
 package com.lhstack.example;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.IconLoader;
+import com.lhstack.tools.plugins.Helper;
 import com.lhstack.tools.plugins.IPlugin;
 import com.lhstack.tools.plugins.Logger;
 
@@ -38,7 +40,9 @@ public class PluginImpl implements IPlugin {
     @Override
     public JComponent createPanel(Project project) {
 //        throw new RuntimeException("111");
-        return button;
+        return Helper.actionButton(AllIcons.Actions.AddFile, null, null, null, 24, 24, str -> {
+            Messages.showInfoMessage(str, str);
+        });
     }
 
     @Override
