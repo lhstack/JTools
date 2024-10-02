@@ -37,6 +37,11 @@ public class Helper {
             public void actionPerformed(@NotNull AnActionEvent e) {
                 action.accept(Optional.ofNullable(e.getData(LangDataKeys.PROJECT)).map(Project::getLocationHash).orElse(""));
             }
+
+            @Override
+            public @NotNull ActionUpdateThread getActionUpdateThread() {
+                return ActionUpdateThread.BGT;
+            }
         }, presentation, ActionPlaces.UNKNOWN, new Dimension(width, height));
     }
 }
