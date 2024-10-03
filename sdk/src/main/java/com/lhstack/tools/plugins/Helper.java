@@ -44,4 +44,12 @@ public class Helper {
             }
         }, presentation, ActionPlaces.UNKNOWN, new Dimension(width, height));
     }
+
+    public static JComponent actionButton(Icon icon, String title, int width, int height, Consumer<String> action) {
+        return actionButton(icon, null, title, null, width, height, action);
+    }
+
+    public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
+        return actionButton(icon, null, title, null, 24, 24, action);
+    }
 }
