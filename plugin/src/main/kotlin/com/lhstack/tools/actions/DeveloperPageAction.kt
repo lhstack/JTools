@@ -40,6 +40,7 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.awt.BorderLayout
+import java.awt.FlowLayout
 import java.io.File
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicReference
@@ -474,7 +475,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                                     this.addAll(it)
                                                 }, true)
                                             actionToolbar.targetComponent = pluginPanel
-                                            contentPanel.add(actionToolbar.component,BorderLayout.NORTH)
+                                            contentPanel.add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                                                this.add(actionToolbar.component)
+                                            },BorderLayout.NORTH)
                                         }
                                     }
                                     contentPanel.add(pluginPanel, BorderLayout.CENTER)
