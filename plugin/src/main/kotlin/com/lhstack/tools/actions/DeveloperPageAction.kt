@@ -467,6 +467,16 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                     val pluginPanel = plugin.createPanel(project)
                                     showPanel(project)
+                                    plugin.tabPanelActions(project)?.let {
+                                        if(it.isNotEmpty()){
+                                            val actionToolbar = ActionManager.getInstance()
+                                                .createActionToolbar(ActionPlaces.UNKNOWN, DefaultActionGroup().apply {
+                                                    this.addAll(it)
+                                                }, true)
+                                            actionToolbar.targetComponent = pluginPanel
+                                            contentPanel.add(actionToolbar.component,BorderLayout.NORTH)
+                                        }
+                                    }
                                     contentPanel.add(pluginPanel, BorderLayout.CENTER)
                                     contentPanel.validate()
                                     contentPanel.repaint()
