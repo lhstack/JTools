@@ -1,9 +1,6 @@
 package com.lhstack.tools.plugins;
 
-import com.intellij.openapi.actionSystem.ActionUpdateThread;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 
@@ -154,6 +151,12 @@ public interface IPlugin {
     default List<AnAction> tabPanelActions(Project project) {
         return this.swingTabPanelActions(project.getLocationHash()).stream().map(item -> {
             AnAction action = new AnAction(item::title) {
+
+                @Override
+                public void update(@NotNull AnActionEvent e) {
+                    super.update(e);
+                    Toggleable.setSelected(e.getPresentation(), item.isSelected());
+                }
 
                 @Override
                 public void actionPerformed(@NotNull AnActionEvent e) {

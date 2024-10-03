@@ -14,4 +14,8 @@ public interface Action {
 
     void actionPerformed();
 
+    default boolean isSelected() {
+        return false;
+    }
+
 }
