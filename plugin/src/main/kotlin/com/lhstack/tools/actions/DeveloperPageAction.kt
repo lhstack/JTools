@@ -53,10 +53,14 @@ fun Project.getModules(): MutableList<Module> {
     return ModuleManager.getInstance(this).modules.filter {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(it)
         val systemId = modulePropertyManager.getExternalSystemId()
-        if (StringUtils.equalsAnyIgnoreCase(systemId, "gradle")) {
-            it.name.endsWith(".main")
+        if (modulePropertyManager.getExternalModuleType() != null) {
+            if (StringUtils.equalsAnyIgnoreCase(systemId, "gradle")) {
+                it.name.endsWith(".main")
+            } else {
+                true
+            }
         } else {
-            true
+            false
         }
     }.toMutableList()
 }
@@ -469,15 +473,19 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                     val pluginPanel = plugin.createPanel(project)
                                     showPanel(project)
                                     plugin.tabPanelActions(project)?.let {
-                                        if(it.isNotEmpty()){
+                                        if (it.isNotEmpty()) {
                                             val actionToolbar = ActionManager.getInstance()
-                                                .createActionToolbar("JTools:Plugin:${pluginInfo?.id}", DefaultActionGroup().apply {
-                                                    this.addAll(it)
-                                                }, true)
+                                                .createActionToolbar(
+                                                    "JTools:Plugin:${pluginInfo?.id}",
+                                                    DefaultActionGroup().apply {
+                                                        this.addAll(it)
+                                                    },
+                                                    true
+                                                )
                                             actionToolbar.targetComponent = pluginPanel
                                             contentPanel.add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
                                                 this.add(actionToolbar.component)
-                                            },BorderLayout.NORTH)
+                                            }, BorderLayout.NORTH)
                                         }
                                     }
                                     contentPanel.add(pluginPanel, BorderLayout.CENTER)
