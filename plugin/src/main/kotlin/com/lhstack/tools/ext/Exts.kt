@@ -266,7 +266,7 @@ fun Project.getConsoleLog(): BuildTextConsoleView {
 /**
  * 激活console面板
  */
-fun Project.activeConsolePanel(){
+fun Project.activeConsolePanel() {
     val windowManager = ToolWindowManager.getInstance(this)
     var toolWindow = windowManager.getToolWindow("Run")
     if (toolWindow == null) {
@@ -275,11 +275,11 @@ fun Project.activeConsolePanel(){
     }
     toolWindow?.let {
         it.contentManager.contents.forEach { c ->
-            if(c.displayName == Const.TOOLS_WINDOW_ID){
+            if (c.displayName == Const.TOOLS_WINDOW_ID) {
                 it.contentManager.setSelectedContent(c)
             }
         }
-        it.activate {  }
+        it.activate { }
     }
 }
 
@@ -310,12 +310,17 @@ fun Project.initConsoleLog() {
     }
 }
 
-fun PluginInfo.logImpl(project: Project):LoggerImpl {
-    return LoggerImpl(this.name,this.version,project.getConsoleLog(),project)
+fun PluginInfo.logImpl(project: Project): LoggerImpl {
+    return LoggerImpl(this.name, this.version, project.getConsoleLog(), project)
 }
 
 
-class LoggerImpl(private val loggerName: String, val version: String, private val consoleView: BuildTextConsoleView,private val project: Project) :
+class LoggerImpl(
+    private val loggerName: String,
+    val version: String,
+    private val consoleView: BuildTextConsoleView,
+    private val project: Project,
+) :
     Logger {
     override fun info(msg: Any) {
         this.message("INFO", msg)
@@ -369,7 +374,8 @@ class LoggerImpl(private val loggerName: String, val version: String, private va
         this.message("ERROR", msg)
     }
 
-    override fun activeConsolePanel() {
+    override fun activeConsolePanel(): Logger {
         project.activeConsolePanel()
+        return this
     }
 }

@@ -5,12 +5,16 @@ import com.intellij.openapi.actionSystem.impl.ActionButton;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.ui.TreeSpeedSearch;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class Helper {
     public static Icon findIcon(String path, ClassLoader classLoader) {
@@ -51,5 +55,28 @@ public class Helper {
 
     public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
         return actionButton(icon, null, title, null, 24, 24, action);
+    }
+
+    public static void treeSpeedSearch(JTree tree, boolean canExpand, @NotNull Function<? super TreePath, String> presentableStringFunction) {
+        new TreeSpeedSearch(tree, canExpand, presentableStringFunction) {
+            @Override
+            protected boolean compare(@NotNull String text, @Nullable String pattern) {
+                if (pattern != null) {
+                    return text.contains(pattern);
+                }
+                return false;
+            }
+
+            @Override
+            protected @Nullable Object findElement(@NotNull String s) {
+                Object element = super.findElement(s);
+                if (element != null) {
+                    return element;
+                }
+                tree.clearSelection();
+                return null;
+            }
+
+        };
     }
 }

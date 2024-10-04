@@ -471,7 +471,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                     plugin.tabPanelActions(project)?.let {
                                         if(it.isNotEmpty()){
                                             val actionToolbar = ActionManager.getInstance()
-                                                .createActionToolbar(ActionPlaces.UNKNOWN, DefaultActionGroup().apply {
+                                                .createActionToolbar("JTools:Plugin:${pluginInfo?.id}", DefaultActionGroup().apply {
                                                     this.addAll(it)
                                                 }, true)
                                             actionToolbar.targetComponent = pluginPanel

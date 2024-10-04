@@ -10,5 +10,5 @@ public interface Logger {
 
     void error(Object msg);
 
-    void activeConsolePanel();
+    Logger activeConsolePanel();
 }
