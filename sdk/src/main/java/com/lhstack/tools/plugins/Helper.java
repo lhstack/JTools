@@ -4,8 +4,10 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.ui.TreeSpeedSearch;
+import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -55,6 +57,15 @@ public class Helper {
 
     public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
         return actionButton(icon, null, title, null, 24, 24, action);
+    }
+
+    public static String getProjectBasePath(String locationHash) {
+        for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+            if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                return openProject.getBasePath();
+            }
+        }
+        throw new RuntimeException("Can't find project base path");
     }
 
     public static void treeSpeedSearch(JTree tree, boolean canExpand, @NotNull Function<? super TreePath, String> presentableStringFunction) {
