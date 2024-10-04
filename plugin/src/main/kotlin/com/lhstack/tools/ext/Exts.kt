@@ -4,11 +4,9 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.intellij.build.BuildTextConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
-import com.intellij.icons.AllIcons
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
-import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserFactory
@@ -18,7 +16,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
@@ -41,7 +38,6 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.stream.Collectors
 import javax.swing.Icon
-import javax.swing.JScrollPane
 
 
 fun String.ifNotBlank(consumer: (String) -> Unit, empty: () -> Unit) {
@@ -243,24 +239,7 @@ private fun zipDirectoryHelper(rootDir: File, currentDir: File, zipOut: ZipArchi
 }
 
 fun Project.getConsoleLog(): BuildTextConsoleView {
-    var consoleView = this.getUserData(Const.LOG_CONSOLE_KEY)
-    if (consoleView == null) {
-        this.initConsoleLog()
-        consoleView = this.getUserData(Const.LOG_CONSOLE_KEY)
-        if (consoleView == null) {
-            val windowManager = ToolWindowManager.getInstance(this)
-            val toolWindow = windowManager.getToolWindow("Run")
-            if (toolWindow != null) {
-                val contentManager = toolWindow.contentManager
-                val factory = contentManager.factory
-                consoleView = BuildTextConsoleView(this, true, listOf())
-                val content = factory.createContent(consoleView.component, "JTools", false)
-                contentManager.addContent(content)
-                this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
-            }
-        }
-    }
-    return consoleView!!
+    return this.getUserData(Const.LOG_CONSOLE_KEY)!!
 }
 
 /**
@@ -269,10 +248,6 @@ fun Project.getConsoleLog(): BuildTextConsoleView {
 fun Project.activeConsolePanel() {
     val windowManager = ToolWindowManager.getInstance(this)
     var toolWindow = windowManager.getToolWindow("Run")
-    if (toolWindow == null) {
-        this.initConsoleLog()
-        toolWindow = windowManager.getToolWindow("Run")
-    }
     toolWindow?.let {
         it.contentManager.contents.forEach { c ->
             if (c.displayName == Const.TOOLS_WINDOW_ID) {
@@ -283,32 +258,6 @@ fun Project.activeConsolePanel() {
     }
 }
 
-fun Project.initConsoleLog() {
-    val windowManager = ToolWindowManager.getInstance(this)
-    var toolWindow = windowManager.getToolWindow("Run")
-    if (toolWindow == null) {
-        toolWindow = windowManager.registerToolWindow("Run") {
-            this.anchor = ToolWindowAnchor.BOTTOM
-            this.canCloseContent = false
-            this.sideTool = true
-            this.icon = AllIcons.Toolwindows.ToolWindowRun
-        }
-        val contentManager = toolWindow.contentManager
-        val factory = contentManager.factory
-        val consoleView = BuildTextConsoleView(this, true, listOf())
-        val component = consoleView.component
-        val editor = consoleView.editor
-        editor?.let {
-            val editorEx = it as EditorEx
-            editorEx.settings.isUseSoftWraps = true
-            editorEx.scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-        }
-        val content = factory.createContent(component, Const.TOOLS_WINDOW_ID, false)
-        content.icon = Icons.pluginWindowIcon()
-        contentManager.addContent(content)
-        this.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
-    }
-}
 
 fun PluginInfo.logImpl(project: Project): LoggerImpl {
     return LoggerImpl(this.name, this.version, project.getConsoleLog(), project)

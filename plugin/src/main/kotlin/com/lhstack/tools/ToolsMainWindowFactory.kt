@@ -40,7 +40,6 @@ class ToolsMainWindowFactory : ToolWindowFactory {
         //插件重新安装处理
         this.pluginManager().add(toolWindow.project.locationHash)
         toolWindow.setIcon(Icons.pluginWindowIcon())
-        toolWindow.project.initConsoleLog()
     }
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {

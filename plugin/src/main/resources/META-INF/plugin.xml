@@ -51,6 +51,8 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="com.lhstack.tools.ToolsMainWindowFactory" id="JTools"
                     secondary="true" anchor="right"/>
+        <toolWindow factoryClass="com.lhstack.tools.JLoggerWindowFactory" id="Run"
+                    secondary="true" anchor="bottom"/>
         <postStartupActivity implementation="com.lhstack.tools.listener.ProjectStartupActivity"/>
         <notificationGroup displayType="BALLOON" id="JToolsNotification" toolWindowId="TODO"/>
     </extensions>

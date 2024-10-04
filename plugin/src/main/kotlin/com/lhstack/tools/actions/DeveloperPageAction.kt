@@ -53,13 +53,13 @@ fun Project.getModules(): MutableList<Module> {
     return ModuleManager.getInstance(this).modules.filter {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(it)
         val systemId = modulePropertyManager.getExternalSystemId()
-        if (modulePropertyManager.getExternalModuleType() != null) {
+        if(ModuleRootManager.getInstance(it).sourceRoots.size > 0){
             if (StringUtils.equalsAnyIgnoreCase(systemId, "gradle")) {
                 it.name.endsWith(".main")
             } else {
                 true
             }
-        } else {
+        }else {
             false
         }
     }.toMutableList()
@@ -96,6 +96,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 project.getModules().apply {
                     if (this.isNotEmpty()) {
                         setItems(this, this[0])
+                    }else {
+                        setItems(mutableListOf<Module>(),null)
                     }
                 }
 
@@ -109,11 +111,13 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 }
             }
 
-            override fun update(item: Module, presentation: Presentation, popup: Boolean) {
-                if (!popup) {
-                    presentation.text = item.name.substr(0, 20) { "$it..." }
-                } else {
-                    presentation.text = item.name
+            override fun update(item: Module?, presentation: Presentation, popup: Boolean) {
+                if(item != null){
+                    if (!popup) {
+                        presentation.text = item.name.substr(0, 20) { "$it..." }
+                    } else {
+                        presentation.text = item.name
+                    }
                 }
             }
 

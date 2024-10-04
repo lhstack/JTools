@@ -5,11 +5,8 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
-import com.intellij.ui.ColorChooser
-import com.intellij.ui.JBColor
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
-import com.jetbrains.rd.util.AtomicReference
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.gson
 import org.apache.commons.lang3.StringUtils
@@ -30,7 +27,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import javax.swing.Icon
 import javax.swing.JComponent
-import javax.swing.SwingUtilities
 import kotlin.math.min
 
 @State(name = "cef", storages = [Storage("ToolsPluginState.xml")])
@@ -73,9 +69,6 @@ class CefPluginImpl(
 ) : IPlugin {
 
     private val browsers: HashMap<String, JBCefBrowser> = hashMapOf()
-    private val backgroundColor: AtomicReference<String> = AtomicReference("")
-
-    private val fontColor: AtomicReference<String> = AtomicReference("")
 
     private val disposables: HashMap<String, Disposable> = hashMapOf()
 
@@ -235,23 +228,7 @@ class CefPluginImpl(
             }, jbBrowser.cefBrowser)
             jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(browser: CefBrowser, frame: CefFrame?, httpStatusCode: Int) {
-                    var bgColor = backgroundColor.get()
-                    var color = fontColor.get()
-                    if (StringUtils.isNotBlank(color) || StringUtils.isNotBlank(bgColor)) {
-                        if (StringUtils.isNotBlank(color)) {
-                            color = " color: $color !important;"
-                        }
-                        if (StringUtils.isNotBlank(bgColor)) {
-                            bgColor = " background-color: $bgColor !important;"
-                        }
-                        browser.executeJavaScript(
-                            """
-                            var style = document.createElement('style');
-                            style.innerHTML = '* { $color $bgColor }';
-                            document.head.appendChild(style);
-                        """.trimIndent(), browser.url, 0
-                        )
-                    }
+
                 }
             }, jbBrowser.cefBrowser)
 
@@ -304,9 +281,6 @@ class CefPluginImpl(
                         model.addItem(1, "goBack")
                     }
                     model.addItem(2, "返回首页")
-                    model.addItem(3, "自定义背景颜色")
-                    model.addItem(4, "自定义字体颜色")
-                    model.addItem(5, "清除自定义颜色")
                 }
 
                 override fun onContextMenuCommand(
@@ -323,60 +297,6 @@ class CefPluginImpl(
                         }
                     } else if (commandId == 2) {
                         browser.loadURL(cefPluginInfo.indexPage)
-                    } else if (commandId == 3) {
-                        SwingUtilities.invokeLater {
-                            val color = ColorChooser.chooseColor(jbBrowser.component, "自定义背景色", JBColor.BLACK)
-                            color?.let {
-                                var thisFontColor = backgroundColor.get()
-                                if (StringUtils.isNotBlank(thisFontColor)) {
-                                    thisFontColor = " color: $thisFontColor !important;"
-                                }
-                                backgroundColor.getAndSet(
-                                    "rgba(%d, %d, %d, %.2f)".format(
-                                        it.red,
-                                        it.green,
-                                        it.blue,
-                                        it.alpha / 255.0
-                                    )
-                                )
-                                browser.executeJavaScript(
-                                    """
-                                    var style = document.createElement('style');
-                                    style.innerHTML = '* { background-color: ${backgroundColor.get()} !important;$thisFontColor }';
-                                    document.head.appendChild(style);
-                                """.trimIndent(), browser.url, 0
-                                )
-                            }
-                        }
-                    } else if (commandId == 4) {
-                        SwingUtilities.invokeLater {
-                            val color = ColorChooser.chooseColor(jbBrowser.component, "自定义字体颜色", JBColor.BLACK)
-                            color?.let {
-                                var bgColor = backgroundColor.get()
-                                if (StringUtils.isNotBlank(bgColor)) {
-                                    bgColor = " background-color: $bgColor !important;"
-                                }
-                                fontColor.getAndSet(
-                                    "rgba(%d, %d, %d, %.2f)".format(
-                                        it.red,
-                                        it.green,
-                                        it.blue,
-                                        it.alpha / 255.0
-                                    )
-                                )
-                                browser.executeJavaScript(
-                                    """
-                                    var style = document.createElement('style');
-                                    style.innerHTML = '* { color: ${fontColor.get()} !important; ${bgColor}}';
-                                    document.head.appendChild(style);
-                                """.trimIndent(), browser.url, 0
-                                )
-                            }
-                        }
-                    } else if (commandId == 5) {
-                        backgroundColor.getAndSet("")
-                        fontColor.getAndSet("")
-                        browser.reload()
                     }
                     return true
                 }
