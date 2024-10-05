@@ -17,7 +17,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
 
     class State {
         //插件保存路径
-        var pluginBasePath: String = "${System.getProperty("user.home")}/.ideaTools/plugins"
+        var pluginBasePath: String = "${System.getProperty("user.home")}/.jtools/plugins"
 
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)

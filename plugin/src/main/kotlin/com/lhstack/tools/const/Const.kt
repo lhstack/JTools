@@ -5,10 +5,10 @@ import com.intellij.openapi.util.Key
 
 class Const {
 
-    companion object{
+    companion object {
         const val TOOLS_WINDOW_ID = "JTools"
 
-        val JTOOLS_PLUGIN_HOME = "${System.getProperty("user.home")}/.ideaTools".replace("\\", "/")
+        val JTOOLS_PLUGIN_HOME = "${System.getProperty("user.home")}/.jtools".replace("\\", "/")
 
         val JTOOLS_SDK_INSTALL_PATH = "${JTOOLS_PLUGIN_HOME}/sdk/sdk.jar"
 
