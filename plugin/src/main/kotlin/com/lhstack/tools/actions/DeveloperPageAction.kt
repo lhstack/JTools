@@ -296,11 +296,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }?.catch("项目关闭回调") {
                             closeProject(project)
                             this
-                        }?.catch("插件卸载回调") {
-                            unInstall()
-                            this
                         }?.catch("app关闭回调") {
                             appClose()
+                            this
+                        }?.catch("插件卸载回调") {
+                            unInstall()
                         }
                         pluginInstance.set(null)
                         contentPanel.removeAll()
@@ -341,11 +341,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 }?.catch("项目关闭回调") {
                     closeProject(project)
                     this
-                }?.catch("插件卸载回调") {
-                    unInstall()
-                    this
                 }?.catch("app关闭回调") {
                     appClose()
+                    this
+                }?.catch("插件卸载回调") {
+                    unInstall()
                 }
             }
             this.pluginManager().loadInstanceByDir(mutableListOf(Paths.get(basePath!!)), object : CefCacheManager {
@@ -434,11 +434,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }?.catch("项目关闭回调") {
                             closeProject(project)
                             this
-                        }?.catch("插件卸载回调") {
-                            unInstall()
-                            this
                         }?.catch("app关闭回调") {
                             appClose()
+                            this
+                        }?.catch("插件卸载回调") {
+                            unInstall()
                         }
                     }
                     val resourcePaths =

@@ -218,9 +218,22 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
             override fun actionPerformed(e: AnActionEvent) {
                 ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
                     .uninstall(plugin, pluginInfo)
-                project.catch("卸载插件回调异常,插件信息: $pluginInfo") {
+
+                //这里需要调用关闭项目函数
+                ProjectManager.getInstance().openProjects.forEach {
+                    this.catch("${pluginInfo.name}-${pluginInfo.version}: 插件卸载,调用项目关闭回调"){
+                        plugin.closeProject(it)
+                    }
+                }
+
+                this.catch("${pluginInfo.name}-${pluginInfo.version}: 插件卸载,app关闭回调"){
+                    plugin.appClose()
+                }
+
+                project.catch("${pluginInfo.name}-${pluginInfo.version}: 卸载插件回调异常,插件信息: $pluginInfo") {
                     plugin.unInstall()
                 }
+
 
                 pluginManager.uninstsall(pluginInfo)
             }
