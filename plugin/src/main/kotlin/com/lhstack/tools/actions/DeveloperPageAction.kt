@@ -18,6 +18,7 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.openapi.ui.SimpleToolWindowPanel
@@ -53,13 +54,13 @@ fun Project.getModules(): MutableList<Module> {
     return ModuleManager.getInstance(this).modules.filter {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(it)
         val systemId = modulePropertyManager.getExternalSystemId()
-        if(ModuleRootManager.getInstance(it).sourceRoots.size > 0){
+        if (ModuleRootManager.getInstance(it).sourceRoots.size > 0) {
             if (StringUtils.equalsAnyIgnoreCase(systemId, "gradle")) {
                 it.name.endsWith(".main")
             } else {
                 true
             }
-        }else {
+        } else {
             false
         }
     }.toMutableList()
@@ -96,8 +97,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 project.getModules().apply {
                     if (this.isNotEmpty()) {
                         setItems(this, this[0])
-                    }else {
-                        setItems(mutableListOf<Module>(),null)
+                    } else {
+                        setItems(mutableListOf<Module>(), null)
                     }
                 }
 
@@ -112,7 +113,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
             override fun update(item: Module?, presentation: Presentation, popup: Boolean) {
-                if(item != null){
+                if (item != null) {
                     if (!popup) {
                         presentation.text = item.name.substr(0, 20) { "$it..." }
                     } else {
@@ -294,7 +295,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             }
                             this
                         }?.catch("项目关闭回调") {
-                            closeProject(project)
+                            ProjectManager.getInstance().openProjects.forEach {
+                                it.catch("触发项目关闭回调: ${it.name}") {
+                                    closeProject(it)
+                                }
+                            }
                             this
                         }?.catch("app关闭回调") {
                             appClose()
@@ -339,7 +344,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     }
                     this
                 }?.catch("项目关闭回调") {
-                    closeProject(project)
+                    ProjectManager.getInstance().openProjects.forEach {
+                        it.catch("触发项目关闭回调: ${it.name}") {
+                            closeProject(it)
+                        }
+                    }
                     this
                 }?.catch("app关闭回调") {
                     appClose()
@@ -381,14 +390,19 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         install()
                         this
                     }?.catch("打开插件回调") {
-                        openProject(project, info!!.logImpl(project)) {
-                            //开发者模式不支持此功能
-                            project.notify(
-                                "插件开发通知",
-                                "开发者模式不支持openThisPage功能",
-                                NotificationType.INFORMATION
-                            )
+                        ProjectManager.getInstance().openProjects.forEach {
+                            it.catch("触发项目打开回调:${it.name}") {
+                                openProject(it, info!!.logImpl(it)) {
+                                    //开发者模式不支持此功能
+                                    it.notify(
+                                        "插件开发通知",
+                                        "开发者模式不支持openThisPage功能",
+                                        NotificationType.INFORMATION
+                                    )
+                                }
+                            }
                         }
+
                         this
                     }?.catch("创建插件面板回调") {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
@@ -432,7 +446,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             }
                             this
                         }?.catch("项目关闭回调") {
-                            closeProject(project)
+                            ProjectManager.getInstance().openProjects.forEach {
+                                it.catch("触发项目关闭回调: ${it.name}") {
+                                    closeProject(it)
+                                }
+                            }
                             this
                         }?.catch("app关闭回调") {
                             appClose()
@@ -460,16 +478,18 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 install()
                                 this
                             }?.catch("打开插件回调") {
-                                openProject(
-                                    project,
-                                    pluginInfo!!.logImpl(project)
-                                ) {
-                                    //开发者模式不支持此功能
-                                    project.notify(
-                                        "插件开发通知",
-                                        "开发者模式不支持openThisPage功能",
-                                        NotificationType.INFORMATION
-                                    )
+
+                                ProjectManager.getInstance().openProjects.forEach {
+                                    it.catch("触发项目打开回调:${it.name}") {
+                                        openProject(it, pluginInfo!!.logImpl(it)) {
+                                            //开发者模式不支持此功能
+                                            it.notify(
+                                                "插件开发通知",
+                                                "开发者模式不支持openThisPage功能",
+                                                NotificationType.INFORMATION
+                                            )
+                                        }
+                                    }
                                 }
                                 this
                             }?.catch("创建插件面板回调") {
