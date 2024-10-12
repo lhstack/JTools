@@ -14,6 +14,6 @@ project(":sdk").projectDir=File("$rootDir/sdk")
 
 include(":plugin")
 project(":plugin").projectDir=File("$rootDir/plugin")
-
+project(":plugin").name = "jtools"
 include(":plugin-example")
 project(":plugin-example").projectDir=File("$rootDir/plugin-example")
