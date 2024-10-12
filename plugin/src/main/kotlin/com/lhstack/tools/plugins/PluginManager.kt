@@ -246,11 +246,17 @@ class PluginManager {
                     consumer.invoke(null, null, "插件已存在,请不要重复安装")
                     return
                 }
-                newPluginFile = File(this.pluginState().pluginBasePath, pluginId).parentMkdirs()
+
                 if (StringUtils.equalsIgnoreCase(file.extension, "jar")) {
-                    FileUtils.copyFile(file, newPluginFile)
+                    newPluginFile = File(this.pluginState().pluginBasePath, "${pluginId}.jar").parentMkdirs()
+                    if(!newPluginFile.exists()){
+                        FileUtils.copyFile(file, newPluginFile)
+                    }
                 } else {
-                    ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
+                    newPluginFile = File(this.pluginState().pluginBasePath, pluginId).parentMkdirs()
+                    if(!newPluginFile.exists()){
+                        ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
+                    }
                 }
                 val list = arrayListOf(newPluginFile.toPath())
                 val classLoader = PluginClassLoader.newInstance(UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
