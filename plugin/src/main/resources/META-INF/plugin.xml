@@ -29,6 +29,17 @@
     <p>7. JS plugin allows flexible integration of web pages, with options for custom development.</p>
   ]]></description>
 
+    <change-notes>
+        <![CDATA[
+            <h2>Version v1.0.1</h2>
+            <ul>
+                <li>修改插件部分icon</li>
+                <li>在设置面板新增插件仓库连接</li>
+                <li>优化插件卸载,安装和删除逻辑</li>
+            </ul>
+        ]]>
+    </change-notes>
+
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
