@@ -3,6 +3,7 @@ package com.lhstack.tools.actions
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.components.JBTextField
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
@@ -106,6 +107,13 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                         }
                     }
                 }
+            })
+        })
+        panel.add(JSeparator(SwingConstants.HORIZONTAL))
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            this.add(JLabel("插件仓库: "))
+            this.add(HyperlinkLabel("跳转").apply {
+                this.setHyperlinkTarget("https://github.com/orgs/jtools-plugins/repositories")
             })
         })
     }
