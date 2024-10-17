@@ -2,6 +2,7 @@ package com.lhstack.tools.plugins;
 
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
+import com.intellij.openapi.actionSystem.impl.PresentationFactory;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
@@ -33,6 +34,7 @@ public class Helper {
 
 
     public static JComponent actionButton(Icon icon, Icon hoverIcon, String title, String description, int width, int height, Consumer<String> action) {
+
         Presentation presentation = new Presentation();
         Optional.ofNullable(title).ifPresent(presentation::setText);
         Optional.ofNullable(icon).ifPresent(presentation::setIcon);
@@ -56,7 +58,8 @@ public class Helper {
     }
 
     public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
-        return actionButton(icon, null, title, null, 24, 24, action);
+
+        return actionButton(icon, null, title, null,  ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width,  ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height, action);
     }
 
     public static String getProjectBasePath(String locationHash) {
