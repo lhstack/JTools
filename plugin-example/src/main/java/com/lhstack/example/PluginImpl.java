@@ -1,6 +1,5 @@
 package com.lhstack.example;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.IconLoader;
@@ -11,9 +10,14 @@ import com.lhstack.tools.plugins.Logger;
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Consumer;
 
 public class PluginImpl implements IPlugin {
     JButton button = new JButton("测试按钮");
+
+    private final Map<String, Runnable> disables = new HashMap<>();
 
     public PluginImpl() {
         button.addActionListener(new ActionListener() {
@@ -25,6 +29,14 @@ public class PluginImpl implements IPlugin {
         });
     }
 
+    @Override
+    public JComponent createPanel(Project project) {
+        return Helper.languageTextField("JAVA",project.getLocationHash(),consumer -> {
+           consumer.accept("Hello World");
+        },run -> disables.put(project.getLocationHash(),run),str -> {
+            System.out.println("str");
+        });
+    }
 
     @Override
     public void openProject(Project project, Logger logger, Runnable openThisPage) {
@@ -33,32 +45,19 @@ public class PluginImpl implements IPlugin {
     }
 
     @Override
+    public void closeProject(String projectHash) {
+        Runnable remove = disables.remove(projectHash);
+        if(remove != null) {
+            remove.run();
+        }
+    }
+
+    @Override
     public void install() {
 //        throw new RuntimeException("111");
     }
 
-    @Override
-    public JComponent createPanel(Project project) {
-//        throw new RuntimeException("111");
-        return Helper.actionButton(AllIcons.Actions.AddFile, null, null, null, 24, 24, str -> {
-            Messages.showInfoMessage(str, str);
-        });
-    }
 
-    @Override
-    public void showPanel(String projectHash) {
-//        throw new RuntimeException("111");
-    }
-
-    @Override
-    public void closePanel(String projectHash) {
-//        throw new RuntimeException("222");
-    }
-
-    @Override
-    public void closeProject(Project project) {
-        System.out.println("插件关闭: " + this.pluginName());
-    }
 
     @Override
     public void unInstall() {

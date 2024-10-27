@@ -10,6 +10,7 @@ import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.logImpl
 import com.lhstack.tools.ext.notify
 import com.lhstack.tools.ext.openThisWindow
+import com.lhstack.tools.ext.sysLogger
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 
@@ -34,5 +35,6 @@ class ProjectStartupActivity : StartupActivity, DumbAware {
             }
         }
         this.pluginManager().add(project.locationHash)
+        project.sysLogger()
     }
 }

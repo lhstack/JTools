@@ -15,13 +15,13 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
-import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.plugins.Helper.JTOOLS_SYS_LOGGER
 import com.lhstack.tools.plugins.Logger
 import com.lhstack.tools.plugins.PluginInfo
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
@@ -39,7 +39,17 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.stream.Collectors
 import javax.swing.Icon
+import kotlin.Throws
 
+
+fun Project.sysLogger(): Logger{
+    var loggerImpl = this.getUserData<Logger>(JTOOLS_SYS_LOGGER)
+    if(loggerImpl == null){
+        loggerImpl = LoggerImpl("JTools","",this.getConsoleLog(),this)
+        this.putUserData(JTOOLS_SYS_LOGGER,loggerImpl)
+    }
+    return loggerImpl
+}
 
 fun String.ifNotBlank(consumer: (String) -> Unit, empty: () -> Unit) {
     if (this.isNotBlank()) {
