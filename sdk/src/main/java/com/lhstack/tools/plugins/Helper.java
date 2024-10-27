@@ -37,6 +37,7 @@ public class Helper {
 
     public static Key<Logger> JTOOLS_SYS_LOGGER = Key.create("JTOOLS_SYS_LOGGER");
 
+    public static Integer JTOOLS_VERSION = 102;
 
     public static Icon findIcon(String path, ClassLoader classLoader) {
         return IconLoader.findIcon(path, classLoader);

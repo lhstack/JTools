@@ -148,6 +148,15 @@ public interface IPlugin {
     String pluginVersion();
 
 
+    /**
+     * 支持jtools版本
+     * @param jToolsVersion
+     * @return
+     */
+    default boolean support(Integer jToolsVersion){
+        return true;
+    }
+
     default List<AnAction> tabPanelActions(Project project) {
         return this.swingTabPanelActions(project.getLocationHash()).stream().map(item -> {
             AnAction action = new AnAction(item::title) {
