@@ -37,7 +37,7 @@ class PluginInfo(
     }
 
     override fun toString(): String {
-        return "PluginInfo(id='$id', path='$path', name='$name', version='$version', created=$created)"
+        return "PluginInfo(name='$name', version='$version')"
     }
 
 

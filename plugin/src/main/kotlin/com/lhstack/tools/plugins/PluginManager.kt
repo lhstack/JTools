@@ -20,19 +20,27 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 
-class PluginClassLoader(var builder: UrlClassLoader.Builder,var files: ArrayList<Path>) {
+class PluginClassLoader(var builder: UrlClassLoader.Builder, var files: ArrayList<Path>) {
 
     var urlClassLoader = builder.get()
 
     companion object {
-        fun newInstance(builder: UrlClassLoader.Builder,files:ArrayList<Path>) = PluginClassLoader(builder,files)
+        fun newInstance(builder: UrlClassLoader.Builder, files: ArrayList<Path>) = PluginClassLoader(builder, files)
     }
 
     fun loadPlugin(classname: String): IPlugin {
-        return urlClassLoader.loadClass(classname).getConstructor().newInstance() as IPlugin
+        return (urlClassLoader.loadClass(classname).getConstructor().newInstance() as IPlugin).apply {
+            if (!this.support(Helper.JTOOLS_VERSION)) {
+                throw PluginException(
+                    PluginInfo("", "", this.pluginName(), this.pluginVersion(), 0, ""),
+                    "插件版本不支持",
+                    "插件创建失败,请检查你的插件是否支持当前JTools版本,JTools版本: ${Helper.JTOOLS_VERSION},你的插件: ${this.pluginName()}:${this.pluginVersion()}"
+                )
+            }
+        }
     }
 
-    fun reset(paths: ArrayList<Path>){
+    fun reset(paths: ArrayList<Path>) {
 //        files.clear()
 //        files.addAll(paths)
     }
@@ -249,18 +257,20 @@ class PluginManager {
 
                 if (StringUtils.equalsIgnoreCase(file.extension, "jar")) {
                     newPluginFile = File(this.pluginState().pluginBasePath, "${pluginId}.jar").parentMkdirs()
-                    if(!newPluginFile.exists()){
+                    if (!newPluginFile.exists()) {
                         FileUtils.copyFile(file, newPluginFile)
                     }
                 } else {
                     newPluginFile = File(this.pluginState().pluginBasePath, pluginId).parentMkdirs()
-                    if(!newPluginFile.exists()){
+                    if (!newPluginFile.exists()) {
                         ZipUtil.extract(file.toPath(), newPluginFile.toPath()) { _, _ -> true }
                     }
                 }
                 val list = arrayListOf(newPluginFile.toPath())
-                val classLoader = PluginClassLoader.newInstance(UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
-                    .useCache().allowBootstrapResources(false).allowLock(false),list)
+                val classLoader = PluginClassLoader.newInstance(
+                    UrlClassLoader.build().files(list).parent(this::class.java.classLoader)
+                        .useCache().allowBootstrapResources(false).allowLock(false), list
+                )
                 val toolsPluginTxt = classLoader.getResourceAsStream("META-INF/ToolsPlugin.txt")
                 toolsPluginTxt?.use {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
