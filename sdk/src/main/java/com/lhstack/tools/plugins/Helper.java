@@ -144,7 +144,9 @@ public class Helper {
                         settings.setLineMarkerAreaShown(false);
                         settings.setRightMargin(-1);
                         dispose.accept(() -> {
-                            EditorFactory.getInstance().releaseEditor(editorEx);
+                            if (!editorEx.isDisposed()) {
+                                EditorFactory.getInstance().releaseEditor(editorEx);
+                            }
                         });
                         return editorEx;
                     }
