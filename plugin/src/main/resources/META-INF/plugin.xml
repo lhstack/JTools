@@ -39,9 +39,10 @@
             </ul>
             <h2>Version v1.0.2</h2>
             <ul>
-                <li>sdk新增notify函数,type参数说明: IDE_UPDATE,INFORMATION,WARNING,ERROR</li>
-                <li>sdk新增getSysLogger函数,获取系统日志</li>
-                <li>sdk新增languageTextField,在无idea插件依赖的情况下可通过此函数创建idea对应的LanguageTextField组件</li>
+                <li>sdk: Helper新增notify函数,type参数说明: IDE_UPDATE,INFORMATION,WARNING,ERROR</li>
+                <li>sdk: Helper新增getSysLogger函数,获取系统日志</li>
+                <li>sdk: Helper新增languageTextField,在无idea插件依赖的情况下可通过此函数创建idea对应的LanguageTextField组件</li>
+                <li>sdk: IPlugin新增support函数,用于判断JTools插件是否支持安装您开发的插件,用法可参考jtools-notes插件</li>
             </ul>
         ]]>
     </change-notes>
