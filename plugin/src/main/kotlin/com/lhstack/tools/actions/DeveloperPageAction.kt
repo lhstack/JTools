@@ -131,9 +131,6 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
 
         }
-        if (developerState.installSdk.contains(comboBoxAction.selection?.name)) {
-            this.installLibrary(comboBoxAction)
-        }
         actionGroup.add(comboBoxAction)
         actionGroup.add(object : ToggleAction({ "开启JS插件" }, Icons.jsIcon()) {
             override fun isSelected(e: AnActionEvent): Boolean {
@@ -746,16 +743,9 @@ class DeveloperState : PersistentStateComponent<DeveloperState.State> {
 
     private var state: State = State()
 
-    companion object {
-        fun instance(project: Project) = project.service<DeveloperState>().state
-    }
-
     class State {
         //插件类型
         var pluginType = "java"
-
-        //安装sdk
-        var installSdk = hashSetOf<String>()
 
         //js插件缓存
         var jsCache = hashMapOf<String, String>()
