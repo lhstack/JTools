@@ -44,6 +44,15 @@
                 <li>sdk: Helper新增languageTextField,在无idea插件依赖的情况下可通过此函数创建idea对应的LanguageTextField组件</li>
                 <li>sdk: IPlugin新增support函数,用于判断JTools插件是否支持安装您开发的插件,用法可参考jtools-notes插件</li>
             </ul>
+            <ul>
+                <li>sdk新增Since注解,标识版本和修改信息</li>
+                <li>sdk: Helper新增文件选择,保存相关函数</li>
+                <li>sdk: Helper新增openInEditor函数</li>
+                <li>sdk: Helper新增createActionToolbar函数</li>
+                <li>修改IPlugin入参函数名,从projectLocation改为locationHash</li>
+                <li>sdk: Helper修改版本为103</li>
+                <li>sdk: Helper actionButton函数新增isSelected参数支持</li>
+            </ul>
         ]]>
     </change-notes>
 
