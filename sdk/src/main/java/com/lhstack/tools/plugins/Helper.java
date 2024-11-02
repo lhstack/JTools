@@ -95,7 +95,7 @@ public class Helper {
 
             @Override
             public @NotNull ActionUpdateThread getActionUpdateThread() {
-                return ActionUpdateThread.BGT;
+                return ActionUpdateThread.EDT;
             }
         }, presentation, ActionPlaces.UNKNOWN, new Dimension(width, height));
     }
