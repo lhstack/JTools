@@ -39,13 +39,14 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 public class Helper {
 
     public static Key<Logger> JTOOLS_SYS_LOGGER = Key.create("JTOOLS_SYS_LOGGER");
 
-    public static Integer JTOOLS_VERSION = 102;
+    public static Integer JTOOLS_VERSION = 103;
 
     public static Icon findIcon(String path, ClassLoader classLoader) {
         return IconLoader.findIcon(path, classLoader);
@@ -68,11 +69,12 @@ public class Helper {
      * @param description
      * @param width
      * @param height
+     * @param isSelected
      * @param action
      * @return
      */
-    @Since(value = "1.0.1")
-    public static JComponent actionButton(Icon icon, Icon hoverIcon, String title, String description, int width, int height, Consumer<String> action) {
+    @Since(value = "1.0.1",changeNotes = "1.0.2修改: 新增isSelected参数")
+    public static JComponent actionButton(Icon icon, Icon hoverIcon, String title, String description, int width, int height, Supplier<Boolean> isSelected, Consumer<String> action) {
         Presentation presentation = new Presentation();
         Optional.ofNullable(title).ifPresent(presentation::setText);
         Optional.ofNullable(icon).ifPresent(presentation::setIcon);
@@ -83,6 +85,7 @@ public class Helper {
             @Override
             public void update(@NotNull AnActionEvent e) {
                 super.update(e);
+                Toggleable.setSelected(e.getPresentation(), isSelected.get());
             }
 
             @Override
@@ -98,13 +101,43 @@ public class Helper {
     }
 
 
+    /**
+     * @since 1.0.2
+     * @param icon
+     * @param title
+     * @param width
+     * @param height
+     * @param isSelected
+     * @param action
+     * @return
+     */
+    @Since("1.0.2")
+    public static JComponent actionButton(Icon icon, String title, int width, int height, Supplier<Boolean> isSelected, Consumer<String> action) {
+        return actionButton(icon, null, title, null, width, height, isSelected, action);
+    }
+
     public static JComponent actionButton(Icon icon, String title, int width, int height, Consumer<String> action) {
-        return actionButton(icon, null, title, null, width, height,  action);
+        return actionButton(icon, null, title, null, width, height, () -> false, action);
     }
 
     public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
 
-        return actionButton(icon, null, title, null, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height,  action);
+        return actionButton(icon, null, title, null, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height, () -> false, action);
+    }
+
+
+    /**
+     * @since 1.0.2
+     * @param icon
+     * @param title
+     * @param isSelected
+     * @param action
+     * @return
+     */
+    @Since("1.0.2")
+    public static JComponent actionButton(Icon icon, String title, Supplier<Boolean> isSelected, Consumer<String> action) {
+
+        return actionButton(icon, null, title, null, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height, isSelected, action);
     }
 
 
