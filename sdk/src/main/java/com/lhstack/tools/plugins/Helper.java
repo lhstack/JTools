@@ -309,7 +309,7 @@ public class Helper {
      */
     @Since("1.0.2")
     public static void chooseFile(String locationHash, String title, String description, Function<String, Boolean> filter, Consumer<String> fileConsumer) {
-        SwingUtilities.invokeLater(() -> {
+        ApplicationManager.getApplication().invokeLater(() -> {
             for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
                 if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
                     FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(true, false, true, true, false, false)
@@ -337,7 +337,7 @@ public class Helper {
      */
     @Since("1.0.2")
     public static void chooseFiles(String locationHash, String title, String description, Function<String, Boolean> filter, Consumer<String[]> fileConsumer) {
-        SwingUtilities.invokeLater(() -> {
+        ApplicationManager.getApplication().invokeLater(() -> {
             for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
                 if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
                     FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(true, false, true, true, false, true)
@@ -364,7 +364,7 @@ public class Helper {
      */
     @Since("1.0.2")
     public static void chooseDirector(String locationHash, String title, String description, Function<String, Boolean> filter, Consumer<String> fileConsumer) {
-        SwingUtilities.invokeLater(() -> {
+        ApplicationManager.getApplication().invokeLater(() -> {
             for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
                 if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
                     FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(false, true, false, false, false, false)
@@ -392,7 +392,7 @@ public class Helper {
      */
     @Since("1.0.2")
     public static void chooseSaveFile(String locationHash, String title, String description, String filename, Consumer<File> fileConsumer, String... extension) {
-        SwingUtilities.invokeLater(() -> {
+        ApplicationManager.getApplication().invokeLater(() -> {
             for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
                 if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
                     FileSaverDescriptor descriptor = new FileSaverDescriptor(title, description, extension);

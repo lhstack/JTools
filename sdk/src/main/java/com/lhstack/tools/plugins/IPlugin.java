@@ -22,7 +22,7 @@ public interface IPlugin {
         this.openProject(project.getLocationHash(), logger, openThisPage);
     }
 
-    default void openProject(String projectHash, Logger logger, Runnable openThisPage) {
+    default void openProject(String locationHash, Logger logger, Runnable openThisPage) {
 
     }
 
@@ -41,7 +41,7 @@ public interface IPlugin {
     }
 
 
-    default JComponent createPanel(String projectHash) {
+    default JComponent createPanel(String locationHash) {
         return null;
     }
 
@@ -54,7 +54,7 @@ public interface IPlugin {
         showPanel(project.getLocationHash());
     }
 
-    default void showPanel(String projectHash) {
+    default void showPanel(String locationHash) {
 
     }
 
@@ -67,7 +67,7 @@ public interface IPlugin {
         closePanel(project.getLocationHash());
     }
 
-    default void closePanel(String projectHash) {
+    default void closePanel(String locationHash) {
 
     }
 
@@ -78,7 +78,7 @@ public interface IPlugin {
         closeProject(project.getLocationHash());
     }
 
-    default void closeProject(String projectHash) {
+    default void closeProject(String locationHash) {
 
     }
 
