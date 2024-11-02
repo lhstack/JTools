@@ -14,10 +14,15 @@ import com.intellij.openapi.editor.EditorSettings;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.fileChooser.*;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.VirtualFileWrapper;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.LanguageTextField;
@@ -29,9 +34,13 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.tree.TreePath;
 import java.awt.*;
+import java.io.File;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 public class Helper {
 
@@ -52,14 +61,33 @@ public class Helper {
     }
 
 
-    public static JComponent actionButton(Icon icon, Icon hoverIcon, String title, String description, int width, int height, Consumer<String> action) {
-
+    /**
+     * @since 1.0.2
+     * @param icon
+     * @param hoverIcon
+     * @param title
+     * @param description
+     * @param width
+     * @param height
+     * @param isSelected
+     * @param action
+     * @return
+     */
+    @Since(value = "1.0.1",changeNotes = "1.0.2修改: 新增isSelected参数")
+    public static JComponent actionButton(Icon icon, Icon hoverIcon, String title, String description, int width, int height, Supplier<Boolean> isSelected, Consumer<String> action) {
         Presentation presentation = new Presentation();
         Optional.ofNullable(title).ifPresent(presentation::setText);
         Optional.ofNullable(icon).ifPresent(presentation::setIcon);
         Optional.ofNullable(hoverIcon).ifPresent(presentation::setHoveredIcon);
         Optional.ofNullable(description).ifPresent(presentation::setDescription);
         return new ActionButton(new AnAction() {
+
+            @Override
+            public void update(@NotNull AnActionEvent e) {
+                super.update(e);
+                Toggleable.setSelected(e.getPresentation(), isSelected.get());
+            }
+
             @Override
             public void actionPerformed(@NotNull AnActionEvent e) {
                 action.accept(Optional.ofNullable(e.getData(LangDataKeys.PROJECT)).map(Project::getLocationHash).orElse(""));
@@ -72,31 +100,81 @@ public class Helper {
         }, presentation, ActionPlaces.UNKNOWN, new Dimension(width, height));
     }
 
+
     /**
-     * 通知
-     *
-     * @param locationHash
-     * @param title        标题
-     * @param content      内容
-     * @param type         类型 IDE_UPDATE,INFORMATION,WARNING,ERROR
+     * @since 1.0.2
+     * @param icon
+     * @param title
+     * @param width
+     * @param height
+     * @param isSelected
+     * @param action
+     * @return
      */
-    public static void notify(String locationHash, String title, String content, String type) {
-        for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
-            if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
-                Notifications.Bus.notify(new Notification("", title, content, NotificationType.valueOf(type)), openProject);
-            }
-        }
+    @Since("1.0.2")
+    public static JComponent actionButton(Icon icon, String title, int width, int height, Supplier<Boolean> isSelected, Consumer<String> action) {
+        return actionButton(icon, null, title, null, width, height, isSelected, action);
+    }
+
+    public static JComponent actionButton(Icon icon, String title, int width, int height, Consumer<String> action) {
+        return actionButton(icon, null, title, null, width, height, () -> false, action);
+    }
+
+    public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
+
+        return actionButton(icon, null, title, null, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height, () -> false, action);
     }
 
 
-    public static Logger getSysLogger(String locationHash) {
-        for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
-            if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
-                return openProject.getUserData(JTOOLS_SYS_LOGGER);
-            }
-        }
-        return null;
+    /**
+     * @since 1.0.2
+     * @param icon
+     * @param title
+     * @param isSelected
+     * @param action
+     * @return
+     */
+    @Since("1.0.2")
+    public static JComponent actionButton(Icon icon, String title, Supplier<Boolean> isSelected, Consumer<String> action) {
+
+        return actionButton(icon, null, title, null, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height, isSelected, action);
     }
+
+
+    /**
+     * @since 1.0.2
+     * @param targetComponent
+     * @param horizontal
+     * @param place
+     * @param actions
+     * @return
+     */
+    @Since("1.0.2")
+    public static JComponent createActionToolbar(JComponent targetComponent, boolean horizontal, String place, Action... actions) {
+        DefaultActionGroup defaultActionGroup = new DefaultActionGroup();
+        Stream.of(actions).map(item -> new AnAction(item::title, item::description, item.icon()) {
+
+            @Override
+            public void update(@NotNull AnActionEvent e) {
+                super.update(e);
+                Toggleable.setSelected(e.getPresentation(), item.isSelected());
+            }
+
+            @Override
+            public void actionPerformed(@NotNull AnActionEvent e) {
+                item.actionPerformed();
+            }
+
+            @Override
+            public @NotNull ActionUpdateThread getActionUpdateThread() {
+                return ActionUpdateThread.BGT;
+            }
+        }).forEach(defaultActionGroup::addAction);
+        ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar(place, defaultActionGroup, horizontal);
+        actionToolbar.setTargetComponent(targetComponent);
+        return actionToolbar.getComponent();
+    }
+
 
     /**
      * 语言文本字段
@@ -168,14 +246,57 @@ public class Helper {
         return null;
     }
 
-    public static JComponent actionButton(Icon icon, String title, int width, int height, Consumer<String> action) {
-        return actionButton(icon, null, title, null, width, height, action);
+
+    /**
+     *
+     * 在编辑器中打开文件
+     *
+     * @param locationHash
+     * @since 1.0.2
+     * @param path
+     */
+    @Since("1.0.2")
+    public static void openFileInEditor(String locationHash, Path path) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+                if (StringUtils.equals(locationHash, project.getLocationHash())) {
+                    VirtualFile virtualFile = VirtualFileManager.getInstance().findFileByNioPath(path);
+                    if (virtualFile == null) {
+                        throw new RuntimeException("Can't find file,path: " + path);
+                    }
+                    FileEditorManager.getInstance(project).openFile(virtualFile, true);
+                }
+            }
+        });
     }
 
-    public static JComponent actionButton(Icon icon, String title, Consumer<String> action) {
 
-        return actionButton(icon, null, title, null, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.width, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height, action);
+    /**
+     * 通知
+     *
+     * @param locationHash
+     * @param title        标题
+     * @param content      内容
+     * @param type         类型 IDE_UPDATE,INFORMATION,WARNING,ERROR
+     */
+    public static void notify(String locationHash, String title, String content, String type) {
+        for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+            if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                Notifications.Bus.notify(new Notification("", title, content, NotificationType.valueOf(type)), openProject);
+            }
+        }
     }
+
+
+    public static Logger getSysLogger(String locationHash) {
+        for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+            if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                return openProject.getUserData(JTOOLS_SYS_LOGGER);
+            }
+        }
+        return null;
+    }
+
 
     public static String getProjectBasePath(String locationHash) {
         for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
@@ -208,4 +329,113 @@ public class Helper {
 
         };
     }
+
+
+    /**
+     * @since 1.0.2
+     * @param locationHash
+     * @param title
+     * @param description
+     * @param filter
+     * @param fileConsumer
+     */
+    @Since("1.0.2")
+    public static void chooseFile(String locationHash, String title, String description, Function<String, Boolean> filter, Consumer<String> fileConsumer) {
+        SwingUtilities.invokeLater(() -> {
+            for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+                if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                    FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(true, false, true, true, false, false)
+                            .withTitle(title)
+                            .withDescription(description)
+                            .withFileFilter(item -> filter.apply(item.getPresentableUrl()));
+                    FileChooserDialog fileChooser = FileChooserFactory.getInstance().createFileChooser(fileChooserDescriptor, openProject, null);
+                    VirtualFile[] choose = fileChooser.choose(openProject);
+                    if (choose.length > 0) {
+                        fileConsumer.accept(choose[0].getPresentableUrl());
+                    }
+                }
+            }
+        });
+    }
+
+
+    /**
+     * @since 1.0.2
+     * @param locationHash
+     * @param title
+     * @param description
+     * @param filter
+     * @param fileConsumer
+     */
+    @Since("1.0.2")
+    public static void chooseFiles(String locationHash, String title, String description, Function<String, Boolean> filter, Consumer<String[]> fileConsumer) {
+        SwingUtilities.invokeLater(() -> {
+            for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+                if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                    FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(true, false, true, true, false, true)
+                            .withTitle(title)
+                            .withDescription(description)
+                            .withFileFilter(item -> filter.apply(item.getPresentableUrl()));
+                    FileChooserDialog fileChooser = FileChooserFactory.getInstance().createFileChooser(fileChooserDescriptor, openProject, null);
+                    VirtualFile[] choose = fileChooser.choose(openProject);
+                    if (choose.length > 0) {
+                        fileConsumer.accept(Stream.of(choose).map(VirtualFile::getPresentableUrl).toArray(String[]::new));
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * @since 1.0.2
+     * @param locationHash
+     * @param title
+     * @param description
+     * @param filter
+     * @param fileConsumer
+     */
+    @Since("1.0.2")
+    public static void chooseDirector(String locationHash, String title, String description, Function<String, Boolean> filter, Consumer<String> fileConsumer) {
+        SwingUtilities.invokeLater(() -> {
+            for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+                if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                    FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(false, true, false, false, false, false)
+                            .withTitle(title)
+                            .withDescription(description)
+                            .withFileFilter(item -> filter.apply(item.getPresentableUrl()));
+                    FileChooserDialog fileChooser = FileChooserFactory.getInstance().createFileChooser(fileChooserDescriptor, openProject, null);
+                    VirtualFile[] choose = fileChooser.choose(openProject);
+                    if (choose.length > 0) {
+                        fileConsumer.accept(choose[0].getPresentableUrl());
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * @since 1.0.2
+     * @param locationHash
+     * @param title
+     * @param description
+     * @param filename
+     * @param fileConsumer
+     * @param extension
+     */
+    @Since("1.0.2")
+    public static void chooseSaveFile(String locationHash, String title, String description, String filename, Consumer<File> fileConsumer, String... extension) {
+        SwingUtilities.invokeLater(() -> {
+            for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
+                if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
+                    FileSaverDescriptor descriptor = new FileSaverDescriptor(title, description, extension);
+                    FileSaverDialog saveFileDialog = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, openProject);
+                    VirtualFileWrapper wrapper = saveFileDialog.save(filename);
+                    if (wrapper != null) {
+                        fileConsumer.accept(wrapper.getFile());
+                    }
+                }
+            }
+        });
+    }
+
 }

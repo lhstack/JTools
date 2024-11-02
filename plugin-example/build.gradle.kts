@@ -15,6 +15,7 @@ repositories {
 
 dependencies{
     implementation(project(":sdk"))
+    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
 }
 
 tasks {
