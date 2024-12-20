@@ -27,6 +27,20 @@
     <p>5. Integrated logging module for troubleshooting during plugin development and runtime.</p>
     <p>6. Java plugin development supports dynamic SDK dependencies installation, including IDEA, Maven, and Gradle projects.</p>
     <p>7. JS plugin allows flexible integration of web pages, with options for custom development.</p>
+
+    <div>
+        <span> <a href="https://github.com/lhstack/JTools">帮助</a></span>
+    </div>
+    <h1>JTools</h1>
+    <p>JTools 是一个工具集，简化了 IntelliJ IDEA 插件的开发过程。它支持完整的插件生命周期和热插拔形式,插件卸载安装在非必要的情况下并不会影响IDEA本身。</p>
+    <h1>主要特点</h1>
+    <p>1. 插件面板，支持可拖动安装和右键卸载选项。</p>
+    <p>2. 插件开发模块，支持快速调试，支持 Java、Kotlin 和 JavaScript。</p>
+    <p>3. 原生支持 Java 和 JavaScript 插件。</p>
+    <p>4. 可自定义的插件安装目录。</p>
+    <p>5. 集成日志模块，用于插件开发和运行时的故障排除。</p>
+    <p>6. Java 插件开发支持动态 SDK 依赖安装，包括 IDEA、Maven 和 Gradle 项目。</p>
+    <p>7. JS 插件允许灵活集成网页，支持自定义开发。</p>
   ]]></description>
 
     <change-notes>
@@ -53,6 +67,10 @@
                 <li>修改IPlugin入参函数名,从projectLocation改为locationHash</li>
                 <li>sdk: Helper修改版本为103</li>
                 <li>sdk: Helper actionButton函数新增isSelected参数支持</li>
+            </ul>
+            <h2>Version v1.0.4</h2>
+            <ul>
+                <li>优化JTools日志控制台,设置为软换行方式输出日志</li>
             </ul>
         ]]>
     </change-notes>
