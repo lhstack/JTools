@@ -33,13 +33,11 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.stream.Collectors
 import javax.swing.Icon
-import kotlin.Throws
 
 
 fun Project.sysLogger(): Logger{
@@ -185,7 +183,7 @@ fun File.forceDelete() {
     if (this.isDirectory) {
         FileUtils.deleteDirectory(this)
     } else {
-        Files.delete(this.toPath())
+        this.delete()
     }
 }
 

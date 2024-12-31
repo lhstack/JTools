@@ -72,6 +72,11 @@
             <ul>
                 <li>优化JTools日志控制台,设置为软换行方式输出日志</li>
             </ul>
+
+            <h2>Version v1.0.5</h2>
+            <ul>
+                <li>清除卸载残留优化</li>
+            </ul>
         ]]>
     </change-notes>
 
