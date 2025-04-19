@@ -7,15 +7,21 @@ import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.modules
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
@@ -38,6 +44,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.stream.Collectors
 import javax.swing.Icon
+import kotlin.io.path.Path
 
 
 fun Project.sysLogger(): Logger{
@@ -61,6 +68,26 @@ fun String.ifNotBlank(consumer: (String) -> Unit) {
     if (this.isNotBlank()) {
         consumer(StringUtils.trim(this))
     }
+}
+
+fun File.refresh(){
+    ApplicationManager.getApplication().invokeLater {
+        VfsUtil.markDirtyAndRefresh(false,true,true,this)
+        LocalFileSystem.getInstance().findFileByIoFile(this)?.refresh(false,true)
+    }
+}
+
+fun Project.refresh(async:Boolean = false,invoke:() -> Unit){
+    this.basePath?.let { path ->
+        ApplicationManager.getApplication().invokeLater {
+            VirtualFileManager.getInstance().findFileByNioPath(Path(path))?.let { file ->
+                VfsUtil.markDirtyAndRefresh(async,true,true,file)
+                FileDocumentManager.getInstance().reloadFiles(file)
+                invoke()
+            }
+        }
+    }
+
 }
 
 

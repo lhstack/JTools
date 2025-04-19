@@ -5,7 +5,6 @@ import com.android.tools.idea.gradle.dsl.api.ProjectBuildModel
 import com.android.tools.idea.gradle.dsl.api.dependencies.FileDependencyModel
 import com.intellij.designer.actions.AbstractComboBoxAction
 import com.intellij.icons.AllIcons
-import com.intellij.ide.projectView.ProjectView
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -20,6 +19,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
@@ -32,11 +32,16 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.PopupStep
+import com.intellij.openapi.ui.popup.SpeedSearchFilter
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
-import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.searches.ClassInheritorsSearch
 import com.intellij.psi.xml.XmlFile
 import com.intellij.ui.awt.RelativePoint
 import com.lhstack.tools.const.Const
@@ -55,12 +60,14 @@ import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.awt.BorderLayout
 import java.awt.FlowLayout
+import java.awt.Point
 import java.awt.event.MouseEvent
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileFilter
 import java.io.FileOutputStream
 import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipOutputStream
@@ -238,6 +245,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     val compileScope =
                         compilerManager.createModulesCompileScope(arrayOf(it), true, true, false)
                     compilerManager.make(compileScope) { _, _, _, _ ->
+                        ApplicationManager.getApplication().invokeLater {
+                            ModuleRootManager.getInstance(it).contentRoots.forEach { root ->
+                                root.refresh(false,true)
+                            }
+                        }
                     }
                 }
             }
@@ -248,7 +260,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         })
         actionGroup.add(object : AnAction({ "运行插件" }, AllIcons.Actions.Execute) {
             override fun actionPerformed(e: AnActionEvent) {
-                run(comboBoxAction)
+                run(e,comboBoxAction)
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
@@ -277,7 +289,12 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         if (errors > 0) {
                             return@make
                         }
-                        run(comboBoxAction)
+                        ApplicationManager.getApplication().invokeLater {
+                            ModuleRootManager.getInstance(it).contentRoots.forEach { root ->
+                                root.refresh(false,true)
+                            }
+                        }
+                        run(e,comboBoxAction)
                     }
                 }
             }
@@ -358,11 +375,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     val fileChooserDialog =
                         FileChooserFactory.getInstance().createFileChooser(fileChooserDescriptor, project, null)
                     val virtualFiles = fileChooserDialog.choose(project, *it.children)
-                    if(virtualFiles.isNotEmpty()) {
+                    if (virtualFiles.isNotEmpty()) {
                         ByteArrayOutputStream().use { bo ->
                             ZipOutputStream(bo).use { zo ->
                                 val files = virtualFiles.map { file -> File(file.presentableUrl) }.toTypedArray()
-                                cn.hutool.core.util.ZipUtil.zip(
+                                ZipUtil.zip(
                                     zo,
                                     Charset.forName("UTF-8"),
                                     true,
@@ -373,13 +390,14 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                     },
                                     *files
                                 )
-                                val fileSaverDescriptor = FileSaverDescriptor("选择打包结果保存的目录", "保存","zip")
+                                val fileSaverDescriptor = FileSaverDescriptor("选择打包结果保存的目录", "保存", "zip")
                                 val fileWrapper =
                                     FileChooserFactory.getInstance().createSaveFileDialog(fileSaverDescriptor, project)
                                         .save(null)
                                 fileWrapper?.file?.apply {
                                     FileOutputStream(this).use { fo ->
                                         fo.write(bo.toByteArray())
+                                        project.refresh {}
                                     }
                                 }
 
@@ -412,35 +430,36 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         override fun onChosen(selectedValue: String, finalChoice: Boolean): PopupStep<*>? {
                             project.guessProjectDir()?.let {
                                 var file = it.findChild("pluginInfo.json")
-                                if(file != null){
+                                if (file != null) {
                                     val result = Messages.showYesNoDialog(
                                         "当前项目下已存在插件信息,如果点击确认,会覆盖当前已有的部分内容,是否确认",
                                         "警告",
                                         AllIcons.General.Warning
                                     )
-                                    if(result == Messages.NO) {
+                                    if (result == Messages.NO) {
                                         return super.onChosen(selectedValue, finalChoice)
                                     }
                                 }
-                                when(selectedValue){
+                                when (selectedValue) {
                                     "嵌套外部网站" -> {
-                                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/template/js-external.zip")?.use { stream ->
-                                            ZipUtil.unzip(stream, File(it.presentableUrl),Charset.forName("UTF-8"))
-                                        }
+                                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/template/js-external.zip")
+                                            ?.use { stream ->
+                                                ZipUtil.unzip(stream, File(it.presentableUrl), Charset.forName("UTF-8"))
+                                            }
                                     }
+
                                     "自己开发" -> {
-                                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/template/js-inner.zip")?.use { stream ->
-                                            ZipUtil.unzip(stream, File(it.presentableUrl),Charset.forName("UTF-8"))
-                                        }
+                                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/template/js-inner.zip")
+                                            ?.use { stream ->
+                                                ZipUtil.unzip(stream, File(it.presentableUrl), Charset.forName("UTF-8"))
+                                            }
                                     }
+
                                     else -> {
 
                                     }
                                 }
-                                ApplicationManager.getApplication().invokeLater {
-                                    VfsUtil.markDirtyAndRefresh(true,true,true,it)
-                                    FileDocumentManager.getInstance().reloadFiles(it)
-                                }
+                                project.refresh{}
                             }
                             return super.onChosen(selectedValue, finalChoice)
                         }
@@ -454,17 +473,36 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         })
     }
 
-    private fun run(comboBoxAction: AbstractComboBoxAction<Module>) {
+    private fun run(e: AnActionEvent, comboBoxAction: AbstractComboBoxAction<Module>) {
 
         if (!developerState.isJavaPlugin()) {
 
             val basePath = project.basePath
             val pluginInfo = File(basePath, "pluginInfo.json")
             if (!pluginInfo.exists()) {
+                FileOutputStream(pluginInfo).use {
+                    it.write(
+                        """
+                        {
+                            "pluginName":"插件名称",
+                            "pluginDesc":"插件描述",
+                            "pluginIcon":"插件在插件列表中展示的图标,支持svg,png等,大小为48x48",
+                            "pluginTabIcon":"插件tab标签上的图标",
+                            "indexPage":"插件入口地址,详情参考模板"
+                        }
+                    """.trimIndent().toByteArray(StandardCharsets.UTF_8)
+                    )
+                    project.refresh{
+                        LocalFileSystem.getInstance().findFileByIoFile(pluginInfo)?.let { file ->
+                            FileEditorManager.getInstance(project).openFile(file,true)
+                        }
+                    }
+                }
                 project.errorNotify(
                     "运行JS插件通知",
-                    "项目中不存在pluginInfo.json配置,请检查你的项目是否为标准的JS插件"
+                    "请先在pluginInfo.json中添加你的配置吧"
                 )
+
                 return
             }
             //不是java插件,就是js插件,移除之前的插件
@@ -563,9 +601,82 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         }
 
         comboBoxAction.selection?.let {
+            for (moduleSourceFile in ModuleRootManager.getInstance(it).getSourceRoots(false)) {
+                val toolsPluginFile = moduleSourceFile.findChild("META-INF")?.findChild("ToolsPlugin.txt")
+                if(toolsPluginFile == null){
+                    val iPluginClass = JavaPsiFacade.getInstance(project)
+                        .findClass("com.lhstack.tools.plugins.IPlugin", GlobalSearchScope.allScope(project))
+                    if(iPluginClass == null){
+                        project.errorNotify("错误","先安装开发依赖吧")
+                        return
+                    }
+                    val classes = ClassInheritorsSearch.search(iPluginClass, GlobalSearchScope.moduleScope(it), true)
+                    val filterClasses =
+                        classes.filter { clazz -> !clazz.isInterface && !clazz.hasModifierProperty("abstract") && !clazz.isEnum }
+                    if(filterClasses.size > 1){
+                        val listPopupStep =
+                            object : BaseListPopupStep<PsiClass>("实现类", filterClasses) {
+                                override fun isSpeedSearchEnabled(): Boolean {
+                                    return true
+                                }
+
+                                override fun getSpeedSearchFilter(): SpeedSearchFilter<PsiClass> = SpeedSearchFilter<PsiClass> {
+                                    it.qualifiedName
+                                }
+
+                                override fun onChosen(
+                                    selectedValue: PsiClass,
+                                    finalChoice: Boolean,
+                                ): PopupStep<*>? {
+                                    File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
+                                        if (!metaInf.exists()) {
+                                            metaInf.mkdirs()
+                                        }
+                                        File(metaInf,"ToolsPlugin.txt").apply {
+                                            writeText(selectedValue.qualifiedName!!)
+                                            this.refresh()
+                                        }
+                                        project.errorNotify("插件开发","需要重新编译")
+                                    }
+                                    return super.onChosen(selectedValue, finalChoice)
+                                }
+
+                                override fun getTextFor(value: PsiClass): String = value.qualifiedName.toString()
+
+                            }
+                        val popup =
+                            JBPopupFactory.getInstance().createListPopup(listPopupStep, 10)
+                        val event = e.inputEvent as MouseEvent
+                        popup.show(RelativePoint(event.component, Point(event.point.x + 10, event.point.y + 10)))
+                        return
+                    }else if(filterClasses.size == 1){
+                        val pluginImpl = filterClasses[0]
+                        File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
+                            if (!metaInf.exists()) {
+                                metaInf.mkdirs()
+                            }
+                            File(metaInf,"ToolsPlugin.txt").apply {
+                                writeText(pluginImpl.qualifiedName!!)
+                                this.refresh()
+                            }
+                        }
+                        project.errorNotify("插件开发","需要重新编译")
+                        return
+                    }else {
+                        project.errorNotify("插件开发", "请先创建com.lhstack.tools.plugins.IPlugin的实现类吧")
+                        return
+                    }
+                }
+            }
+
             val moduleOutputDirectory = CompilerPaths.getModuleOutputDirectory(it, false)
             if (moduleOutputDirectory == null) {
                 project.errorNotify("插件开发", "当前项目未编译，或者不存在编译结果，请检查你的项目结构")
+                return@let
+            }
+            val toolsPluginFile = moduleOutputDirectory.findChild("META-INF")?.findChild("ToolsPlugin.txt")
+            if(toolsPluginFile == null){
+                project.errorNotify("插件开发", "编译目录下没有找到ToolsPlugin.txt,请先检查是否在META-INF目录下存在ToolsPlugin.txt,或者重新编译一次吧")
                 return@let
             }
             moduleOutputDirectory.let { classes ->
