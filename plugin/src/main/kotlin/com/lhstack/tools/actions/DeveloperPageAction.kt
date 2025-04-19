@@ -230,6 +230,108 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             }
         })
 
+        actionGroup.add(object : AnAction({ "生成ToolsPlugin.txt" }, AllIcons.Actions.GeneratedFolder) {
+            override fun update(e: AnActionEvent) {
+                super.update(e)
+                if (!developerState.isJavaPlugin()) {
+                    e.presentation.isEnabledAndVisible = false
+                    return
+                }
+            }
+
+            override fun actionPerformed(e: AnActionEvent) {
+                comboBoxAction.selection?.let {
+                    var sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
+                    if(sourceRoots.isEmpty()){
+                        sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(false).toList()
+                    }
+                    if(sourceRoots.isNotEmpty()){
+                        val moduleSourceFile = sourceRoots[0]
+                        val toolsPluginFile = moduleSourceFile.findChild("META-INF")?.findChild("ToolsPlugin.txt")
+                        if(toolsPluginFile != null) {
+                            val result = Messages.showYesNoDialog(
+                                "当前已存在ToolsPlugin.txt,是否覆盖",
+                                "警告",
+                                AllIcons.General.NotificationWarning
+                            )
+                            if(result == Messages.NO) {
+                                return
+                            }
+                        }
+                        val iPluginClass = JavaPsiFacade.getInstance(project)
+                            .findClass("com.lhstack.tools.plugins.IPlugin", GlobalSearchScope.allScope(project))
+                        if(iPluginClass == null){
+                            project.errorNotify("错误","先安装开发依赖吧")
+                            return
+                        }
+                        val classes = ClassInheritorsSearch.search(iPluginClass, GlobalSearchScope.moduleScope(it), true)
+                        val filterClasses =
+                            classes.filter { clazz -> !clazz.isInterface && !clazz.hasModifierProperty("abstract") && !clazz.isEnum }
+                        if(filterClasses.size > 1){
+                            val listPopupStep =
+                                object : BaseListPopupStep<PsiClass>("实现类", filterClasses) {
+                                    override fun isSpeedSearchEnabled(): Boolean {
+                                        return true
+                                    }
+
+                                    override fun getSpeedSearchFilter(): SpeedSearchFilter<PsiClass> = SpeedSearchFilter<PsiClass> {
+                                        it.qualifiedName
+                                    }
+
+                                    override fun onChosen(
+                                        selectedValue: PsiClass,
+                                        finalChoice: Boolean,
+                                    ): PopupStep<*>? {
+                                        File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
+                                            if (!metaInf.exists()) {
+                                                metaInf.mkdirs()
+                                            }
+                                            File(metaInf,"ToolsPlugin.txt").apply {
+                                                writeText(selectedValue.qualifiedName!!)
+                                                this.refresh()
+                                            }
+                                            project.errorNotify("插件开发","需要重新编译")
+                                        }
+                                        return super.onChosen(selectedValue, finalChoice)
+                                    }
+
+                                    override fun getTextFor(value: PsiClass): String = value.qualifiedName.toString()
+
+                                }
+                            val popup =
+                                JBPopupFactory.getInstance().createListPopup(listPopupStep, 10)
+                            val event = e.inputEvent as MouseEvent
+                            popup.show(RelativePoint(event.component, Point(event.point.x + 10, event.point.y + 10)))
+                            return
+                        }else if(filterClasses.size == 1){
+                            val pluginImpl = filterClasses[0]
+                            File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
+                                if (!metaInf.exists()) {
+                                    metaInf.mkdirs()
+                                }
+                                File(metaInf,"ToolsPlugin.txt").apply {
+                                    writeText(pluginImpl.qualifiedName!!)
+                                    this.refresh()
+                                }
+                            }
+                            project.errorNotify("插件开发","需要重新编译")
+                            return
+                        }else {
+                            project.errorNotify("插件开发", "请先创建com.lhstack.tools.plugins.IPlugin的实现类吧")
+                            return
+                        }
+                    }else {
+                        project.errorNotify("插件开发","请先创建resources目录吧")
+                        return
+                    }
+                }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.BGT
+            }
+        })
+
         actionGroup.add(object : AnAction({ "编译模块" }, AllIcons.Actions.Compile) {
             override fun update(e: AnActionEvent) {
                 super.update(e)
@@ -612,62 +714,13 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     val iPluginClass = JavaPsiFacade.getInstance(project)
                         .findClass("com.lhstack.tools.plugins.IPlugin", GlobalSearchScope.allScope(project))
                     if(iPluginClass == null){
-                        project.errorNotify("错误","先安装开发依赖吧")
+                        project.errorNotify("插件开发","先安装开发依赖吧")
                         return
                     }
                     val classes = ClassInheritorsSearch.search(iPluginClass, GlobalSearchScope.moduleScope(it), true)
                     val filterClasses =
                         classes.filter { clazz -> !clazz.isInterface && !clazz.hasModifierProperty("abstract") && !clazz.isEnum }
-                    if(filterClasses.size > 1){
-                        val listPopupStep =
-                            object : BaseListPopupStep<PsiClass>("实现类", filterClasses) {
-                                override fun isSpeedSearchEnabled(): Boolean {
-                                    return true
-                                }
-
-                                override fun getSpeedSearchFilter(): SpeedSearchFilter<PsiClass> = SpeedSearchFilter<PsiClass> {
-                                    it.qualifiedName
-                                }
-
-                                override fun onChosen(
-                                    selectedValue: PsiClass,
-                                    finalChoice: Boolean,
-                                ): PopupStep<*>? {
-                                    File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
-                                        if (!metaInf.exists()) {
-                                            metaInf.mkdirs()
-                                        }
-                                        File(metaInf,"ToolsPlugin.txt").apply {
-                                            writeText(selectedValue.qualifiedName!!)
-                                            this.refresh()
-                                        }
-                                        project.errorNotify("插件开发","需要重新编译")
-                                    }
-                                    return super.onChosen(selectedValue, finalChoice)
-                                }
-
-                                override fun getTextFor(value: PsiClass): String = value.qualifiedName.toString()
-
-                            }
-                        val popup =
-                            JBPopupFactory.getInstance().createListPopup(listPopupStep, 10)
-                        val event = e.inputEvent as MouseEvent
-                        popup.show(RelativePoint(event.component, Point(event.point.x + 10, event.point.y + 10)))
-                        return
-                    }else if(filterClasses.size == 1){
-                        val pluginImpl = filterClasses[0]
-                        File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
-                            if (!metaInf.exists()) {
-                                metaInf.mkdirs()
-                            }
-                            File(metaInf,"ToolsPlugin.txt").apply {
-                                writeText(pluginImpl.qualifiedName!!)
-                                this.refresh()
-                            }
-                        }
-                        project.errorNotify("插件开发","需要重新编译")
-                        return
-                    }else {
+                    if(filterClasses.isEmpty()) {
                         project.errorNotify("插件开发", "请先创建com.lhstack.tools.plugins.IPlugin的实现类吧")
                         return
                     }
