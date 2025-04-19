@@ -601,7 +601,12 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         }
 
         comboBoxAction.selection?.let {
-            for (moduleSourceFile in ModuleRootManager.getInstance(it).getSourceRoots(false)) {
+            var sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
+            if(sourceRoots.isEmpty()){
+                sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(false).toList()
+            }
+            if(sourceRoots.isNotEmpty()){
+                val moduleSourceFile = sourceRoots[0]
                 val toolsPluginFile = moduleSourceFile.findChild("META-INF")?.findChild("ToolsPlugin.txt")
                 if(toolsPluginFile == null){
                     val iPluginClass = JavaPsiFacade.getInstance(project)
@@ -667,16 +672,14 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         return
                     }
                 }
+            }else {
+                project.errorNotify("插件开发","请先创建resources目录吧")
+                return
             }
 
             val moduleOutputDirectory = CompilerPaths.getModuleOutputDirectory(it, false)
             if (moduleOutputDirectory == null) {
                 project.errorNotify("插件开发", "当前项目未编译，或者不存在编译结果，请检查你的项目结构")
-                return@let
-            }
-            val toolsPluginFile = moduleOutputDirectory.findChild("META-INF")?.findChild("ToolsPlugin.txt")
-            if(toolsPluginFile == null){
-                project.errorNotify("插件开发", "编译目录下没有找到ToolsPlugin.txt,请先检查是否在META-INF目录下存在ToolsPlugin.txt,或者重新编译一次吧")
                 return@let
             }
             moduleOutputDirectory.let { classes ->
