@@ -1,11 +1,14 @@
 package com.lhstack.tools.actions
 
+import cn.hutool.core.util.ZipUtil
 import com.android.tools.idea.gradle.dsl.api.ProjectBuildModel
 import com.android.tools.idea.gradle.dsl.api.dependencies.FileDependencyModel
 import com.intellij.designer.actions.AbstractComboBoxAction
 import com.intellij.icons.AllIcons
+import com.intellij.ide.projectView.ProjectView
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.compiler.CompilerManager
 import com.intellij.openapi.compiler.CompilerPaths
@@ -13,19 +16,29 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
 import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.PopupStep
+import com.intellij.openapi.ui.popup.util.BaseListPopupStep
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
+import com.intellij.ui.awt.RelativePoint
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
@@ -42,9 +55,15 @@ import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.awt.BorderLayout
 import java.awt.FlowLayout
+import java.awt.event.MouseEvent
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileFilter
+import java.io.FileOutputStream
+import java.nio.charset.Charset
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.ZipOutputStream
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -311,6 +330,122 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         comboBoxAction.update()
                     }
                 }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.BGT
+            }
+        })
+
+        actionGroup.add(object : AnAction({ "打包" }, AllIcons.Toolwindows.ToolWindowBuild) {
+
+            override fun update(e: AnActionEvent) {
+                super.update(e)
+                if (developerState.isJavaPlugin()) {
+                    e.presentation.isEnabledAndVisible = false
+                    return
+                }
+            }
+
+            override fun actionPerformed(e: AnActionEvent) {
+
+                project.guessProjectDir()?.let {
+                    val fileChooserDescriptor = FileChooserDescriptor(true, true, true, true, false, true)
+                    fileChooserDescriptor.setRoots(it)
+                    fileChooserDescriptor.title = "请选择构建插件所需要的相关目录和文件"
+                    fileChooserDescriptor.isShowFileSystemRoots = false
+                    fileChooserDescriptor.isForcedToUseIdeaFileChooser = true
+                    val fileChooserDialog =
+                        FileChooserFactory.getInstance().createFileChooser(fileChooserDescriptor, project, null)
+                    val virtualFiles = fileChooserDialog.choose(project, *it.children)
+                    if(virtualFiles.isNotEmpty()) {
+                        ByteArrayOutputStream().use { bo ->
+                            ZipOutputStream(bo).use { zo ->
+                                val files = virtualFiles.map { file -> File(file.presentableUrl) }.toTypedArray()
+                                cn.hutool.core.util.ZipUtil.zip(
+                                    zo,
+                                    Charset.forName("UTF-8"),
+                                    true,
+                                    object : FileFilter {
+                                        override fun accept(pathname: File): Boolean {
+                                            return true
+                                        }
+                                    },
+                                    *files
+                                )
+                                val fileSaverDescriptor = FileSaverDescriptor("选择打包结果保存的目录", "保存","zip")
+                                val fileWrapper =
+                                    FileChooserFactory.getInstance().createSaveFileDialog(fileSaverDescriptor, project)
+                                        .save(null)
+                                fileWrapper?.file?.apply {
+                                    FileOutputStream(this).use { fo ->
+                                        fo.write(bo.toByteArray())
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                }
+
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.BGT
+            }
+        })
+
+        actionGroup.add(object : AnAction({ "模板" }, AllIcons.Nodes.Template) {
+
+            override fun update(e: AnActionEvent) {
+                super.update(e)
+                if (developerState.isJavaPlugin()) {
+                    e.presentation.isEnabledAndVisible = false
+                    return
+                }
+            }
+
+            override fun actionPerformed(e: AnActionEvent) {
+                val event = e.inputEvent as MouseEvent
+                val popup = JBPopupFactory.getInstance()
+                    .createListPopup(object : BaseListPopupStep<String>("模板", "嵌套外部网站", "自己开发") {
+                        override fun onChosen(selectedValue: String, finalChoice: Boolean): PopupStep<*>? {
+                            project.guessProjectDir()?.let {
+                                var file = it.findChild("pluginInfo.json")
+                                if(file != null){
+                                    val result = Messages.showYesNoDialog(
+                                        "当前项目下已存在插件信息,如果点击确认,会覆盖当前已有的部分内容,是否确认",
+                                        "警告",
+                                        AllIcons.General.Warning
+                                    )
+                                    if(result == Messages.NO) {
+                                        return super.onChosen(selectedValue, finalChoice)
+                                    }
+                                }
+                                when(selectedValue){
+                                    "嵌套外部网站" -> {
+                                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/template/js-external.zip")?.use { stream ->
+                                            ZipUtil.unzip(stream, File(it.presentableUrl),Charset.forName("UTF-8"))
+                                        }
+                                    }
+                                    "自己开发" -> {
+                                        DeveloperPageAction::class.java.classLoader.getResourceAsStream("META-INF/template/js-inner.zip")?.use { stream ->
+                                            ZipUtil.unzip(stream, File(it.presentableUrl),Charset.forName("UTF-8"))
+                                        }
+                                    }
+                                    else -> {
+
+                                    }
+                                }
+                                ApplicationManager.getApplication().invokeLater {
+                                    VfsUtil.markDirtyAndRefresh(true,true,true,it)
+                                    FileDocumentManager.getInstance().reloadFiles(it)
+                                }
+                            }
+                            return super.onChosen(selectedValue, finalChoice)
+                        }
+                    })
+                popup.show(RelativePoint(event.component, event.point))
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {

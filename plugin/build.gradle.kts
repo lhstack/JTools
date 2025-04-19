@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.0.5"
+version = "1.0.6"
 
 repositories {
     mavenLocal()
@@ -24,6 +24,8 @@ intellij {
 }
 
 dependencies {
+    // https://mvnrepository.com/artifact/cn.hutool/hutool-core
+    implementation("cn.hutool:hutool-core:5.8.37")
     implementation(project(":sdk"))
 }
 
@@ -69,6 +71,12 @@ val proguardJar by tasks.registering(proguard.taskClass) {
             -keepclassmember class com.lhstack.tools.actions.** {
                 public *;
                 protected *;
+            }
+            
+            -keepclassmembers class cn.hutool.core.**{
+                public *;
+                protected *;
+                private *;
             }
             
             -keep class * implements com.intellij.openapi.wm.ToolWindowFactory {
@@ -138,7 +146,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("223")
-//        untilBuild.set("243.*")
+        untilBuild.set("255.*")
     }
 
     signPlugin {
