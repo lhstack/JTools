@@ -116,7 +116,7 @@ class ContentPageAction(
             override fun actionPerformed(e: AnActionEvent) {
                 tabsPanel.tabs.forEach { tab ->
                     if (tab.component is PluginTabPanel) {
-                        (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project) }
+                        (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project,(tab.component as PluginTabPanel).pluginPanel) }
                         tabsPanel.removeTab(tab)
                     }
                 }
@@ -135,7 +135,7 @@ class ContentPageAction(
                     tabsPanel.tabs.forEach { tab ->
                         if (tab.component is PluginTabPanel) {
                             if (tab.component != tabInfo.component) {
-                                (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project) }
+                                (tab.component as PluginTabPanel).plugin.catch("插件面板关闭回调") { closePanel(project,(tab.component as PluginTabPanel).pluginPanel) }
                                 tabsPanel.removeTab(tab)
                             }
                         }
@@ -175,6 +175,43 @@ class ContentPageAction(
                 return ActionUpdateThread.EDT
             }
         })
+
+        tabsPopupGroup.add(object : AnAction({ "复制" }, Icons.closeOtherIcon()) {
+
+            override fun update(e: AnActionEvent) {
+                super.update(e)
+                val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
+                if (component is TabLabel) {
+                    val tabInfo = component.info
+                    e.presentation.description =
+                        "需要插件支持多开功能,新版本插件新增supportMultiOpens函数,用于支持多开功能"
+                    if (tabInfo.component is PluginTabPanel) {
+                        val pluginTabPanel = tabInfo.component as PluginTabPanel
+                        if (!pluginTabPanel.plugin.supportMultiOpens()) {
+                            e.presentation.isEnabled = false
+                        }
+                    }
+
+                }
+            }
+
+            override fun actionPerformed(e: AnActionEvent) {
+                val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
+                if (component is TabLabel) {
+                    val tabInfo = component.info
+                    if (tabInfo.component is PluginTabPanel) {
+                        val pluginTabPanel = tabInfo.component as PluginTabPanel
+                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin)
+                    }
+                }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.EDT
+            }
+        })
+
+
         tabsPanel.setPopupGroup(tabsPopupGroup, "ContentPage@Tabs", true)
     }
 
@@ -193,7 +230,7 @@ class ContentPageAction(
                 if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
                     this.tabsPanel.removeTab(it)
                     plugin.catch("插件面板关闭回调") {
-                        closePanel(project)
+                        closePanel(project,pluginTabPanel.pluginPanel)
                     }
                 }
             }
@@ -201,19 +238,21 @@ class ContentPageAction(
     }
 
     override fun openPanel(pluginInfo: PluginInfo, plugin: IPlugin) {
-        this.tabsPanel.tabs.forEach {
-            if (it.component is PluginTabPanel) {
-                val pluginTabPanel = it.component as PluginTabPanel
-                if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
-                    tabsPanel.select(it, true)
-                    goToPage()
-                    return
+        if (!plugin.supportMultiOpens()) {
+            this.tabsPanel.tabs.forEach {
+                if (it.component is PluginTabPanel) {
+                    val pluginTabPanel = it.component as PluginTabPanel
+                    if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
+                        tabsPanel.select(it, true)
+                        goToPage()
+                        return
+                    }
                 }
             }
         }
         plugin.catch("创建插件面板") {
             val pluginPanel = createPanel(project)
-            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin)
+            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel)
             pluginTabPanel.layout = BorderLayout()
             pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
             val tabInfo = TabInfo(pluginTabPanel)
@@ -230,7 +269,7 @@ class ContentPageAction(
 
                 override fun actionPerformed(e: AnActionEvent) {
                     tabsPanel.removeTab(tabInfo)
-                    plugin.catch("插件面板关闭回调") { closePanel(project) }
+                    plugin.catch("插件面板关闭回调") { closePanel(project,pluginPanel) }
                 }
 
                 override fun getActionUpdateThread(): ActionUpdateThread {
@@ -246,7 +285,7 @@ class ContentPageAction(
             cardLayout.show(contentPanel, cardView)
             tabsPanel.addTab(tabInfo)
             tabsPanel.select(tabInfo, true)
-            plugin.catch("插件面板显示回调") { showPanel(project) }
+            plugin.catch("插件面板显示回调") { showPanel(project,pluginPanel) }
             goToPage()
         }
     }

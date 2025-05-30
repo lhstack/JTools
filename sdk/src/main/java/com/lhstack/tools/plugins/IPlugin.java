@@ -45,16 +45,20 @@ public interface IPlugin {
         return null;
     }
 
+    default boolean supportMultiOpens() {
+        return false;
+    }
+
     /**
      * 插件每次打开回调
      *
      * @param project
      */
-    default void showPanel(Project project) {
-        showPanel(project.getLocationHash());
+    default void showPanel(Project project, JComponent pluginPanel) {
+        showPanel(project.getLocationHash(), pluginPanel);
     }
 
-    default void showPanel(String locationHash) {
+    default void showPanel(String locationHash, JComponent pluginPanel) {
 
     }
 
@@ -63,11 +67,11 @@ public interface IPlugin {
      *
      * @param project
      */
-    default void closePanel(Project project) {
-        closePanel(project.getLocationHash());
+    default void closePanel(Project project, JComponent pluginPanel) {
+        closePanel(project.getLocationHash(), pluginPanel);
     }
 
-    default void closePanel(String locationHash) {
+    default void closePanel(String locationHash, JComponent pluginPanel) {
 
     }
 
@@ -150,10 +154,11 @@ public interface IPlugin {
 
     /**
      * 支持jtools版本
+     *
      * @param jToolsVersion
      * @return
      */
-    default boolean support(Integer jToolsVersion){
+    default boolean support(Integer jToolsVersion) {
         return true;
     }
 

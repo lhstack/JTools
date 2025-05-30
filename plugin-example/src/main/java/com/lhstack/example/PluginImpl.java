@@ -1,32 +1,21 @@
 package com.lhstack.example;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.IconLoader;
 import com.lhstack.tools.plugins.Helper;
 import com.lhstack.tools.plugins.IPlugin;
 import com.lhstack.tools.plugins.Logger;
 
 import javax.swing.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Consumer;
 
 public class PluginImpl implements IPlugin {
-    JButton button = new JButton("测试按钮");
 
     private final Map<String, Runnable> disables = new HashMap<>();
 
     public PluginImpl() {
-        button.addActionListener(new ActionListener() {
 
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                Messages.showInfoMessage("点击", "111");
-            }
-        });
     }
 
     @Override
@@ -39,9 +28,23 @@ public class PluginImpl implements IPlugin {
     }
 
     @Override
+    public boolean supportMultiOpens() {
+        return true;
+    }
+
+    @Override
     public void openProject(Project project, Logger logger, Runnable openThisPage) {
 //        throw new RuntimeException("111");
-        openThisPage.run();
+    }
+
+    @Override
+    public void showPanel(Project project) {
+        IPlugin.super.showPanel(project);
+    }
+
+    @Override
+    public void closePanel(Project project) {
+        IPlugin.super.closePanel(project);
     }
 
     @Override

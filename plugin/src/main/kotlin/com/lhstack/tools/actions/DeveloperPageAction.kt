@@ -101,6 +101,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
     private val pluginInstance = AtomicReference<IPlugin>()
 
+    private val contentPanelInstance = AtomicReference<JComponent>()
+
     private val compilerManager = CompilerManager.getInstance(project)
 
     private val developerState = project.service<DeveloperState>().state
@@ -426,7 +428,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     pluginInstance.get().let { plugin ->
                         plugin.catch("关闭插件面板回调") {
                             if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                                closePanel(project)
+                                closePanel(project,contentPanelInstance.get())
                             }
                             this
                         }?.catch("项目关闭回调") {
@@ -612,7 +614,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             pluginInstance.get()?.let { plugin ->
                 plugin.catch("关闭插件面板回调") {
                     if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                        closePanel(project)
+                        closePanel(project,contentPanelInstance.get())
                     }
                     this
                 }?.catch("项目关闭回调") {
@@ -679,7 +681,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     }?.catch("创建插件面板回调") {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             val pluginPanel = plugin.createPanel(project)
-                            showPanel(project)
+                            showPanel(project,pluginPanel)
+                            contentPanelInstance.set(pluginPanel)
                             contentPanel.add(pluginPanel, BorderLayout.CENTER)
                             contentPanel.validate()
                             contentPanel.repaint()
@@ -741,7 +744,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     pluginInstance.get()?.let { plugin ->
                         plugin.catch("关闭插件面板回调") {
                             if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                                closePanel(project)
+                                closePanel(project,contentPanelInstance.get())
                             }
                             this
                         }?.catch("项目关闭回调") {
@@ -794,7 +797,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             }?.catch("创建插件面板回调") {
                                 if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                     val pluginPanel = plugin.createPanel(project)
-                                    showPanel(project)
+                                    showPanel(project,pluginPanel)
                                     plugin.tabPanelActions(project)?.let {
                                         if (it.isNotEmpty()) {
                                             val actionToolbar = ActionManager.getInstance()
@@ -811,6 +814,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                             }, BorderLayout.NORTH)
                                         }
                                     }
+                                    contentPanelInstance.set(pluginPanel)
                                     contentPanel.add(pluginPanel, BorderLayout.CENTER)
                                     contentPanel.validate()
                                     contentPanel.repaint()
