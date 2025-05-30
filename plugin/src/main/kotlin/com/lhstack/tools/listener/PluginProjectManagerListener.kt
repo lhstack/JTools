@@ -14,7 +14,8 @@ class PluginProjectManagerListener : ProjectManagerListener {
 
     override fun projectClosing(project: Project) {
         this.pluginManager().remove(project.locationHash) {
-            this.pluginManager().plugins { _, plugin ->
+            this.pluginManager().plugins { pluginInfo, plugin ->
+                project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).closePanel(plugin, pluginInfo)
                 plugin.catch("关闭项目回调") { this.closeProject(project) }
             }
         }

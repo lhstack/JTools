@@ -38,16 +38,6 @@ public class PluginImpl implements IPlugin {
     }
 
     @Override
-    public void showPanel(Project project) {
-        IPlugin.super.showPanel(project);
-    }
-
-    @Override
-    public void closePanel(Project project) {
-        IPlugin.super.closePanel(project);
-    }
-
-    @Override
     public void closeProject(String projectHash) {
         Runnable remove = disables.remove(projectHash);
         if(remove != null) {

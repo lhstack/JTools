@@ -89,6 +89,8 @@
             <ul>
                 <li>插件支持多开功能,需要在插件开发过程中重载supportMultiOpens函数</li>
                 <li>重构插件showPanel,closePanel函数,新增JComponent入参,用户回传createPanel创建的组件,解决多开场景资源回收问题</li>
+                <li>fix: 拖动安装触发openProject回调参数logger错误</li>
+                <li>新增关闭项目触发已打开的面板closePanel函数</li>
             </ul>
         ]]>
     </change-notes>

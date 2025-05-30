@@ -223,7 +223,7 @@ class ContentPageAction(
         messageBusConnection.disconnect()
     }
 
-    override fun uninstall(plugin: IPlugin, pluginInfo: PluginInfo) {
+    override fun closePanel(plugin: IPlugin, pluginInfo: PluginInfo) {
         this.tabsPanel.tabs.forEach {
             if (it.component is PluginTabPanel) {
                 val pluginTabPanel = it.component as PluginTabPanel

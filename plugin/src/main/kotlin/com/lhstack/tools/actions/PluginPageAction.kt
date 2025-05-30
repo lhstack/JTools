@@ -269,7 +269,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 val existPlugInfo = it.getUserData(Keys.PLUGIN_INFO_KEY)
                 if (existPlugInfo != null) {
                     if (existPlugInfo.id == pluginInfo.id) {
-                        project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).uninstall(plugin, pluginInfo)
+                        project.messageBus.syncPublisher(ProjectPluginListener.TOPIC).closePanel(plugin, pluginInfo)
                         pluginPanel.remove(it)
                         pluginPanel.validate()
                         pluginPanel.repaint()
