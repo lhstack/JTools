@@ -91,7 +91,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                                             ApplicationManager.getApplication().restart()
                                             return@install
                                         }
-                                        p.openProject(openProject,pluginInfo!!.logImpl(project)) {
+                                        p.openProject(openProject,pluginInfo!!.logImpl(openProject)) {
                                             if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                                 //需要打开Tools面板
                                                 openProject.openThisWindow()
