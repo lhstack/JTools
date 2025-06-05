@@ -46,5 +46,9 @@ class Icons {
 
         fun openConsolePanel() = findIcon("icons/console.svg")
 
+        fun movecopy() = findIcon("icons/movecopy.svg")
+        fun moveright() = findIcon("icons/moveright.svg")
+        fun moveleft() = findIcon("icons/moveleft.svg")
+
     }
 }

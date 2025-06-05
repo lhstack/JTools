@@ -30,6 +30,7 @@ import com.lhstack.tools.const.Icons
 import com.lhstack.tools.plugins.Helper.JTOOLS_SYS_LOGGER
 import com.lhstack.tools.plugins.Logger
 import com.lhstack.tools.plugins.PluginInfo
+import com.lhstack.tools.plugins.PluginState
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.io.FileUtils
@@ -283,14 +284,40 @@ fun Project.getConsoleLog(): BuildTextConsoleView {
  */
 fun Project.activeConsolePanel() {
     val windowManager = ToolWindowManager.getInstance(this)
-    var toolWindow = windowManager.getToolWindow("Run")
+    val toolWindow = windowManager.getToolWindow("Run")
     toolWindow?.let {
+        var flag = false
         it.contentManager.contents.forEach { c ->
             if (c.displayName == Const.TOOLS_WINDOW_ID) {
                 it.contentManager.setSelectedContent(c)
+                flag = true
             }
         }
-        it.activate { }
+        if (!flag) {
+            if(PluginState.getInstance().state.consoleLogEnabled){
+                val contentManager = toolWindow.contentManager
+                val factory = contentManager.factory
+                val content = factory.createContent(getConsoleLog(), Const.TOOLS_WINDOW_ID, false)
+                content.icon = Icons.pluginWindowIcon()
+                contentManager.addContent(content)
+                contentManager.setSelectedContent(content)
+                it.activate { }
+            }
+        }else {
+            it.activate { }
+        }
+    }
+}
+
+fun Project.deActiveConsolePanel() {
+    val windowManager = ToolWindowManager.getInstance(this)
+    val toolWindow = windowManager.getToolWindow("Run")
+    toolWindow?.let {
+        it.contentManager.contents.forEach { c ->
+            if (c.displayName == Const.TOOLS_WINDOW_ID) {
+                it.contentManager.removeContent(c,false)
+            }
+        }
     }
 }
 

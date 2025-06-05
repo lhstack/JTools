@@ -11,6 +11,7 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.getConsoleLog
+import com.lhstack.tools.plugins.PluginState
 
 class JLoggerWindowFactory : ToolWindowFactory {
 
@@ -32,10 +33,12 @@ class JLoggerWindowFactory : ToolWindowFactory {
         project: Project,
         toolWindow: ToolWindow,
     ) {
-        val contentManager = toolWindow.contentManager
-        val factory = contentManager.factory
-        val content = factory.createContent(project.getConsoleLog(), Const.TOOLS_WINDOW_ID, false)
-        content.icon = Icons.pluginWindowIcon()
-        contentManager.addContent(content)
+        if(PluginState.getInstance().state.consoleLogEnabled){
+            val contentManager = toolWindow.contentManager
+            val factory = contentManager.factory
+            val content = factory.createContent(project.getConsoleLog(), Const.TOOLS_WINDOW_ID, false)
+            content.icon = Icons.pluginWindowIcon()
+            contentManager.addContent(content)
+        }
     }
 }

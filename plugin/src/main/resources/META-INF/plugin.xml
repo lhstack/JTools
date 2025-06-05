@@ -92,6 +92,12 @@
                 <li>fix: 拖动安装触发openProject回调参数logger错误</li>
                 <li>新增关闭项目触发已打开的面板closePanel函数</li>
             </ul>
+
+            <h2>Version v1.0.8</h2>
+            <ul>
+                <li>插件面板支持分割功能,目前仅支持左右分割</li>
+                <li>日志控制台支持启用/禁用</li>
+            </ul>
         ]]>
     </change-notes>
 

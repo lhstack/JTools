@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.0.7"
+version = "1.0.8"
 
 repositories {
     mavenLocal()
@@ -146,7 +146,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("223")
-        untilBuild.set("251.*")
+        untilBuild.set("252.*")
     }
 
     signPlugin {
