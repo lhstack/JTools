@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBSplitter
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.tabs.JBEditorTabsBase
 import com.intellij.ui.tabs.JBTabsFactory
 import com.intellij.ui.tabs.TabInfo
@@ -50,6 +51,10 @@ class ContentPageAction(
     private val cardLayout = CardLayout()
 
     private val messageBusConnection: MessageBusConnection
+
+    private val leftScrollPane:JBScrollPane
+
+    private val rightScrollPane:JBScrollPane
 
     private val cardView = "view"
 
@@ -99,6 +104,8 @@ class ContentPageAction(
         contentPanel = JPanel(cardLayout)
         leftTabsPane = JBTabsFactory.createEditorTabs(project, this)
         rightTabsPane = JBTabsFactory.createEditorTabs(project, this)
+        leftScrollPane = JBScrollPane(leftTabsPane.component)
+        rightScrollPane = JBScrollPane(rightTabsPane.component)
         leftTabsPane.presentation.setTabDraggingEnabled(true)
         rightTabsPane.presentation.setTabDraggingEnabled(true)
         leftTabsPane.addListener(object : TabsListener {
@@ -124,7 +131,7 @@ class ContentPageAction(
                 }
             }
         })
-        splitter.firstComponent = leftTabsPane.component
+        splitter.firstComponent = leftScrollPane
         splitter.secondComponent = null
         attachTabsPopup(leftTabsPane,true)
         attachTabsPopup(rightTabsPane,false)
@@ -266,13 +273,13 @@ class ContentPageAction(
                     pluginTabPanel.tabsPanel.removeTab(tabInfo)
                     if(left){
                         pluginTabPanel.tabsPanel = rightTabsPane
-                        splitter.secondComponent = rightTabsPane.component
+                        splitter.secondComponent = rightScrollPane
                         if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
                             splitter.divider.isVisible = true
                         }
                     }else {
                         pluginTabPanel.tabsPanel = leftTabsPane
-                        splitter.firstComponent = leftTabsPane.component
+                        splitter.firstComponent = leftScrollPane
                         if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
                             splitter.divider.isVisible = true
                         }
@@ -311,13 +318,13 @@ class ContentPageAction(
                     val pluginTabPanel = tabInfo.component as PluginTabPanel
                     if(left){
                         openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin,rightTabsPane)
-                        splitter.secondComponent = rightTabsPane.component
+                        splitter.secondComponent = rightScrollPane
                         if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
                             splitter.divider.isVisible = true
                         }
                     }else {
                         openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin,leftTabsPane)
-                        splitter.firstComponent = leftTabsPane.component
+                        splitter.firstComponent = leftScrollPane
                         if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
                             splitter.divider.isVisible = true
                         }
