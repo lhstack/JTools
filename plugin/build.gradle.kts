@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.0.8"
+version = "1.0.8-fix"
 
 repositories {
     mavenLocal()
