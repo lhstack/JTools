@@ -171,7 +171,7 @@ class ContentPageAction(
                         pluginTabsPanel.tabs.forEach { tab ->
                             if(tab.component is PluginTabPanel){
                                 val tabPluginTabPanel = (tab.component as PluginTabPanel)
-                                if(pluginTabPanel.pluginInfo.id != tabPluginTabPanel.pluginInfo.id){
+                                if(pluginTabPanel.identity != tabPluginTabPanel.identity){
                                     tabPluginTabPanel.plugin.catch("插件面板关闭回调") { closePanel(project,(tab.component as PluginTabPanel).pluginPanel) }
                                     pluginTabsPanel.removeTab(tab)
                                 }
@@ -384,7 +384,7 @@ class ContentPageAction(
         }
         plugin.catch("创建插件面板") {
             val pluginPanel = createPanel(project)
-            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel,tabsPanel)
+            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel,tabsPanel,UUID.randomUUID().toString())
             pluginTabPanel.layout = BorderLayout()
             pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
             val tabInfo = TabInfo(pluginTabPanel)
@@ -437,7 +437,7 @@ class ContentPageAction(
         }
         plugin.catch("创建插件面板") {
             val pluginPanel = createPanel(project)
-            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel,leftTabsPane)
+            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel,leftTabsPane,UUID.randomUUID().toString())
             pluginTabPanel.layout = BorderLayout()
             pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
             val tabInfo = TabInfo(pluginTabPanel)
