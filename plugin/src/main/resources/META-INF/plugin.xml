@@ -104,12 +104,8 @@
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
-    <depends>com.intellij.java</depends>
-    <depends>org.jetbrains.plugins.yaml</depends>
-    <depends>org.jetbrains.idea.maven</depends>
-    <depends>org.intellij.groovy</depends>
-    <depends>org.jetbrains.plugins.gradle.dependency.updater</depends>
-
+    <depends config-file="java.xml" optional="true">com.intellij.java</depends>
+    <idea-version since-build="222" until-build="252.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>
