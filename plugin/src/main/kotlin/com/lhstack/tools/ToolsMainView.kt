@@ -19,7 +19,7 @@ class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false)
         toolBarActionGroup.add(contentPageAction)
         toolBarActionGroup.add(pluginPageAction)
         try{
-            val constructor = Class.forName("com.lhstack.tools.actions.DeveloperPageAction.DeveloperPageAction")
+            val constructor = ToolsMainView::class.java.classLoader.loadClass("com.lhstack.tools.actions.DeveloperPageAction")
                 .getConstructor(SimpleToolWindowPanel::class.java, Project::class.java)
             toolBarActionGroup.add(constructor.newInstance(this, project) as AbstractPageAction)
         }catch (ignore: Throwable){
