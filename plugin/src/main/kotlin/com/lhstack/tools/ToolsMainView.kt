@@ -2,10 +2,11 @@ package com.lhstack.tools
 
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.actions.*
-
+import org.apache.commons.lang3.StringUtils
 class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false) {
     private val toolBarActionGroup = DefaultActionGroup()
 
@@ -19,9 +20,10 @@ class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false)
         toolBarActionGroup.add(contentPageAction)
         toolBarActionGroup.add(pluginPageAction)
         try{
-            val constructor = ToolsMainView::class.java.classLoader.loadClass("com.lhstack.tools.actions.DeveloperPageAction")
-                .getConstructor(SimpleToolWindowPanel::class.java, Project::class.java)
-            toolBarActionGroup.add(constructor.newInstance(this, project) as AbstractPageAction)
+            val productCode = ApplicationInfo.getInstance().build.productCode
+            if(StringUtils.containsAnyIgnoreCase(productCode,"IU","IC")){
+                toolBarActionGroup.add(DeveloperPageAction(this, project))
+            }
         }catch (ignore: Throwable){
 
         }

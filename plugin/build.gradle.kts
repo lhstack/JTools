@@ -61,7 +61,7 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-keep class com.lhstack.tools.plugins.CefPluginInfo** { *; }",
         "-keep class com.lhstack.tools.plugins.CefQueryCommand** { *; }",
         "-keep class com.lhstack.tools.plugins.CefPluginCacheState** { *; }",
-        "-keep class com.lhstack.tools.actions.DeveloperPageAction { *; }",
+//        "-keep class com.lhstack.tools.actions.DeveloperPageAction { *; }",
         "-keep class com.lhstack.tools.plugins.CefPluginCacheState\$State** { *; }",
         "-keep class com.lhstack.tools.plugins.PluginState\$State** { *; }",
         "-keep class com.lhstack.tools.actions.DeveloperState\$State** { *; }",

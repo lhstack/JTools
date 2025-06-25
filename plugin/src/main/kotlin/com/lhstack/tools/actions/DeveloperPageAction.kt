@@ -91,7 +91,7 @@ fun Project.getModules(): MutableList<Module> {
         }
     }.toMutableList()
 }
-
+@SuppressWarnings(value = ["JavaReflectionMemberAccess", "unchecked"])
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
     AbstractPageAction({ "插件开发" }, Icons.developerIcon(), windowPanel) {
 
