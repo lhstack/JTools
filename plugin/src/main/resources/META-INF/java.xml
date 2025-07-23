@@ -4,4 +4,8 @@
     <depends>org.jetbrains.idea.maven</depends>
     <depends>org.intellij.groovy</depends>
     <depends>org.jetbrains.plugins.gradle.dependency.updater</depends>
+    <applicationListeners>
+        <listener class="com.lhstack.tools.listener.JavaPluginAppLifecycleListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
 </idea-plugin>
