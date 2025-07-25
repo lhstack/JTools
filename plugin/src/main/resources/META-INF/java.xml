@@ -1,9 +1,5 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <depends>org.jetbrains.plugins.yaml</depends>
-    <depends>org.jetbrains.idea.maven</depends>
-    <depends>org.intellij.groovy</depends>
-    <depends>org.jetbrains.plugins.gradle.dependency.updater</depends>
     <applicationListeners>
         <listener class="com.lhstack.tools.listener.JavaPluginAppLifecycleListener"
                   topic="com.intellij.ide.AppLifecycleListener"/>

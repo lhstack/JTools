@@ -105,6 +105,10 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends config-file="java.xml" optional="true">com.intellij.java</depends>
+    <depends optional="true">org.jetbrains.plugins.yaml</depends>
+    <depends optional="true">org.jetbrains.idea.maven</depends>
+    <depends optional="true">org.intellij.groovy</depends>
+    <depends optional="true">org.jetbrains.plugins.gradle.dependency.updater</depends>
     <idea-version since-build="222" until-build="252.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
