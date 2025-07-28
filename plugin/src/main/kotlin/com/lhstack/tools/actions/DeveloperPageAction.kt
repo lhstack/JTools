@@ -798,7 +798,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                     val pluginPanel = plugin.createPanel(project)
                                     showPanel(project,pluginPanel)
-                                    plugin.tabPanelActions(project)?.let {
+                                    plugin.tabPanelActions(project,pluginPanel)?.let {
                                         if (it.isNotEmpty()) {
                                             val actionToolbar = ActionManager.getInstance()
                                                 .createActionToolbar(

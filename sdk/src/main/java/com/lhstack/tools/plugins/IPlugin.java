@@ -162,8 +162,8 @@ public interface IPlugin {
         return true;
     }
 
-    default List<AnAction> tabPanelActions(Project project) {
-        return this.swingTabPanelActions(project.getLocationHash()).stream().map(item -> {
+    default List<AnAction> tabPanelActions(Project project,JComponent pluginPanel) {
+        return this.swingTabPanelActions(project.getLocationHash(),pluginPanel).stream().map(item -> {
             AnAction action = new AnAction(item::title) {
 
                 @Override
@@ -189,7 +189,7 @@ public interface IPlugin {
         }).collect(Collectors.toList());
     }
 
-    default List<Action> swingTabPanelActions(String locationHash) {
+    default List<Action> swingTabPanelActions(String locationHash,JComponent pluginPanel) {
         return Collections.emptyList();
     }
 }

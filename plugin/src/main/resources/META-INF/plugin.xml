@@ -98,6 +98,16 @@
                 <li>插件面板支持分割功能,目前仅支持左右分割</li>
                 <li>日志控制台支持启用/禁用</li>
             </ul>
+
+            <h2>Version v1.0.9</h2>
+            <ul>
+                <li>jetbrains全家桶支持</li>
+            </ul>
+
+            <h2>Version v1.1.0</h2>
+            <ul>
+                <li>sdk适配多开</li>
+            </ul>
         ]]>
     </change-notes>
 

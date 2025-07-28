@@ -410,7 +410,7 @@ class ContentPageAction(
 
             }), "tabActionGroup")
 
-            Optional.ofNullable(plugin.tabPanelActions(project)).filter { it.isNotEmpty() }.ifPresent {
+            Optional.ofNullable(plugin.tabPanelActions(project,pluginPanel)).filter { it.isNotEmpty() }.ifPresent {
                 tabInfo.setTabPaneActions(DefaultActionGroup(it))
             }
 
@@ -463,7 +463,7 @@ class ContentPageAction(
 
             }), "tabActionGroup")
 
-            Optional.ofNullable(plugin.tabPanelActions(project)).filter { it.isNotEmpty() }.ifPresent {
+            Optional.ofNullable(plugin.tabPanelActions(project,pluginPanel)).filter { it.isNotEmpty() }.ifPresent {
                 tabInfo.setTabPaneActions(DefaultActionGroup(it))
             }
 
