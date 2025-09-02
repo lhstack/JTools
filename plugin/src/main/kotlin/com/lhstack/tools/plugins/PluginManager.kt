@@ -1,6 +1,5 @@
 package com.lhstack.tools.plugins
 
-import ai.grazie.utils.mpp.UUID
 import com.google.gson.GsonBuilder
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -18,6 +17,7 @@ import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.*
 
 
 class PluginClassLoader(var builder: UrlClassLoader.Builder, var files: ArrayList<Path>) {
@@ -188,7 +188,7 @@ class PluginManager {
                     String(it.readAllBytes(), StandardCharsets.UTF_8).ifNotBlank({ s ->
                         val pluginInstance = classLoader.loadPlugin(s)
                         val pluginInfo = PluginInfo(
-                            UUID.random().toString(),
+                            UUID.randomUUID().toString(),
                             paths.toString(),
                             pluginInstance.pluginName(),
                             pluginInstance.pluginVersion(),
@@ -211,7 +211,7 @@ class PluginManager {
                             GsonBuilder().create().fromJson(s, CefPluginInfo::class.java)
                         }
                         val pluginInfo = PluginInfo(
-                            UUID.random().toString(),
+                            UUID.randomUUID().toString(),
                             paths.toString(),
                             cefPluginInfo.pluginName,
                             cefPluginInfo.pluginVersion,

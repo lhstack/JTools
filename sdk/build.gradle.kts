@@ -1,13 +1,18 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.22"
-    id("org.jetbrains.intellij") version "1.17.2"
+    id("org.jetbrains.kotlin.jvm") version "2.2.10"
+    id("org.jetbrains.intellij.platform") version "2.7.2"
 }
 
 group = "com.lhstack"
 version = "1.0.0"
 
 repositories {
+    intellijPlatform {
+        defaultRepositories()
+    }
     mavenLocal()
     maven("https://maven.aliyun.com/repository/public/")
     mavenCentral()
@@ -25,16 +30,16 @@ tasks {
     }
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.jvmTarget = "1.8"
-        kotlinOptions.freeCompilerArgs = listOf("-Xjvm-default=all")
+        compilerOptions{
+            jvmTarget.set(JvmTarget.JVM_17)
+            freeCompilerArgs = listOf("-Xjvm-default=all")
+        }
     }
 
 }
-
-
-intellij {
-    version.set("2022.3")
-    type.set("IC") // Target IDE Platform
-
-    plugins.set(listOf(/* Plugin Dependencies */))
+dependencies {
+    intellijPlatform{
+        intellijIdeaCommunity("2025.2")
+    }
 }
+

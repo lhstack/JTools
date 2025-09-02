@@ -1,32 +1,35 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.22"
-    id("org.jetbrains.intellij") version "1.17.2"
+    id("org.jetbrains.kotlin.jvm") version "2.2.10"
+    id("org.jetbrains.intellij.platform") version "2.7.2"
     id("io.github.sgtsilvio.gradle.proguard") version "0.7.0"
 }
 
 group = "com.lhstack"
-version = "1.1.0"
+version = "1.1.1"
 
 repositories {
+    intellijPlatform {
+        defaultRepositories()
+    }
     mavenLocal()
     maven("https://maven.aliyun.com/repository/public/")
     mavenCentral()
-}
-
-// Configure Gradle IntelliJ Plugin
-// Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
-intellij {
-    version.set("2022.3")
-    type.set("IC") // Target IDE Platform
-
-    plugins.set(listOf("com.intellij.java", "org.jetbrains.plugins.yaml", "org.intellij.groovy","org.jetbrains.idea.maven", "org.jetbrains.plugins.gradle.dependency.updater"))
 }
 
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
     implementation("cn.hutool:hutool-core:5.8.37")
     implementation(project(":sdk"))
+    intellijPlatform{
+        intellijIdeaCommunity("2025.2")
+        bundledPlugin("com.intellij.java")
+        bundledPlugin("com.intellij.gradle")
+        bundledPlugin("org.jetbrains.idea.maven")
+        bundledPlugin("org.jetbrains.idea.gradle.dsl")
+    }
 }
 
 val proguardJar by tasks.registering(proguard.taskClass) {
@@ -142,13 +145,15 @@ tasks {
     }
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.jvmTarget = "17"
-        kotlinOptions.freeCompilerArgs = listOf("-Xjvm-default=all")
+        compilerOptions{
+            jvmTarget.set(JvmTarget.JVM_17)
+            freeCompilerArgs = listOf("-Xjvm-default=all")
+        }
     }
 
     patchPluginXml {
-        sinceBuild.set("223")
-        untilBuild.set("251.*")
+        sinceBuild.set("251")
+        untilBuild.set("252.*")
     }
 
     signPlugin {

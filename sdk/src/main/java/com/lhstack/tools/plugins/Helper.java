@@ -26,10 +26,9 @@ import com.intellij.openapi.vfs.VirtualFileWrapper;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.LanguageTextField;
-import com.intellij.ui.TreeSpeedSearch;
+import com.intellij.ui.TreeUIHelper;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.tree.TreePath;
@@ -309,26 +308,8 @@ public class Helper {
     }
 
     public static void treeSpeedSearch(JTree tree, boolean canExpand, @NotNull Function<? super TreePath, String> presentableStringFunction) {
-        new TreeSpeedSearch(tree, canExpand, presentableStringFunction) {
-            @Override
-            protected boolean compare(@NotNull String text, @Nullable String pattern) {
-                if (pattern != null) {
-                    return text.contains(pattern);
-                }
-                return false;
-            }
-
-            @Override
-            protected @Nullable Object findElement(@NotNull String s) {
-                Object element = super.findElement(s);
-                if (element != null) {
-                    return element;
-                }
-                tree.clearSelection();
-                return null;
-            }
-
-        };
+        TreeUIHelper instance = TreeUIHelper.getInstance();
+        instance.installTreeSpeedSearch(tree, presentableStringFunction::apply, canExpand);
     }
 
 
@@ -428,7 +409,8 @@ public class Helper {
         ApplicationManager.getApplication().invokeLater(() -> {
             for (@NotNull Project openProject : ProjectManager.getInstance().getOpenProjects()) {
                 if (StringUtils.equals(locationHash, openProject.getLocationHash())) {
-                    FileSaverDescriptor descriptor = new FileSaverDescriptor(title, description, extension);
+                    FileSaverDescriptor descriptor = new FileSaverDescriptor(title, description);
+                    descriptor.withExtensionFilter("扩展",extension);
                     FileSaverDialog saveFileDialog = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, openProject);
                     VirtualFileWrapper wrapper = saveFileDialog.save(filename);
                     if (wrapper != null) {

@@ -13,7 +13,7 @@ import com.intellij.openapi.compiler.CompilerManager
 import com.intellij.openapi.compiler.CompilerPaths
 import com.intellij.openapi.components.*
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
-import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
+import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserFactory
@@ -91,6 +91,7 @@ fun Project.getModules(): MutableList<Module> {
         }
     }.toMutableList()
 }
+
 @SuppressWarnings(value = ["JavaReflectionMemberAccess", "unchecked"])
 class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val project: Project) :
     AbstractPageAction({ "插件开发" }, Icons.developerIcon(), windowPanel) {
@@ -244,55 +245,57 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             override fun actionPerformed(e: AnActionEvent) {
                 comboBoxAction.selection?.let {
                     var sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
-                    if(sourceRoots.isEmpty()){
+                    if (sourceRoots.isEmpty()) {
                         sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(false).toList()
                     }
-                    if(sourceRoots.isNotEmpty()){
+                    if (sourceRoots.isNotEmpty()) {
                         val moduleSourceFile = sourceRoots[0]
                         val toolsPluginFile = moduleSourceFile.findChild("META-INF")?.findChild("ToolsPlugin.txt")
-                        if(toolsPluginFile != null) {
+                        if (toolsPluginFile != null) {
                             val result = Messages.showYesNoDialog(
                                 "当前已存在ToolsPlugin.txt,是否覆盖",
                                 "警告",
                                 AllIcons.General.NotificationWarning
                             )
-                            if(result == Messages.NO) {
+                            if (result == Messages.NO) {
                                 return
                             }
                         }
                         val iPluginClass = JavaPsiFacade.getInstance(project)
                             .findClass("com.lhstack.tools.plugins.IPlugin", GlobalSearchScope.allScope(project))
-                        if(iPluginClass == null){
-                            project.errorNotify("错误","先安装开发依赖吧")
+                        if (iPluginClass == null) {
+                            project.errorNotify("错误", "先安装开发依赖吧")
                             return
                         }
-                        val classes = ClassInheritorsSearch.search(iPluginClass, GlobalSearchScope.moduleScope(it), true)
+                        val classes =
+                            ClassInheritorsSearch.search(iPluginClass, GlobalSearchScope.moduleScope(it), true)
                         val filterClasses =
                             classes.filter { clazz -> !clazz.isInterface && !clazz.hasModifierProperty("abstract") && !clazz.isEnum }
-                        if(filterClasses.size > 1){
+                        if (filterClasses.size > 1) {
                             val listPopupStep =
                                 object : BaseListPopupStep<PsiClass>("实现类", filterClasses) {
                                     override fun isSpeedSearchEnabled(): Boolean {
                                         return true
                                     }
 
-                                    override fun getSpeedSearchFilter(): SpeedSearchFilter<PsiClass> = SpeedSearchFilter<PsiClass> {
-                                        it.qualifiedName
-                                    }
+                                    override fun getSpeedSearchFilter(): SpeedSearchFilter<PsiClass> =
+                                        SpeedSearchFilter<PsiClass> {
+                                            it.qualifiedName
+                                        }
 
                                     override fun onChosen(
                                         selectedValue: PsiClass,
                                         finalChoice: Boolean,
                                     ): PopupStep<*>? {
-                                        File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
+                                        File(moduleSourceFile.presentableUrl, "META-INF").let { metaInf ->
                                             if (!metaInf.exists()) {
                                                 metaInf.mkdirs()
                                             }
-                                            File(metaInf,"ToolsPlugin.txt").apply {
+                                            File(metaInf, "ToolsPlugin.txt").apply {
                                                 writeText(selectedValue.qualifiedName!!)
                                                 this.refresh()
                                             }
-                                            project.errorNotify("插件开发","需要重新编译")
+                                            project.errorNotify("插件开发", "需要重新编译")
                                         }
                                         return super.onChosen(selectedValue, finalChoice)
                                     }
@@ -305,25 +308,25 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             val event = e.inputEvent as MouseEvent
                             popup.show(RelativePoint(event.component, Point(event.point.x + 10, event.point.y + 10)))
                             return
-                        }else if(filterClasses.size == 1){
+                        } else if (filterClasses.size == 1) {
                             val pluginImpl = filterClasses[0]
-                            File(moduleSourceFile.presentableUrl,"META-INF").let { metaInf ->
+                            File(moduleSourceFile.presentableUrl, "META-INF").let { metaInf ->
                                 if (!metaInf.exists()) {
                                     metaInf.mkdirs()
                                 }
-                                File(metaInf,"ToolsPlugin.txt").apply {
+                                File(metaInf, "ToolsPlugin.txt").apply {
                                     writeText(pluginImpl.qualifiedName!!)
                                     this.refresh()
                                 }
                             }
-                            project.errorNotify("插件开发","需要重新编译")
+                            project.errorNotify("插件开发", "需要重新编译")
                             return
-                        }else {
+                        } else {
                             project.errorNotify("插件开发", "请先创建com.lhstack.tools.plugins.IPlugin的实现类吧")
                             return
                         }
-                    }else {
-                        project.errorNotify("插件开发","请先创建resources目录吧")
+                    } else {
+                        project.errorNotify("插件开发", "请先创建resources目录吧")
                         return
                     }
                 }
@@ -351,7 +354,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     compilerManager.make(compileScope) { _, _, _, _ ->
                         ApplicationManager.getApplication().invokeLater {
                             ModuleRootManager.getInstance(it).contentRoots.forEach { root ->
-                                root.refresh(false,true)
+                                root.refresh(false, true)
                             }
                         }
                     }
@@ -364,7 +367,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
         })
         actionGroup.add(object : AnAction({ "运行插件" }, AllIcons.Actions.Execute) {
             override fun actionPerformed(e: AnActionEvent) {
-                run(e,comboBoxAction)
+                run(e, comboBoxAction)
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {
@@ -395,10 +398,10 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }
                         ApplicationManager.getApplication().invokeLater {
                             ModuleRootManager.getInstance(it).contentRoots.forEach { root ->
-                                root.refresh(false,true)
+                                root.refresh(false, true)
                             }
                         }
-                        run(e,comboBoxAction)
+                        run(e, comboBoxAction)
                     }
                 }
             }
@@ -428,7 +431,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     pluginInstance.get().let { plugin ->
                         plugin.catch("关闭插件面板回调") {
                             if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                                closePanel(project,contentPanelInstance.get())
+                                closePanel(project, contentPanelInstance.get())
                             }
                             this
                         }?.catch("项目关闭回调") {
@@ -563,7 +566,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
                                     }
                                 }
-                                project.refresh{}
+                                project.refresh {}
                             }
                             return super.onChosen(selectedValue, finalChoice)
                         }
@@ -596,9 +599,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         }
                     """.trimIndent().toByteArray(StandardCharsets.UTF_8)
                     )
-                    project.refresh{
+                    project.refresh {
                         LocalFileSystem.getInstance().findFileByIoFile(pluginInfo)?.let { file ->
-                            FileEditorManager.getInstance(project).openFile(file,true)
+                            FileEditorManager.getInstance(project).openFile(file, true)
                         }
                     }
                 }
@@ -614,7 +617,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
             pluginInstance.get()?.let { plugin ->
                 plugin.catch("关闭插件面板回调") {
                     if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                        closePanel(project,contentPanelInstance.get())
+                        closePanel(project, contentPanelInstance.get())
                     }
                     this
                 }?.catch("项目关闭回调") {
@@ -681,7 +684,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     }?.catch("创建插件面板回调") {
                         if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                             val pluginPanel = plugin.createPanel(project)
-                            showPanel(project,pluginPanel)
+                            showPanel(project, pluginPanel)
                             contentPanelInstance.set(pluginPanel)
                             contentPanel.add(pluginPanel, BorderLayout.CENTER)
                             contentPanel.validate()
@@ -707,29 +710,29 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
         comboBoxAction.selection?.let {
             var sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(JavaResourceRootType.RESOURCE)
-            if(sourceRoots.isEmpty()){
+            if (sourceRoots.isEmpty()) {
                 sourceRoots = ModuleRootManager.getInstance(it).getSourceRoots(false).toList()
             }
-            if(sourceRoots.isNotEmpty()){
+            if (sourceRoots.isNotEmpty()) {
                 val moduleSourceFile = sourceRoots[0]
                 val toolsPluginFile = moduleSourceFile.findChild("META-INF")?.findChild("ToolsPlugin.txt")
-                if(toolsPluginFile == null){
+                if (toolsPluginFile == null) {
                     val iPluginClass = JavaPsiFacade.getInstance(project)
                         .findClass("com.lhstack.tools.plugins.IPlugin", GlobalSearchScope.allScope(project))
-                    if(iPluginClass == null){
-                        project.errorNotify("插件开发","先安装开发依赖吧")
+                    if (iPluginClass == null) {
+                        project.errorNotify("插件开发", "先安装开发依赖吧")
                         return
                     }
                     val classes = ClassInheritorsSearch.search(iPluginClass, GlobalSearchScope.moduleScope(it), true)
                     val filterClasses =
                         classes.filter { clazz -> !clazz.isInterface && !clazz.hasModifierProperty("abstract") && !clazz.isEnum }
-                    if(filterClasses.isEmpty()) {
+                    if (filterClasses.isEmpty()) {
                         project.errorNotify("插件开发", "请先创建com.lhstack.tools.plugins.IPlugin的实现类吧")
                         return
                     }
                 }
-            }else {
-                project.errorNotify("插件开发","请先创建resources目录吧")
+            } else {
+                project.errorNotify("插件开发", "请先创建resources目录吧")
                 return
             }
 
@@ -744,7 +747,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     pluginInstance.get()?.let { plugin ->
                         plugin.catch("关闭插件面板回调") {
                             if (this.pluginType() != PluginType.JAVA_NON_UI) {
-                                closePanel(project,contentPanelInstance.get())
+                                closePanel(project, contentPanelInstance.get())
                             }
                             this
                         }?.catch("项目关闭回调") {
@@ -797,8 +800,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             }?.catch("创建插件面板回调") {
                                 if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                     val pluginPanel = plugin.createPanel(project)
-                                    showPanel(project,pluginPanel)
-                                    plugin.tabPanelActions(project,pluginPanel)?.let {
+                                    showPanel(project, pluginPanel)
+                                    plugin.tabPanelActions(project, pluginPanel)?.let {
                                         if (it.isNotEmpty()) {
                                             val actionToolbar = ActionManager.getInstance()
                                                 .createActionToolbar(
@@ -910,8 +913,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             it.applyChanges()
                         }
                         ExternalSystemUtil.refreshProject(
-                            project, GradleConstants.SYSTEM_ID, project.basePath!!, false,
-                            ProgressExecutionMode.IN_BACKGROUND_ASYNC
+                            project.basePath!!,
+                            ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)
                         )
                     } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
@@ -931,8 +934,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                         PsiDocumentManager.getInstance(project).getDocument(this)?.apply {
                                             FileDocumentManager.getInstance().saveDocument(this)
                                         }
-                                        MavenProjectsManager.getInstance(project)
-                                            .forceUpdateProjects(mutableListOf(it))
+                                        MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                     }
 
                                 }
@@ -986,8 +988,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             }
                         }
                         ExternalSystemUtil.refreshProject(
-                            project, GradleConstants.SYSTEM_ID, project.basePath!!, false,
-                            ProgressExecutionMode.IN_BACKGROUND_ASYNC
+                            project.basePath!!, ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)
                         )
                     } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
@@ -1005,8 +1006,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                             FileDocumentManager.getInstance().saveDocument(this)
                                         }
                                     }
-                                    MavenProjectsManager.getInstance(project)
-                                        .forceUpdateProjects(mutableListOf(it))
+                                    MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                 }
                             }
                         }

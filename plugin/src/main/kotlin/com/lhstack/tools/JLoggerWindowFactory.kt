@@ -1,9 +1,7 @@
 package com.lhstack.tools;
 
 import com.intellij.build.BuildTextConsoleView
-import com.intellij.execution.impl.ConsoleViewUtil
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
