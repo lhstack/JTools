@@ -54,6 +54,7 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-libraryjars C:\\Users\\lhstack\\.m2\\repository\\org\\jetbrains\\kotlin\\kotlin-stdlib\\2.2.10\\kotlin-stdlib-2.2.10.jar",
         "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\util.jar",
         "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app.jar",
+        "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app-client.jar",
         "-libraryjars D:\\Program Files\\java\\17/jmods/java.base.jmod(!.jar;!module-info.class)",
         "-libraryjars D:\\Program Files\\java\\17/jmods/java.desktop.jmod(!.jar;!module-info.class)",
         "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
