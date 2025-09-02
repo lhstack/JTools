@@ -37,7 +37,7 @@ val proguardJar by tasks.registering(proguard.taskClass) {
 //        classpath.from(tasks.shadowJar)
 //    }
     addInput {
-        classpath.from(base.libsDirectory.file("instrumented-${project.name}-${project.version}.jar"))
+        classpath.from(base.libsDirectory.file("${project.name}-${project.version}-instrumented.jar"))
     }
     addOutput {
         archiveFile.set(base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar"))
@@ -51,9 +51,9 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-useuniqueclassmembernames",
         "-dontwarn !com.lhstack.tools.**",
         "-flattenpackagehierarchy",
-        "-libraryjars C:\\Users\\lhstack\\.m2\\repository\\org\\jetbrains\\kotlin\\kotlin-stdlib\\1.9.22\\kotlin-stdlib-1.9.22.jar",
-        "-libraryjars F:\\Repo\\Gradle\\caches\\modules-2\\files-2.1\\com.jetbrains.intellij.idea\\ideaIC\\2022.3\\4d343cadac04a0a31d70f6f96facfaa7f949df01\\ideaIC-2022.3\\lib\\util.jar",
-        "-libraryjars F:\\Repo\\Gradle\\caches\\modules-2\\files-2.1\\com.jetbrains.intellij.idea\\ideaIC\\2022.3\\4d343cadac04a0a31d70f6f96facfaa7f949df01\\ideaIC-2022.3\\lib\\app.jar",
+        "-libraryjars C:\\Users\\lhstack\\.m2\\repository\\org\\jetbrains\\kotlin\\kotlin-stdlib\\2.2.10\\kotlin-stdlib-2.2.10.jar",
+        "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\util.jar",
+        "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app.jar",
         "-libraryjars D:\\Program Files\\java\\17/jmods/java.base.jmod(!.jar;!module-info.class)",
         "-libraryjars D:\\Program Files\\java\\17/jmods/java.desktop.jmod(!.jar;!module-info.class)",
         "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
