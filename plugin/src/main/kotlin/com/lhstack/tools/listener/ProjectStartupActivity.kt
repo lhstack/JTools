@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.startup.StartupActivity
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.fullMsg
@@ -14,7 +15,7 @@ import com.lhstack.tools.ext.sysLogger
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 
-class ProjectStartupActivity : StartupActivity, DumbAware {
+class ProjectStartupActivity : StartupActivity,ProjectActivity, DumbAware {
 
     override fun runActivity(project: Project) {
         ApplicationManager.getApplication().invokeLater {
@@ -36,5 +37,9 @@ class ProjectStartupActivity : StartupActivity, DumbAware {
         }
         this.pluginManager().add(project.locationHash)
         project.sysLogger()
+    }
+
+    override suspend fun execute(project: Project) {
+        runActivity(project)
     }
 }
