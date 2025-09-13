@@ -113,6 +113,11 @@
             <ul>
                 <li>适配2025.2及以上版本</li>
             </ul>
+
+            <h2>Version v1.1.2</h2>
+            <ul>
+                <li>新增support函数,插件可通过校验jtools+ide的版本信息判断是否支持安装</li>
+            </ul>
         ]]>
     </change-notes>
 
@@ -123,7 +128,7 @@
     <depends optional="true">org.jetbrains.idea.maven</depends>
     <depends optional="true">com.intellij.gradle</depends>
     <depends optional="true">org.jetbrains.idea.gradle.dsl</depends>
-    <idea-version since-build="252" until-build="252.*" />
+    <idea-version since-build="251" until-build="252.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

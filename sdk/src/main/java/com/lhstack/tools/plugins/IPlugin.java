@@ -159,12 +159,11 @@ public interface IPlugin {
      * @return
      */
     @Deprecated
-    @Since(value = "v1.1.2",changeNotes = "support函数已被弃用,请使用validateSupport作为替代")
+    @Since(value = "v1.1.2",changeNotes = "support函数已被弃用,请使用support(Integer jToolsVersion, IdeInfo ideInfo)替代")
     default boolean support(Integer jToolsVersion) {
         return true;
     }
 
-    @Since(value = "v1.1.2",changeNotes = "support函数已被弃用,请使用validateSupport作为替代")
     default Support support(Integer jToolsVersion, IdeInfo ideInfo) {
         return Support.SUPPORT;
     }

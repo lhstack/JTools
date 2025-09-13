@@ -2,9 +2,7 @@ package com.lhstack.example;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
-import com.lhstack.tools.plugins.Helper;
-import com.lhstack.tools.plugins.IPlugin;
-import com.lhstack.tools.plugins.Logger;
+import com.lhstack.tools.plugins.*;
 
 import javax.swing.*;
 import java.util.HashMap;
@@ -35,6 +33,11 @@ public class PluginImpl implements IPlugin {
     @Override
     public void openProject(Project project, Logger logger, Runnable openThisPage) {
 //        throw new RuntimeException("111");
+    }
+
+    @Override
+    public Support support(Integer jToolsVersion, IdeInfo ideInfo) {
+        return Support.NOT_SUPPORT;
     }
 
     @Override
