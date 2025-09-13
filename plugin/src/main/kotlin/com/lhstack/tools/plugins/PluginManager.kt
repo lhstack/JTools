@@ -30,11 +30,20 @@ class PluginClassLoader(var builder: UrlClassLoader.Builder, var files: ArrayLis
 
     fun loadPlugin(classname: String): IPlugin {
         return (urlClassLoader.loadClass(classname).getConstructor().newInstance() as IPlugin).apply {
-            if (!this.support(Helper.JTOOLS_VERSION)) {
+            val support = this.support(Helper.JTOOLS_VERSION, Helper.getIdeInfo())
+            if(support.support){
+                if (!this.support(Helper.JTOOLS_VERSION)) {
+                    throw PluginException(
+                        PluginInfo("", "", this.pluginName(), this.pluginVersion(), 0, ""),
+                        "插件版本不支持",
+                        "插件创建失败,请检查你的插件是否支持当前JTools版本,JTools版本: ${Helper.JTOOLS_VERSION},你的插件: ${this.pluginName()}:${this.pluginVersion()},Ide: ${Helper.getIdeInfo().fullApplicationName}"
+                    )
+                }
+            }else {
                 throw PluginException(
                     PluginInfo("", "", this.pluginName(), this.pluginVersion(), 0, ""),
-                    "插件版本不支持",
-                    "插件创建失败,请检查你的插件是否支持当前JTools版本,JTools版本: ${Helper.JTOOLS_VERSION},你的插件: ${this.pluginName()}:${this.pluginVersion()}"
+                    support.title?:"插件版本不支持",
+                    support.message?:"插件创建失败,请检查你的插件是否支持当前JTools版本,JTools版本: ${Helper.JTOOLS_VERSION},你的插件: ${this.pluginName()}:${this.pluginVersion()},Ide: ${Helper.getIdeInfo().fullApplicationName}"
                 )
             }
         }
@@ -151,13 +160,13 @@ class PluginManager {
             } catch (e: Throwable) {
                 if (e is PluginException) {
                     this.errorNotify(
-                        e.title, "插件信息: ${e.pluginInfo},异常信息: ${e.msg}"
+                        e.title, "插件信息: ${e.pluginInfo},通知信息: ${e.msg}"
                     )
                 } else if (e.cause is PluginException) {
                     val pluginException = e.cause as PluginException
                     this.errorNotify(
                         pluginException.title,
-                        "插件信息: ${pluginException.pluginInfo},异常信息: ${pluginException.msg}"
+                        "插件信息: ${pluginException.pluginInfo},通知信息: ${pluginException.msg}"
                     )
                 } else {
                     this.errorNotify(

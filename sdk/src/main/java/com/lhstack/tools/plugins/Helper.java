@@ -8,6 +8,7 @@ import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
+import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.EditorSettings;
@@ -45,7 +46,25 @@ public class Helper {
 
     public static Key<Logger> JTOOLS_SYS_LOGGER = Key.create("JTOOLS_SYS_LOGGER");
 
-    public static Integer JTOOLS_VERSION = 110;
+    public static Integer JTOOLS_VERSION = 112;
+
+    private static final IdeInfo IDE_INFO;
+
+    static {
+        ApplicationInfo applicationInfo = ApplicationInfo.getInstance();
+        IDE_INFO = new IdeInfo(applicationInfo.getApiVersion(),
+                applicationInfo.getFullVersion(),
+                applicationInfo.getMajorVersion(),
+                applicationInfo.getMinorVersion(),
+                applicationInfo.getBuild().getBaselineVersion(),
+                applicationInfo.getBuildDate(),
+                applicationInfo.getVersionName(),
+                applicationInfo.getFullApplicationName());
+    }
+
+    public static IdeInfo getIdeInfo() {
+        return IDE_INFO;
+    }
 
     public static Icon findIcon(String path, ClassLoader classLoader) {
         return IconLoader.findIcon(path, classLoader);
