@@ -108,6 +108,12 @@
             <ul>
                 <li>sdk适配多开</li>
             </ul>
+
+            <h2>Version v1.1.0.1</h2>
+            <ul>
+                <li>插件保存目录默认会根据jetbrains产品+版本进行隔离</li>
+                <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
+            </ul>
         ]]>
     </change-notes>
 
@@ -119,7 +125,7 @@
     <depends optional="true">org.jetbrains.idea.maven</depends>
     <depends optional="true">org.intellij.groovy</depends>
     <depends optional="true">org.jetbrains.plugins.gradle.dependency.updater</depends>
-    <idea-version since-build="222" until-build="252.*" />
+    <idea-version since-build="223" until-build="251.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

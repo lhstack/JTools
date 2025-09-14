@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.0"
+version = "1.1.0.1"
 
 repositories {
     mavenLocal()
@@ -19,7 +19,6 @@ repositories {
 intellij {
     version.set("2022.3")
     type.set("IC") // Target IDE Platform
-
     plugins.set(listOf("com.intellij.java", "org.jetbrains.plugins.yaml", "org.intellij.groovy","org.jetbrains.idea.maven", "org.jetbrains.plugins.gradle.dependency.updater"))
 }
 
