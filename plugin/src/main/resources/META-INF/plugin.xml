@@ -14,14 +14,15 @@
          Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
     <description><![CDATA[
-    <div style="margin-bottom: 20px;">
+    JTools is a powerful and lightweight plugin management container designed specifically for JetBrains IDEs.
+    It revolutionizes the plugin development experience by providing hot-plugging capabilities,
+    allowing developers to install, update, and uninstall plugins without restarting the IDE.
+
+    <div style="margin-top: 15px; margin-bottom: 15px;">
         <a href="https://github.com/lhstack/JTools">📖 Documentation</a> |
         <a href="https://github.com/lhstack/JTools/issues">🐛 Report Issues</a> |
         <a href="https://github.com/lhstack/JTools/releases">📦 Releases</a>
     </div>
-
-    <h1>🛠️ JTools - Lightweight Plugin Container</h1>
-    <p>JTools is a powerful and lightweight plugin management container designed specifically for JetBrains IDEs. It revolutionizes the plugin development experience by providing hot-plugging capabilities, allowing developers to install, update, and uninstall plugins without restarting the IDE.</p>
 
     <h2>✨ Key Features</h2>
     <ul>
