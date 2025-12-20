@@ -14,110 +14,203 @@
          Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
     <description><![CDATA[
-    <div>
-        <span> <a href="https://github.com/lhstack/JTools">Help</a></span>
+    <div style="margin-bottom: 20px;">
+        <a href="https://github.com/lhstack/JTools">📖 Documentation</a> |
+        <a href="https://github.com/lhstack/JTools/issues">🐛 Report Issues</a> |
+        <a href="https://github.com/lhstack/JTools/releases">📦 Releases</a>
     </div>
-    <h1>JTools</h1>
-    <p>JTools is a plugin management container that simplifies the development process for IntelliJ IDEA plugins. It supports plugin lifecycle management and hot-plugging without affecting IDEA.</p>
-    <h1>Main Features</h1>
-    <p>1. Plugin panel with draggable installation and right-click uninstall options.</p>
-    <p>2. Plugin development module for rapid debugging, supporting Java, Kotlin, and JavaScript.</p>
-    <p>3. Native support for Java and JavaScript plugins.</p>
-    <p>4. Customizable plugin installation directory.</p>
-    <p>5. Integrated logging module for troubleshooting during plugin development and runtime.</p>
-    <p>6. Java plugin development supports dynamic SDK dependencies installation, including IDEA, Maven, and Gradle projects.</p>
-    <p>7. JS plugin allows flexible integration of web pages, with options for custom development.</p>
 
-    <div>
-        <span> <a href="https://github.com/lhstack/JTools">帮助</a></span>
+    <h1>🛠️ JTools - Lightweight Plugin Container</h1>
+    <p>JTools is a powerful and lightweight plugin management container designed specifically for JetBrains IDEs. It revolutionizes the plugin development experience by providing hot-plugging capabilities, allowing developers to install, update, and uninstall plugins without restarting the IDE.</p>
+
+    <h2>✨ Key Features</h2>
+    <ul>
+        <li><b>🔌 Hot-Plugging Support:</b> Install and uninstall plugins on-the-fly without IDE restart, significantly improving development efficiency.</li>
+        <li><b>📦 Drag & Drop Installation:</b> Simply drag plugin files into the panel for instant installation, with right-click context menu for easy uninstallation.</li>
+        <li><b>🚀 Multi-Language Development:</b> Full support for Java, Kotlin, and JavaScript plugin development with rapid debugging capabilities.</li>
+        <li><b>📂 Customizable Storage:</b> Configure your preferred plugin installation directory with automatic isolation by JetBrains product and version.</li>
+        <li><b>📋 Integrated Logging:</b> Built-in logging console with soft-wrap output for easy troubleshooting during development and runtime.</li>
+        <li><b>🔧 Dynamic SDK Management:</b> Automatic SDK dependency resolution for IDEA, Maven, and Gradle projects.</li>
+        <li><b>🌐 Web Integration:</b> JavaScript plugins enable flexible web page integration with custom development options.</li>
+        <li><b>🪟 Multi-Instance Support:</b> Open multiple instances of the same plugin simultaneously with proper resource management.</li>
+        <li><b>📐 Split Panel View:</b> Support for left-right panel splitting for better workspace organization.</li>
+        <li><b>🎯 JetBrains Family Support:</b> Compatible with the entire JetBrains IDE family including IntelliJ IDEA, WebStorm, PyCharm, and more.</li>
+    </ul>
+
+    <h2>🎯 Use Cases</h2>
+    <ul>
+        <li>Rapid prototyping and testing of IntelliJ plugins</li>
+        <li>Creating lightweight utility tools without full plugin overhead</li>
+        <li>Developing custom web-based tools integrated into the IDE</li>
+        <li>Building team-specific development tools with easy distribution</li>
+    </ul>
+
+    <h2>🚀 Getting Started</h2>
+    <ol>
+        <li>Install JTools from the JetBrains Marketplace</li>
+        <li>Open the JTools panel from the right sidebar</li>
+        <li>Drag and drop your plugin files or use the built-in development tools</li>
+        <li>Start developing with hot-reload support!</li>
+    </ol>
+
+    <hr/>
+
+    <div style="margin-bottom: 20px;">
+        <a href="https://github.com/lhstack/JTools">📖 帮助文档</a> |
+        <a href="https://github.com/lhstack/JTools/issues">🐛 问题反馈</a> |
+        <a href="https://github.com/lhstack/JTools/releases">📦 版本发布</a>
     </div>
-    <h1>JTools</h1>
-    <p>JTools 是一个工具集，简化了 IntelliJ IDEA 插件的开发过程。它支持完整的插件生命周期和热插拔形式,插件卸载安装在非必要的情况下并不会影响IDEA本身。</p>
-    <h1>主要特点</h1>
-    <p>1. 插件面板，支持可拖动安装和右键卸载选项。</p>
-    <p>2. 插件开发模块，支持快速调试，支持 Java、Kotlin 和 JavaScript。</p>
-    <p>3. 原生支持 Java 和 JavaScript 插件。</p>
-    <p>4. 可自定义的插件安装目录。</p>
-    <p>5. 集成日志模块，用于插件开发和运行时的故障排除。</p>
-    <p>6. Java 插件开发支持动态 SDK 依赖安装，包括 IDEA、Maven 和 Gradle 项目。</p>
-    <p>7. JS 插件允许灵活集成网页，支持自定义开发。</p>
+
+    <h1>🛠️ JTools - 轻量级插件容器</h1>
+    <p>JTools 是一个专为 JetBrains IDE 设计的强大且轻量级的插件管理容器。它通过提供热插拔功能彻底改变了插件开发体验，允许开发者在不重启 IDE 的情况下安装、更新和卸载插件。</p>
+
+    <h2>✨ 核心特性</h2>
+    <ul>
+        <li><b>🔌 热插拔支持：</b>无需重启 IDE 即可即时安装和卸载插件，显著提升开发效率。</li>
+        <li><b>📦 拖拽安装：</b>只需将插件文件拖入面板即可立即安装，右键菜单轻松卸载。</li>
+        <li><b>🚀 多语言开发：</b>全面支持 Java、Kotlin 和 JavaScript 插件开发，具备快速调试能力。</li>
+        <li><b>📂 自定义存储：</b>可配置首选的插件安装目录，按 JetBrains 产品和版本自动隔离。</li>
+        <li><b>📋 集成日志：</b>内置日志控制台，支持软换行输出，便于开发和运行时故障排查。</li>
+        <li><b>🔧 动态 SDK 管理：</b>自动解析 IDEA、Maven 和 Gradle 项目的 SDK 依赖。</li>
+        <li><b>🌐 Web 集成：</b>JavaScript 插件支持灵活的网页集成和自定义开发。</li>
+        <li><b>🪟 多实例支持：</b>支持同时打开同一插件的多个实例，并具备完善的资源管理。</li>
+        <li><b>📐 分割面板视图：</b>支持左右面板分割，更好地组织工作空间。</li>
+        <li><b>🎯 JetBrains 全家桶支持：</b>兼容整个 JetBrains IDE 系列，包括 IntelliJ IDEA、WebStorm、PyCharm 等。</li>
+    </ul>
+
+    <h2>🎯 应用场景</h2>
+    <ul>
+        <li>IntelliJ 插件的快速原型开发和测试</li>
+        <li>创建轻量级实用工具，无需完整插件开销</li>
+        <li>开发集成到 IDE 中的自定义 Web 工具</li>
+        <li>构建团队专用开发工具，便于分发</li>
+    </ul>
+
+    <h2>🚀 快速开始</h2>
+    <ol>
+        <li>从 JetBrains Marketplace 安装 JTools</li>
+        <li>从右侧边栏打开 JTools 面板</li>
+        <li>拖放插件文件或使用内置开发工具</li>
+        <li>开始享受热重载开发体验！</li>
+    </ol>
   ]]></description>
 
     <change-notes>
         <![CDATA[
-            <h2>Version v1.0.1</h2>
+            <!-- English Version -->
+            <h2>📦 Version v1.1.2.2</h2>
+            <p><i>Latest Release / 最新版本</i></p>
             <ul>
-                <li>修改插件部分icon</li>
-                <li>在设置面板新增插件仓库连接</li>
-                <li>优化插件卸载,安装和删除逻辑</li>
-            </ul>
-            <h2>Version v1.0.2</h2>
-            <ul>
-                <li>sdk: Helper新增notify函数,type参数说明: IDE_UPDATE,INFORMATION,WARNING,ERROR</li>
-                <li>sdk: Helper新增getSysLogger函数,获取系统日志</li>
-                <li>sdk: Helper新增languageTextField,在无idea插件依赖的情况下可通过此函数创建idea对应的LanguageTextField组件</li>
-                <li>sdk: IPlugin新增support函数,用于判断JTools插件是否支持安装您开发的插件,用法可参考jtools-notes插件</li>
-            </ul>
-            <h2>Version v1.0.3</h2>
-            <ul>
-                <li>sdk新增Since注解,标识版本和修改信息</li>
-                <li>sdk: Helper新增文件选择,保存相关函数</li>
-                <li>sdk: Helper新增openInEditor函数</li>
-                <li>sdk: Helper新增createActionToolbar函数</li>
-                <li>修改IPlugin入参函数名,从projectLocation改为locationHash</li>
-                <li>sdk: Helper修改版本为103</li>
-                <li>sdk: Helper actionButton函数新增isSelected参数支持</li>
-            </ul>
-            <h2>Version v1.0.4</h2>
-            <ul>
-                <li>优化JTools日志控制台,设置为软换行方式输出日志</li>
+                <li>🎉 <b>IDE Compatibility:</b> Full support for IntelliJ IDEA 2025.3 and related JetBrains products</li>
+                <li>🎉 <b>IDE 兼容性：</b>全面支持 IntelliJ IDEA 2025.3 及相关 JetBrains 产品</li>
             </ul>
 
-            <h2>Version v1.0.5</h2>
+            <h2>� Version vo1.1.2.1</h2>
             <ul>
-                <li>清除卸载残留优化</li>
+                <li>📂 <b>Storage Isolation:</b> Plugin storage directory now automatically isolates by JetBrains product type and version, preventing conflicts between different IDE installations</li>
+                <li>📂 <b>存储隔离：</b>插件存储目录现在按 JetBrains 产品类型和版本自动隔离，防止不同 IDE 安装之间的冲突</li>
+                <li>🔧 <b>SDK Enhancement:</b> Added new support functions providing JTools version and JetBrains product information, enabling plugins to target specific JetBrains products</li>
+                <li>🔧 <b>SDK 增强：</b>新增支持函数，提供 JTools 版本和 JetBrains 产品信息，使插件能够针对特定 JetBrains 产品进行适配</li>
             </ul>
 
-            <h2>Version v1.0.6</h2>
+            <h2>📦 Version v1.1.1</h2>
             <ul>
-                <li>js插件开发功能新增项目模板,可通过模板创建demo代码</li>
-                <li>js插件开发新增打包功能,可将当前项目打包成可安装的插件</li>
-                <li>原生插件开发优化运行逻辑,降低原生插件开发难度</li>
+                <li>🎉 <b>IDE Compatibility:</b> Full compatibility with IntelliJ IDEA 2025.2 and above</li>
+                <li>🎉 <b>IDE 兼容性：</b>全面兼容 IntelliJ IDEA 2025.2 及以上版本</li>
             </ul>
 
-            <h2>Version v1.0.7</h2>
+            <h2>📦 Version v1.1.0</h2>
             <ul>
-                <li>插件支持多开功能,需要在插件开发过程中重载supportMultiOpens函数</li>
-                <li>重构插件showPanel,closePanel函数,新增JComponent入参,用户回传createPanel创建的组件,解决多开场景资源回收问题</li>
-                <li>fix: 拖动安装触发openProject回调参数logger错误</li>
-                <li>新增关闭项目触发已打开的面板closePanel函数</li>
+                <li>🪟 <b>Multi-Instance SDK:</b> SDK fully adapted for multi-instance plugin support, enabling better resource management across multiple plugin windows</li>
+                <li>🪟 <b>多实例 SDK：</b>SDK 完全适配多实例插件支持，实现多个插件窗口间更好的资源管理</li>
             </ul>
 
-            <h2>Version v1.0.8</h2>
+            <h2>📦 Version v1.0.9</h2>
             <ul>
-                <li>插件面板支持分割功能,目前仅支持左右分割</li>
-                <li>日志控制台支持启用/禁用</li>
+                <li>🎯 <b>JetBrains Family:</b> Extended support to the entire JetBrains IDE family including WebStorm, PyCharm, GoLand, PhpStorm, and more</li>
+                <li>🎯 <b>JetBrains 全家桶：</b>扩展支持整个 JetBrains IDE 系列，包括 WebStorm、PyCharm、GoLand、PhpStorm 等</li>
             </ul>
 
-            <h2>Version v1.0.9</h2>
+            <h2>📦 Version v1.0.8</h2>
             <ul>
-                <li>jetbrains全家桶支持</li>
+                <li>� <b>PSplit Panel:</b> Plugin panel now supports split view functionality (currently left-right split only) for better workspace organization</li>
+                <li>� <b>B分割面板：</b>插件面板现支持分割视图功能（目前仅支持左右分割），更好地组织工作空间</li>
+                <li>📋 <b>Log Console:</b> Added enable/disable toggle for the logging console to reduce resource usage when not needed</li>
+                <li>📋 <b>日志控制台：</b>新增日志控制台启用/禁用开关，在不需要时减少资源占用</li>
             </ul>
 
-            <h2>Version v1.1.0</h2>
+            <h2>📦 Version v1.0.7</h2>
             <ul>
-                <li>sdk适配多开</li>
+                <li>🪟 <b>Multi-Instance Support:</b> Plugins can now support multiple simultaneous instances by overriding the <code>supportMultiOpens</code> function</li>
+                <li>🪟 <b>多实例支持：</b>插件现可通过重载 <code>supportMultiOpens</code> 函数支持同时打开多个实例</li>
+                <li>🔄 <b>Panel Refactoring:</b> Refactored <code>showPanel</code> and <code>closePanel</code> functions with new JComponent parameter for proper resource cleanup in multi-instance scenarios</li>
+                <li>🔄 <b>面板重构：</b>重构 <code>showPanel</code> 和 <code>closePanel</code> 函数，新增 JComponent 参数，解决多实例场景下的资源回收问题</li>
+                <li>🐛 <b>Bug Fix:</b> Fixed incorrect logger parameter in <code>openProject</code> callback when using drag-and-drop installation</li>
+                <li>🐛 <b>Bug 修复：</b>修复拖动安装时 <code>openProject</code> 回调中 logger 参数错误的问题</li>
+                <li>✨ <b>Project Close Handler:</b> Added automatic <code>closePanel</code> invocation when project is closed for opened panels</li>
+                <li>✨ <b>项目关闭处理：</b>新增项目关闭时自动调用已打开面板的 <code>closePanel</code> 函数</li>
             </ul>
 
-            <h2>Version v1.1.1</h2>
+            <h2>📦 Version v1.0.6</h2>
             <ul>
-                <li>适配2025.2及以上版本</li>
+                <li>📝 <b>JS Templates:</b> Added project templates for JavaScript plugin development, enabling quick demo code creation</li>
+                <li>📝 <b>JS 模板：</b>JS 插件开发新增项目模板，可通过模板快速创建示例代码</li>
+                <li>📦 <b>JS Packaging:</b> New packaging feature for JS plugins to create installable plugin packages from current project</li>
+                <li>📦 <b>JS 打包：</b>JS 插件开发新增打包功能，可将当前项目打包成可安装的插件</li>
+                <li>� <b>Niative Development:</b> Optimized native plugin development workflow, reducing complexity and learning curve</li>
+                <li>� <<b>原生开发：</b>优化原生插件开发运行逻辑，降低开发难度和学习曲线</li>
             </ul>
 
-            <h2>Version v1.1.2.1</h2>
+            <h2>� Vers<ion v1.0.5</h2>
             <ul>
-                <li>插件保存目录默认会根据jetbrains产品+版本进行隔离</li>
-                <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
+                <li>🧹 <b>Cleanup Optimization:</b> Improved cleanup process for uninstalled plugins, ensuring no residual files remain</li>
+                <li>🧹 <b>清理优化：</b>优化插件卸载后的清理流程，确保无残留文件</li>
+            </ul>
+
+            <h2>📦 Version v1.0.4</h2>
+            <ul>
+                <li>📋 <b>Log Console UX:</b> JTools log console now uses soft-wrap mode for better log readability</li>
+                <li>� <bb>日志控制台体验：</b>JTools 日志控制台现使用软换行模式，提升日志可读性</li>
+            </ul>
+
+            <h2>📦 Version v1.0.3</h2>
+            <ul>
+                <li>📌 <b>Since Annotation:</b> Added <code>@Since</code> annotation to SDK for version tracking and change documentation</li>
+                <li>📌 <b>Since 注解：</b>SDK 新增 <code>@Since</code> 注解，用于版本追踪和变更记录</li>
+                <li>� <b>Files Operations:</b> Helper class now includes file selection and save dialog functions</li>
+                <li>� <b>>文件操作：</b>Helper 类新增文件选择和保存对话框相关函数</li>
+                <li>📝 <b>Editor Integration:</b> Added <code>openInEditor</code> function to Helper for opening files in IDE editor</li>
+                <li>📝 <b>编辑器集成：</b>Helper 新增 <code>openInEditor</code> 函数，用于在 IDE 编辑器中打开文件</li>
+                <li>🔧 <b>Toolbar Support:</b> Added <code>createActionToolbar</code> function to Helper for creating custom toolbars</li>
+                <li>🔧 <b>工具栏支持：</b>Helper 新增 <code>createActionToolbar</code> 函数，用于创建自定义工具栏</li>
+                <li>🔄 <b>API Change:</b> Renamed IPlugin parameter from <code>projectLocation</code> to <code>locationHash</code> for clarity</li>
+                <li>🔄 <b>API 变更：</b>IPlugin 入参函数名从 <code>projectLocation</code> 改为 <code>locationHash</code>，提升清晰度</li>
+                <li>📊 <b>SDK Version:</b> Helper version updated to 103</li>
+                <li>📊 <b>SDK 版本：</b>Helper 版本更新至 103</li>
+                <li>✨ <b>Action Button:</b> <code>actionButton</code> function now supports <code>isSelected</code> parameter for toggle states</li>
+                <li>✨ <b>操作按钮：</b><code>actionButton</code> 函数新增 <code>isSelected</code> 参数支持切换状态</li>
+            </ul>
+
+            <h2>📦 Version v1.0.2</h2>
+            <ul>
+                <li>🔔 <b>Notifications:</b> Helper class now includes <code>notify</code> function with type support: IDE_UPDATE, INFORMATION, WARNING, ERROR</li>
+                <li>🔔 <b>通知功能：</b>Helper 类新增 <code>notify</code> 函数，支持类型：IDE_UPDATE、INFORMATION、WARNING、ERROR</li>
+                <li>📋 <b>System Logger:</b> Added <code>getSysLogger</code> function to Helper for accessing system-level logging</li>
+                <li>📋 <b>系统日志：</b>Helper 新增 <code>getSysLogger</code> 函数，用于获取系统级日志</li>
+                <li>📝 <b>Language TextField:</b> Added <code>languageTextField</code> function to Helper for creating IDE LanguageTextField components without direct IDEA plugin dependency</li>
+                <li>📝 <b>语言文本框：</b>Helper 新增 <code>languageTextField</code> 函数，无需 IDEA 插件依赖即可创建 IDE 的 LanguageTextField 组件</li>
+                <li>🔍 <b>Compatibility Check:</b> IPlugin now includes <code>support</code> function to verify JTools plugin compatibility (see jtools-notes plugin for usage example)</li>
+                <li>🔍 <b>兼容性检查：</b>IPlugin 新增 <code>support</code> 函数，用于验证 JTools 插件兼容性（用法可参考 jtools-notes 插件）</li>
+            </ul>
+
+            <h2>📦 Version v1.0.1</h2>
+            <ul>
+                <li>🎨 <b>Icon Updates:</b> Updated various plugin icons for better visual consistency</li>
+                <li>🎨 <b>图标更新：</b>更新多个插件图标，提升视觉一致性</li>
+                <li>🔗 <b>Repository Link:</b> Added plugin repository connection in settings panel</li>
+                <li>🔗 <b>仓库链接：</b>在设置面板新增插件仓库连接</li>
+                <li>🔧 <b>Lifecycle Optimization:</b> Improved plugin uninstall, install, and delete logic for better reliability</li>
+                <li>🔧 <b>生命周期优化：</b>优化插件卸载、安装和删除逻辑，提升可靠性</li>
             </ul>
         ]]>
     </change-notes>
@@ -129,7 +222,7 @@
     <depends optional="true">org.jetbrains.idea.maven</depends>
     <depends optional="true">com.intellij.gradle</depends>
     <depends optional="true">org.jetbrains.idea.gradle.dsl</depends>
-    <idea-version since-build="251" until-build="252.*" />
+    <idea-version since-build="251" until-build="253.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

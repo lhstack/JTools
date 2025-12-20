@@ -8,8 +8,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.2.1"
-
+version = "1.1.2.2"
 repositories {
     intellijPlatform {
         defaultRepositories()
@@ -31,7 +30,6 @@ dependencies {
         bundledPlugin("org.jetbrains.idea.gradle.dsl")
     }
 }
-
 val proguardJar by tasks.registering(proguard.taskClass) {
 //    addInput {
 //        classpath.from(tasks.shadowJar)
@@ -51,12 +49,12 @@ val proguardJar by tasks.registering(proguard.taskClass) {
         "-useuniqueclassmembernames",
         "-dontwarn !com.lhstack.tools.**",
         "-flattenpackagehierarchy",
-        "-libraryjars C:\\Users\\lhstack\\.m2\\repository\\org\\jetbrains\\kotlin\\kotlin-stdlib\\2.2.10\\kotlin-stdlib-2.2.10.jar",
-        "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\util.jar",
-        "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app.jar",
-        "-libraryjars F:\\Repo\\Gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app-client.jar",
-        "-libraryjars D:\\Program Files\\java\\17/jmods/java.base.jmod(!.jar;!module-info.class)",
-        "-libraryjars D:\\Program Files\\java\\17/jmods/java.desktop.jmod(!.jar;!module-info.class)",
+        "-libraryjars /Users/lhstack/Data/repo/gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.10/30de6faa127a4a012db8e71bf1b9c0a99b1402b2/kotlin-stdlib-2.2.10.jar",
+        "-libraryjars /Users/lhstack/Data/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/util.jar",
+        "-libraryjars /Users/lhstack/Data/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app.jar",
+        "-libraryjars /Users/lhstack/Data/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app-client.jar",
+        "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.base.jmod(!.jar;!module-info.class)",
+        "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.desktop.jmod(!.jar;!module-info.class)",
         "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
         "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
         "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
@@ -154,7 +152,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("251")
-        untilBuild.set("252.*")
+        untilBuild.set("253.*")
     }
 
     signPlugin {
