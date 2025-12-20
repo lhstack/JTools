@@ -336,12 +336,14 @@ class CefPluginImpl(
         browsers.clear()
     }
 
-    override fun pluginIcon(): Icon? {
-        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader.urlClassLoader)
+    override fun pluginIcon(): Icon {
+        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader.urlClassLoader) 
+            ?: IconLoader.getIcon("/icons/plugin.svg", CefPluginImpl::class.java)
     }
 
-    override fun pluginTabIcon(): Icon? {
+    override fun pluginTabIcon(): Icon {
         return IconLoader.findIcon(cefPluginInfo.pluginTabIcon, classLoader.urlClassLoader)
+            ?: IconLoader.getIcon("/icons/plugin.svg", CefPluginImpl::class.java)
     }
 
     override fun pluginName(): String {

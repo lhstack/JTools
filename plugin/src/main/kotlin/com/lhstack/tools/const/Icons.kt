@@ -1,7 +1,5 @@
 package com.lhstack.tools.const
 
-import com.intellij.openapi.util.IconLoader
-import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.ext.findIcon
 
 class Icons {
@@ -47,8 +45,9 @@ class Icons {
         fun openConsolePanel() = findIcon("icons/console.svg")
 
         fun movecopy() = findIcon("icons/movecopy.svg")
+        
         fun moveright() = findIcon("icons/moveright.svg")
+        
         fun moveleft() = findIcon("icons/moveleft.svg")
-
     }
 }

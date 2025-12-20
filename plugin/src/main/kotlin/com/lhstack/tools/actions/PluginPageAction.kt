@@ -69,13 +69,14 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 dtde.acceptDrop(1)
                 //判断拖拽文件是否满足要求
                 if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                    @Suppress("UNCHECKED_CAST")
                     val files = dtde.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
                     if (files.size > 1) {
                         project.errorNotify("插件安装", "拖拽安装目前仅支持单个文件")
                         return
                     }
                     val file = files[0]
-                    if (StringUtils.equalsAnyIgnoreCase(file.extension, ".jar", ".zip")) {
+                    if (!StringUtils.equalsAnyIgnoreCase(file.extension, "jar", "zip")) {
                         project.errorNotify("插件安装", "插件仅支持jar,zip包方式安装")
                         return
                     }
@@ -235,7 +236,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                 }
 
 
-                pluginManager.uninstsall(pluginInfo)
+                pluginManager.uninstall(pluginInfo)
             }
 
             override fun getActionUpdateThread(): ActionUpdateThread {

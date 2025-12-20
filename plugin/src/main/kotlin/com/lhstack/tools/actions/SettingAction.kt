@@ -110,6 +110,26 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             })
         })
         panel.add(JSeparator(SwingConstants.HORIZONTAL))
+        
+        // 日志控制台启用/禁用设置
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            this.add(JLabel("日志控制台: "))
+            val consoleCheckBox = JCheckBox("启用日志控制台", this.pluginState().consoleLogEnabled)
+            consoleCheckBox.toolTipText = "启用或禁用JTools日志控制台，禁用后可减少资源占用"
+            consoleCheckBox.addActionListener {
+                this.pluginState().consoleLogEnabled = consoleCheckBox.isSelected
+                if (consoleCheckBox.isSelected) {
+                    project.activeConsolePanel()
+                    project.infoNotify("日志控制台", "日志控制台已启用")
+                } else {
+                    project.deActiveConsolePanel()
+                    project.infoNotify("日志控制台", "日志控制台已禁用")
+                }
+            }
+            this.add(consoleCheckBox)
+        })
+        panel.add(JSeparator(SwingConstants.HORIZONTAL))
+        
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JLabel("插件仓库: "))
             this.add(HyperlinkLabel("跳转").apply {

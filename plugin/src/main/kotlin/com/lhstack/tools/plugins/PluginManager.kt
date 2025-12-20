@@ -31,15 +31,7 @@ class PluginClassLoader(var builder: UrlClassLoader.Builder, var files: ArrayLis
     fun loadPlugin(classname: String): IPlugin {
         return (urlClassLoader.loadClass(classname).getConstructor().newInstance() as IPlugin).apply {
             val support = this.support(Helper.JTOOLS_VERSION, Helper.getIdeInfo())
-            if(support.support){
-                if (!this.support(Helper.JTOOLS_VERSION)) {
-                    throw PluginException(
-                        PluginInfo("", "", this.pluginName(), this.pluginVersion(), 0, ""),
-                        "插件版本不支持",
-                        "插件创建失败,请检查你的插件是否支持当前JTools版本,JTools版本: ${Helper.JTOOLS_VERSION},你的插件: ${this.pluginName()}:${this.pluginVersion()},Ide: ${Helper.getIdeInfo().fullApplicationName}"
-                    )
-                }
-            }else {
+            if(!support.isSupport){
                 throw PluginException(
                     PluginInfo("", "", this.pluginName(), this.pluginVersion(), 0, ""),
                     support.title?:"插件版本不支持",
@@ -50,8 +42,7 @@ class PluginClassLoader(var builder: UrlClassLoader.Builder, var files: ArrayLis
     }
 
     fun reset(paths: ArrayList<Path>) {
-//        files.clear()
-//        files.addAll(paths)
+        // 重置类加载器路径（保留用于未来扩展）
     }
 
     fun getResourceAsStream(name: String): InputStream? = urlClassLoader.getResourceAsStream(name)
@@ -352,7 +343,7 @@ class PluginManager {
     /**
      * 卸载插件
      */
-    fun uninstsall(pluginInfo: PluginInfo) {
+    fun uninstall(pluginInfo: PluginInfo) {
         pluginInstances.remove(pluginInfo)
         classloaders.remove(pluginInfo)
         this.pluginState().plugins.remove(pluginInfo.id)
