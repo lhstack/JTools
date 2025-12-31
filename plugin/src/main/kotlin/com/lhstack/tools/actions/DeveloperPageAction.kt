@@ -643,8 +643,20 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     return developerState.jsCache[key]
                 }
 
+                override fun getOrDefault(global: Boolean, project: Project, key: String, defaultValue: String): String {
+                    return developerState.jsCache[key] ?: defaultValue
+                }
+
                 override fun getAll(global: Boolean, project: Project): Map<String, String> {
-                    return developerState.jsCache
+                    return developerState.jsCache.toMap()
+                }
+
+                override fun keys(global: Boolean, project: Project): Set<String> {
+                    return developerState.jsCache.keys.toSet()
+                }
+
+                override fun exists(global: Boolean, project: Project, key: String): Boolean {
+                    return developerState.jsCache.containsKey(key)
                 }
 
                 override fun clear(global: Boolean, project: Project) {
@@ -653,6 +665,14 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
 
                 override fun remove(global: Boolean, project: Project, key: String) {
                     developerState.jsCache.remove(key)
+                }
+
+                override fun setAll(global: Boolean, project: Project, data: Map<String, String>) {
+                    developerState.jsCache.putAll(data)
+                }
+
+                override fun size(global: Boolean, project: Project): Int {
+                    return developerState.jsCache.size
                 }
 
             }) { plugin, info, err ->

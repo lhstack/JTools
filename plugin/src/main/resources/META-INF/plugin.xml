@@ -104,6 +104,16 @@
             <ul>
                 <li>🪟 <b>Dialog Refactoring:</b> Removed DialogWrapper support, now using JFrame for improved stability and compatibility</li>
                 <li>🪟 <b>弹窗重构：</b>移除 DialogWrapper 支持，改用 JFrame 实现，提升弹窗稳定性和兼容性</li>
+                <li>🌐 <b>JS Plugin SDK:</b> Added JTools SDK auto-injection for JS plugins, providing simplified API calls like JTools.help(), JTools.log.info(), etc.</li>
+                <li>🌐 <b>JS 插件 SDK：</b>JS 插件新增 JTools SDK 自动注入，提供简化的 API 调用，如 JTools.help()、JTools.log.info() 等</li>
+                <li>📁 <b>Relative Path Support:</b> JS plugins now support standard relative path for static resources (css/js/images), no protocol prefix required</li>
+                <li>📁 <b>相对路径支持：</b>JS 插件现支持标准相对路径加载静态资源（css/js/图片），无需协议前缀</li>
+                <li>📚 <b>API Documentation:</b> Added help() function to get complete JS plugin API documentation in JSON or Markdown format</li>
+                <li>📚 <b>API 文档：</b>新增 help() 函数获取完整的 JS 插件 API 文档，支持 JSON 和 Markdown 格式</li>
+                <li>🔧 <b>New JS APIs:</b> Added 50+ APIs including file operations, clipboard, dialogs, system commands, notifications, and cache management</li>
+                <li>🔧 <b>新增 JS API：</b>新增 50+ 个 API，包括文件操作、剪贴板、对话框、系统命令、通知、缓存管理等</li>
+                <li>💾 <b>Cache Enhancement:</b> Added getOrDefault, keys, exists, size, setAll methods for both global and project cache</li>
+                <li>💾 <b>缓存增强：</b>全局缓存和项目缓存新增 getOrDefault、keys、exists、size、setAll 方法</li>
             </ul>
 
             <h2>📦 Version v1.1.2.2</h2>

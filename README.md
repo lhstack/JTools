@@ -85,6 +85,35 @@ JTools/
 
 ### v1.1.2.3 (当前版本)
 - 🪟 **弹窗重构** - 移除 DialogWrapper 支持，改用 JFrame 实现，提升弹窗稳定性和兼容性
+- 🌐 **JS 插件 SDK** - JS 插件新增 JTools SDK 自动注入，提供简化的 API 调用
+- 📁 **相对路径支持** - JS 插件现支持标准相对路径加载静态资源，无需协议前缀
+- 📚 **API 文档** - 新增 `help()` 函数获取完整的 JS 插件 API 文档
+- 🔧 **新增 JS API** - 新增 50+ 个 API（文件操作、剪贴板、对话框、系统命令、通知等）
+- 💾 **缓存增强** - 缓存新增 `getOrDefault`、`keys`、`exists`、`size`、`setAll` 方法
+
+#### JS 插件 SDK 使用示例
+```javascript
+// 日志
+JTools.log.info("Hello World")
+
+// 文件操作
+await JTools.file.read("/path/to/file.txt")
+await JTools.file.write("/path/to/file.txt", "content")
+
+// 对话框
+const name = await JTools.dialog.input("请输入名称")
+const file = await JTools.dialog.chooseFile()
+
+// 缓存
+await JTools.cache.global.set("key", "value")
+await JTools.cache.project.get("key")
+
+// 通知
+JTools.notifyInfo("标题", "内容")
+
+// 获取帮助文档
+await JTools.help()
+```
 
 ### v1.1.2.2
 - 🎉 **IDE 兼容性** - 全面支持 IntelliJ IDEA 2025.3 及相关 JetBrains 产品
