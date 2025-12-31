@@ -99,14 +99,20 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.2</h2>
+            <h2>📦 Version v1.1.2.3</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🪟 <b>Dialog Refactoring:</b> Removed DialogWrapper support, now using JFrame for improved stability and compatibility</li>
+                <li>🪟 <b>弹窗重构：</b>移除 DialogWrapper 支持，改用 JFrame 实现，提升弹窗稳定性和兼容性</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.2</h2>
             <ul>
                 <li>🎉 <b>IDE Compatibility:</b> Full support for IntelliJ IDEA 2025.3 and related JetBrains products</li>
                 <li>🎉 <b>IDE 兼容性：</b>全面支持 IntelliJ IDEA 2025.3 及相关 JetBrains 产品</li>
             </ul>
 
-            <h2>� Version vo1.1.2.1</h2>
+            <h2>📦 Version v1.1.2.1</h2>
             <ul>
                 <li>📂 <b>Storage Isolation:</b> Plugin storage directory now automatically isolates by JetBrains product type and version, preventing conflicts between different IDE installations</li>
                 <li>📂 <b>存储隔离：</b>插件存储目录现在按 JetBrains 产品类型和版本自动隔离，防止不同 IDE 安装之间的冲突</li>
@@ -134,8 +140,8 @@
 
             <h2>📦 Version v1.0.8</h2>
             <ul>
-                <li>� <b>PSplit Panel:</b> Plugin panel now supports split view functionality (currently left-right split only) for better workspace organization</li>
-                <li>� <b>B分割面板：</b>插件面板现支持分割视图功能（目前仅支持左右分割），更好地组织工作空间</li>
+                <li>📐 <b>Split Panel:</b> Plugin panel now supports split view functionality (currently left-right split only) for better workspace organization</li>
+                <li>📐 <b>分割面板：</b>插件面板现支持分割视图功能（目前仅支持左右分割），更好地组织工作空间</li>
                 <li>📋 <b>Log Console:</b> Added enable/disable toggle for the logging console to reduce resource usage when not needed</li>
                 <li>📋 <b>日志控制台：</b>新增日志控制台启用/禁用开关，在不需要时减少资源占用</li>
             </ul>
@@ -158,11 +164,11 @@
                 <li>📝 <b>JS 模板：</b>JS 插件开发新增项目模板，可通过模板快速创建示例代码</li>
                 <li>📦 <b>JS Packaging:</b> New packaging feature for JS plugins to create installable plugin packages from current project</li>
                 <li>📦 <b>JS 打包：</b>JS 插件开发新增打包功能，可将当前项目打包成可安装的插件</li>
-                <li>� <b>Niative Development:</b> Optimized native plugin development workflow, reducing complexity and learning curve</li>
-                <li>� <<b>原生开发：</b>优化原生插件开发运行逻辑，降低开发难度和学习曲线</li>
+                <li>🔧 <b>Native Development:</b> Optimized native plugin development workflow, reducing complexity and learning curve</li>
+                <li>🔧 <b>原生开发：</b>优化原生插件开发运行逻辑，降低开发难度和学习曲线</li>
             </ul>
 
-            <h2>� Vers<ion v1.0.5</h2>
+            <h2>📦 Version v1.0.5</h2>
             <ul>
                 <li>🧹 <b>Cleanup Optimization:</b> Improved cleanup process for uninstalled plugins, ensuring no residual files remain</li>
                 <li>🧹 <b>清理优化：</b>优化插件卸载后的清理流程，确保无残留文件</li>
@@ -171,15 +177,15 @@
             <h2>📦 Version v1.0.4</h2>
             <ul>
                 <li>📋 <b>Log Console UX:</b> JTools log console now uses soft-wrap mode for better log readability</li>
-                <li>� <bb>日志控制台体验：</b>JTools 日志控制台现使用软换行模式，提升日志可读性</li>
+                <li>📋 <b>日志控制台体验：</b>JTools 日志控制台现使用软换行模式，提升日志可读性</li>
             </ul>
 
             <h2>📦 Version v1.0.3</h2>
             <ul>
                 <li>📌 <b>Since Annotation:</b> Added <code>@Since</code> annotation to SDK for version tracking and change documentation</li>
                 <li>📌 <b>Since 注解：</b>SDK 新增 <code>@Since</code> 注解，用于版本追踪和变更记录</li>
-                <li>� <b>Files Operations:</b> Helper class now includes file selection and save dialog functions</li>
-                <li>� <b>>文件操作：</b>Helper 类新增文件选择和保存对话框相关函数</li>
+                <li>📂 <b>File Operations:</b> Helper class now includes file selection and save dialog functions</li>
+                <li>📂 <b>文件操作：</b>Helper 类新增文件选择和保存对话框相关函数</li>
                 <li>📝 <b>Editor Integration:</b> Added <code>openInEditor</code> function to Helper for opening files in IDE editor</li>
                 <li>📝 <b>编辑器集成：</b>Helper 新增 <code>openInEditor</code> 函数，用于在 IDE 编辑器中打开文件</li>
                 <li>🔧 <b>Toolbar Support:</b> Added <code>createActionToolbar</code> function to Helper for creating custom toolbars</li>
