@@ -7,14 +7,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBSplitter
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.tabs.JBEditorTabsBase
 import com.intellij.ui.tabs.JBTabsFactory
 import com.intellij.ui.tabs.TabInfo
 import com.intellij.ui.tabs.TabsListener
 import com.intellij.ui.tabs.impl.TabLabel
 import com.intellij.util.messages.MessageBusConnection
-import com.jetbrains.rd.framework.base.deepClonePolymorphic
 import com.lhstack.tools.components.EmptyPanel
 import com.lhstack.tools.components.FloatingDialog
 import com.lhstack.tools.components.PluginTabPanel
@@ -108,7 +106,7 @@ class ContentPageAction(
                 if (leftTabsPane.tabCount == 0 && rightTabsPane.tabCount == 0) {
                     cardLayout.show(contentPanel, cardEmpty)
                 }
-                if(leftTabsPane.tabCount == 0){
+                if (leftTabsPane.tabCount == 0) {
                     splitter.firstComponent = null
                     splitter.divider.isVisible = false
                 }
@@ -119,7 +117,7 @@ class ContentPageAction(
                 if (leftTabsPane.tabCount == 0 && rightTabsPane.tabCount == 0) {
                     cardLayout.show(contentPanel, cardEmpty)
                 }
-                if(rightTabsPane.tabCount == 0){
+                if (rightTabsPane.tabCount == 0) {
                     splitter.secondComponent = null
                     splitter.divider.isVisible = false
                 }
@@ -127,8 +125,8 @@ class ContentPageAction(
         })
         splitter.firstComponent = leftTabsPane.component
         splitter.secondComponent = null
-        attachTabsPopup(leftTabsPane,true)
-        attachTabsPopup(rightTabsPane,false)
+        attachTabsPopup(leftTabsPane, true)
+        attachTabsPopup(rightTabsPane, false)
         contentPanel.add(splitter, cardView)
         contentPanel.add(EmptyPanel(goToPluginButton, "没有内容,请在插件列表中打开一个插件吧"), cardEmpty)
         cardLayout.show(contentPanel, cardEmpty)
@@ -137,18 +135,23 @@ class ContentPageAction(
         Disposer.register(project, this)
     }
 
-    private fun attachTabsPopup(tabsPanel: JBEditorTabsBase,left:Boolean) {
+    private fun attachTabsPopup(tabsPanel: JBEditorTabsBase, left: Boolean) {
         val tabsPopupGroup = DefaultActionGroup()
         tabsPopupGroup.add(object : AnAction({ "关闭所有标签" }, Icons.closeAllIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
                 if (component is TabLabel) {
                     val tabInfo = component.info
-                    if(tabInfo.component is PluginTabPanel){
+                    if (tabInfo.component is PluginTabPanel) {
                         val pluginTabPanel = (tabInfo.component as PluginTabPanel)
                         val pluginTabsPanel = pluginTabPanel.tabsPanel
                         pluginTabsPanel.tabs.forEach { tab ->
-                            pluginTabPanel.plugin.catch("插件面板关闭回调") { closePanel(project,(tab.component as PluginTabPanel).pluginPanel) }
+                            pluginTabPanel.plugin.catch("插件面板关闭回调") {
+                                closePanel(
+                                    project,
+                                    (tab.component as PluginTabPanel).pluginPanel
+                                )
+                            }
                             pluginTabsPanel.removeTab(tab)
                         }
                     }
@@ -165,14 +168,19 @@ class ContentPageAction(
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
                 if (component is TabLabel) {
                     val tabInfo = component.info
-                    if(tabInfo.component is PluginTabPanel){
+                    if (tabInfo.component is PluginTabPanel) {
                         val pluginTabPanel = (tabInfo.component as PluginTabPanel)
                         val pluginTabsPanel = pluginTabPanel.tabsPanel
                         pluginTabsPanel.tabs.forEach { tab ->
-                            if(tab.component is PluginTabPanel){
+                            if (tab.component is PluginTabPanel) {
                                 val tabPluginTabPanel = (tab.component as PluginTabPanel)
-                                if(pluginTabPanel.identity != tabPluginTabPanel.identity){
-                                    tabPluginTabPanel.plugin.catch("插件面板关闭回调") { closePanel(project,(tab.component as PluginTabPanel).pluginPanel) }
+                                if (pluginTabPanel.identity != tabPluginTabPanel.identity) {
+                                    tabPluginTabPanel.plugin.catch("插件面板关闭回调") {
+                                        closePanel(
+                                            project,
+                                            (tab.component as PluginTabPanel).pluginPanel
+                                        )
+                                    }
                                     pluginTabsPanel.removeTab(tab)
                                 }
                             }
@@ -193,11 +201,15 @@ class ContentPageAction(
                     val tabInfo = component.info
                     tabInfo.isHidden = true
                     val dialog: FloatingDialog = if (tabInfo.component is PluginTabPanel) {
-                        FloatingDialog(
+                        val floatingDialog = FloatingDialog(
                             project,
                             (tabInfo.component as PluginTabPanel).pluginInfo.name,
                             tabInfo.component
                         )
+                        Disposer.register((tabInfo.component as PluginTabPanel)){
+                            floatingDialog.dispose()
+                        }
+                        floatingDialog
                     } else {
                         FloatingDialog(project, "新窗口", tabInfo.component)
                     }
@@ -205,7 +217,7 @@ class ContentPageAction(
                     Disposer.register(dialog.disposable) {
                         tabInfo.isHidden = false
                     }
-                    dialog.show()
+                    dialog.isVisible = true
                 }
             }
 
@@ -239,7 +251,7 @@ class ContentPageAction(
                     val tabInfo = component.info
                     if (tabInfo.component is PluginTabPanel) {
                         val pluginTabPanel = tabInfo.component as PluginTabPanel
-                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin,pluginTabPanel.tabsPanel)
+                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin, pluginTabPanel.tabsPanel)
                     }
                 }
             }
@@ -252,10 +264,10 @@ class ContentPageAction(
         tabsPopupGroup.add(object : AnAction({ if(left){"移动到右侧"} else {"移动到左侧"} }, if(left){Icons.moveright()} else {Icons.moveleft()}) {
             override fun update(e: AnActionEvent) {
                 super.update(e)
-                if(leftTabsPane.tabCount == 1 && rightTabsPane.tabCount == 0){
+                if (leftTabsPane.tabCount == 1 && rightTabsPane.tabCount == 0) {
                     e.presentation.isEnabledAndVisible = false
                 }
-                if(leftTabsPane.tabCount == 0 && rightTabsPane.tabCount == 1){
+                if (leftTabsPane.tabCount == 0 && rightTabsPane.tabCount == 1) {
                     e.presentation.isEnabledAndVisible = false
                 }
             }
@@ -265,21 +277,21 @@ class ContentPageAction(
                     val tabInfo = component.info
                     val pluginTabPanel = tabInfo.component as PluginTabPanel
                     pluginTabPanel.tabsPanel.removeTab(tabInfo)
-                    if(left){
+                    if (left) {
                         pluginTabPanel.tabsPanel = rightTabsPane
                         splitter.secondComponent = rightTabsPane.component
-                        if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
+                        if (leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0) {
                             splitter.divider.isVisible = true
                         }
-                    }else {
+                    } else {
                         pluginTabPanel.tabsPanel = leftTabsPane
                         splitter.firstComponent = leftTabsPane.component
-                        if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
+                        if (leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0) {
                             splitter.divider.isVisible = true
                         }
                     }
                     pluginTabPanel.tabsPanel.addTab(tabInfo)
-                    pluginTabPanel.tabsPanel.select(tabInfo,true)
+                    pluginTabPanel.tabsPanel.select(tabInfo, true)
                 }
             }
 
@@ -305,21 +317,22 @@ class ContentPageAction(
 
                 }
             }
+
             override fun actionPerformed(e: AnActionEvent) {
                 val component = e.dataContext.getData(PlatformDataKeys.CONTEXT_COMPONENT)
                 if (component is TabLabel) {
                     val tabInfo = component.info
                     val pluginTabPanel = tabInfo.component as PluginTabPanel
-                    if(left){
-                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin,rightTabsPane)
+                    if (left) {
+                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin, rightTabsPane)
                         splitter.secondComponent = rightTabsPane.component
-                        if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
+                        if (leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0) {
                             splitter.divider.isVisible = true
                         }
-                    }else {
-                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin,leftTabsPane)
+                    } else {
+                        openPanel(pluginTabPanel.pluginInfo, pluginTabPanel.plugin, leftTabsPane)
                         splitter.firstComponent = leftTabsPane.component
-                        if(leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0){
+                        if (leftTabsPane.tabCount > 0 && rightTabsPane.tabCount > 0) {
                             splitter.divider.isVisible = true
                         }
                     }
@@ -350,8 +363,9 @@ class ContentPageAction(
                 if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
                     pluginTabPanel.tabsPanel.removeTab(it)
                     plugin.catch("插件面板关闭回调") {
-                        closePanel(project,pluginTabPanel.pluginPanel)
+                        closePanel(project, pluginTabPanel.pluginPanel)
                     }
+                    Disposer.dispose(pluginTabPanel)
                 }
             }
         }
@@ -362,14 +376,14 @@ class ContentPageAction(
                 if (pluginTabPanel.pluginInfo.id == pluginInfo.id) {
                     pluginTabPanel.tabsPanel.removeTab(it)
                     plugin.catch("插件面板关闭回调") {
-                        closePanel(project,pluginTabPanel.pluginPanel)
+                        closePanel(project, pluginTabPanel.pluginPanel)
                     }
                 }
             }
         }
     }
 
-    fun openPanel(pluginInfo: PluginInfo, plugin: IPlugin,tabsPanel: JBEditorTabsBase) {
+    fun openPanel(pluginInfo: PluginInfo, plugin: IPlugin, tabsPanel: JBEditorTabsBase) {
         if (!plugin.supportMultiOpens()) {
             tabsPanel.tabs.forEach {
                 if (it.component is PluginTabPanel) {
@@ -384,7 +398,8 @@ class ContentPageAction(
         }
         plugin.catch("创建插件面板") {
             val pluginPanel = createPanel(project)
-            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel,tabsPanel,UUID.randomUUID().toString())
+            val pluginTabPanel =
+                PluginTabPanel(pluginInfo, plugin, pluginPanel, tabsPanel, UUID.randomUUID().toString())
             pluginTabPanel.layout = BorderLayout()
             pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
             val tabInfo = TabInfo(pluginTabPanel)
@@ -401,7 +416,7 @@ class ContentPageAction(
 
                 override fun actionPerformed(e: AnActionEvent) {
                     pluginTabPanel.tabsPanel.removeTab(tabInfo)
-                    plugin.catch("插件面板关闭回调") { closePanel(project,pluginPanel) }
+                    plugin.catch("插件面板关闭回调") { closePanel(project, pluginPanel) }
                 }
 
                 override fun getActionUpdateThread(): ActionUpdateThread {
@@ -410,14 +425,14 @@ class ContentPageAction(
 
             }), "tabActionGroup")
 
-            Optional.ofNullable(plugin.tabPanelActions(project,pluginPanel)).filter { it.isNotEmpty() }.ifPresent {
+            Optional.ofNullable(plugin.tabPanelActions(project, pluginPanel)).filter { it.isNotEmpty() }.ifPresent {
                 tabInfo.setTabPaneActions(DefaultActionGroup(it))
             }
 
             cardLayout.show(contentPanel, cardView)
             tabsPanel.addTab(tabInfo)
             tabsPanel.select(tabInfo, true)
-            plugin.catch("插件面板显示回调") { showPanel(project,pluginPanel) }
+            plugin.catch("插件面板显示回调") { showPanel(project, pluginPanel) }
             goToPage()
         }
     }
@@ -437,7 +452,8 @@ class ContentPageAction(
         }
         plugin.catch("创建插件面板") {
             val pluginPanel = createPanel(project)
-            val pluginTabPanel = PluginTabPanel(pluginInfo, plugin, pluginPanel,leftTabsPane,UUID.randomUUID().toString())
+            val pluginTabPanel =
+                PluginTabPanel(pluginInfo, plugin, pluginPanel, leftTabsPane, UUID.randomUUID().toString())
             pluginTabPanel.layout = BorderLayout()
             pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
             val tabInfo = TabInfo(pluginTabPanel)
@@ -454,7 +470,7 @@ class ContentPageAction(
 
                 override fun actionPerformed(e: AnActionEvent) {
                     pluginTabPanel.tabsPanel.removeTab(tabInfo)
-                    plugin.catch("插件面板关闭回调") { closePanel(project,pluginPanel) }
+                    plugin.catch("插件面板关闭回调") { closePanel(project, pluginPanel) }
                 }
 
                 override fun getActionUpdateThread(): ActionUpdateThread {
@@ -463,7 +479,7 @@ class ContentPageAction(
 
             }), "tabActionGroup")
 
-            Optional.ofNullable(plugin.tabPanelActions(project,pluginPanel)).filter { it.isNotEmpty() }.ifPresent {
+            Optional.ofNullable(plugin.tabPanelActions(project, pluginPanel)).filter { it.isNotEmpty() }.ifPresent {
                 tabInfo.setTabPaneActions(DefaultActionGroup(it))
             }
 
@@ -471,7 +487,7 @@ class ContentPageAction(
             leftTabsPane.addTab(tabInfo)
             leftTabsPane.select(tabInfo, true)
             splitter.firstComponent = leftTabsPane.component
-            plugin.catch("插件面板显示回调") { showPanel(project,pluginPanel) }
+            plugin.catch("插件面板显示回调") { showPanel(project, pluginPanel) }
             goToPage()
         }
     }
