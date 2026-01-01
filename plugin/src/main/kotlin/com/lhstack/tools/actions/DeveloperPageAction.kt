@@ -578,6 +578,49 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 return ActionUpdateThread.BGT
             }
         })
+
+        actionGroup.add(object : AnAction({ "生成类型定义" }, AllIcons.Nodes.Library) {
+
+            override fun update(e: AnActionEvent) {
+                super.update(e)
+                if (developerState.isJavaPlugin()) {
+                    e.presentation.isEnabledAndVisible = false
+                    return
+                }
+            }
+
+            override fun actionPerformed(e: AnActionEvent) {
+                project.guessProjectDir()?.let { projectDir ->
+                    try {
+                        // 从资源中读取 jtools-sdk.d.ts
+                        val dtsContent = DeveloperPageAction::class.java.classLoader
+                            .getResourceAsStream("js/jtools-sdk.d.ts")
+                            ?.use { stream ->
+                                String(stream.readAllBytes(), StandardCharsets.UTF_8)
+                            }
+                        
+                        if (dtsContent != null) {
+                            // 写入到项目目录
+                            val targetFile = File(projectDir.presentableUrl, "jtools-sdk.d.ts")
+                            FileOutputStream(targetFile).use {
+                                it.write(dtsContent.toByteArray(StandardCharsets.UTF_8))
+                            }
+                            project.refresh {
+                                project.notify("导出成功", "类型声明文件已导出到: ${targetFile.absolutePath}", NotificationType.INFORMATION)
+                            }
+                        } else {
+                            project.errorNotify("导出失败", "无法读取类型声明文件")
+                        }
+                    } catch (ex: Exception) {
+                        project.errorNotify("导出失败", ex.message ?: "未知错误")
+                    }
+                }
+            }
+
+            override fun getActionUpdateThread(): ActionUpdateThread {
+                return ActionUpdateThread.BGT
+            }
+        })
     }
 
     private fun run(e: AnActionEvent, comboBoxAction: AbstractComboBoxAction<Module>) {

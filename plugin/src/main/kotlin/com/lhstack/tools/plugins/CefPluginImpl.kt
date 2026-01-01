@@ -690,8 +690,8 @@ class CefPluginImpl(
                 }
             }, jbBrowser.cefBrowser)
             jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
-                override fun onLoadEnd(browser: CefBrowser, frame: CefFrame?, httpStatusCode: Int) {
-                    // 只在主框架加载完成后注入 SDK
+                override fun onLoadStart(browser: CefBrowser, frame: CefFrame?, transitionType: CefRequest.TransitionType?) {
+                    // 在页面开始加载时注入 SDK，确保用户代码执行前 JTools 已可用
                     if (frame?.isMain == true) {
                         injectJToolsSDK(browser)
                     }
