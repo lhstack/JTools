@@ -90,6 +90,7 @@ JTools/
 - 📚 **API 文档** - 新增 `help()` 函数获取完整的 JS 插件 API 文档
 - 🔧 **新增 JS API** - 新增 50+ 个 API（文件操作、剪贴板、对话框、系统命令、通知等）
 - 💾 **缓存增强** - 缓存新增 `getOrDefault`、`keys`、`exists`、`size`、`setAll` 方法
+- 📝 **类型定义** - 新增"生成类型定义"功能，导出 `jtools-sdk.d.ts` 支持 IDE 代码提示
 
 #### JS 插件 SDK 使用示例
 ```javascript

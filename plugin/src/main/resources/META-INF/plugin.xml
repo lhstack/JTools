@@ -114,6 +114,8 @@
                 <li>🔧 <b>新增 JS API：</b>新增 50+ 个 API，包括文件操作、剪贴板、对话框、系统命令、通知、缓存管理等</li>
                 <li>💾 <b>Cache Enhancement:</b> Added getOrDefault, keys, exists, size, setAll methods for both global and project cache</li>
                 <li>💾 <b>缓存增强：</b>全局缓存和项目缓存新增 getOrDefault、keys、exists、size、setAll 方法</li>
+                <li>📝 <b>Type Definitions:</b> Added "Generate Type Definitions" action to export jtools-sdk.d.ts for IDE code completion support</li>
+                <li>📝 <b>类型定义：</b>新增"生成类型定义"功能，导出 jtools-sdk.d.ts 文件，支持 IDE 代码提示</li>
             </ul>
 
             <h2>📦 Version v1.1.2.2</h2>
