@@ -241,7 +241,7 @@
     <depends optional="true">org.jetbrains.idea.maven</depends>
     <depends optional="true">com.intellij.gradle</depends>
     <depends optional="true">org.jetbrains.idea.gradle.dsl</depends>
-    <idea-version since-build="251" until-build="253.*" />
+    <idea-version since-build="251" until-build="261.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

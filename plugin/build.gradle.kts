@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.2.3"
+version = "1.1.2.4"
 repositories {
     intellijPlatform {
         defaultRepositories()
@@ -152,7 +152,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("251")
-        untilBuild.set("253.*")
+        untilBuild.set("261.*")
     }
 
     signPlugin {
