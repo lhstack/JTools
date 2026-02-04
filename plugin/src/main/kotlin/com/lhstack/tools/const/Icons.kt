@@ -49,5 +49,9 @@ class Icons {
         fun moveright() = findIcon("icons/moveright.svg")
         
         fun moveleft() = findIcon("icons/moveleft.svg")
+
+        fun movedown() = findIcon("icons/movedown.svg")
+        
+        fun unsplitIcon() = findIcon("icons/unsplit.svg")
     }
 }
