@@ -8,20 +8,20 @@ import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.JBSplitter
+import com.intellij.ui.JBColor
 import com.intellij.ui.tabs.JBEditorTabsBase
 import com.intellij.ui.tabs.JBTabsFactory
 import com.intellij.ui.tabs.TabInfo
 import com.intellij.ui.tabs.TabsListener
-import com.intellij.ui.tabs.impl.JBTabsImpl
 import com.intellij.ui.awt.RelativePoint
 import com.lhstack.tools.components.PluginTabPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.plugins.PluginInfo
 import com.intellij.util.ui.ImageUtil
+import com.intellij.util.ui.JBUI
 import java.util.UUID
 import java.awt.BorderLayout
-import java.awt.Component
 import java.awt.Image
 import java.awt.Point
 import java.awt.GraphicsEnvironment
@@ -34,6 +34,7 @@ import javax.swing.JDialog
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import javax.swing.border.Border
 import javax.swing.border.EmptyBorder
 
 class SplitablePageContainer(
@@ -65,20 +66,21 @@ class SplitablePageContainer(
     private var isSplitting: Boolean = false
     // Guard to suppress auto-merge while moving tabs across containers
     private var transferDepth: Int = 0
-    
-    // Root-level registry for nested tabs (navigation support)
-    private val nestedTabsRegistry: MutableMap<JBTabsImpl, SplitablePageContainer> = mutableMapOf()
+
+    private var defaultTabsBorder: Border? = null
+    private var dropHighlight: Boolean = false
+    private var highlightedDropContainer: SplitablePageContainer? = null
     
     private data class DragOutState(
         val tab: TabInfo,
         val source: SplitablePageContainer,
-        val sourceTabs: JBTabsImpl,
+        val sourceTabs: JBEditorTabsBase,
         val wasHidden: Boolean,
         var dragImage: DragImageDialog? = null,
         var target: SplitablePageContainer? = null,
-        var targetTabs: JBTabsImpl? = null,
         var previewTab: TabInfo? = null,
-        var previewTabs: JBTabsImpl? = null
+        var previewTabs: JBEditorTabsBase? = null,
+        var dropIndex: Int? = null
     )
 
     private var dragOutState: DragOutState? = null
@@ -118,31 +120,6 @@ class SplitablePageContainer(
         add(newTabs.component, BorderLayout.CENTER)
     }
 
-    @Suppress("UnstableApiUsage")
-    private fun registerNestedTabs(newTabs: JBEditorTabsBase) {
-        val impl = newTabs as? JBTabsImpl ?: return
-        val root = getRoot()
-        val registry = root.nestedTabsRegistry
-        if (registry.containsKey(impl)) return
-        val iterator = registry.entries.iterator()
-        while (iterator.hasNext()) {
-            val (otherImpl, otherContainer) = iterator.next()
-            if (!otherContainer.isDisplayable || !otherImpl.component.isDisplayable) {
-                iterator.remove()
-                continue
-            }
-            if (!isDisplayable || !impl.component.isDisplayable) {
-                return
-            }
-            val linkDisposable = Disposer.newDisposable()
-            Disposer.register(this, linkDisposable)
-            Disposer.register(otherContainer, linkDisposable)
-            impl.addNestedTabs(otherImpl, linkDisposable)
-            otherImpl.addNestedTabs(impl, linkDisposable)
-        }
-        registry[impl] = this
-    }
-
     private fun ensureDragOutDelegate(info: TabInfo) {
         if (info.dragOutDelegate !== dragOutDelegate) {
             info.setDragOutDelegate(dragOutDelegate)
@@ -151,8 +128,9 @@ class SplitablePageContainer(
 
     private fun clearDropOver(state: DragOutState) {
         clearDropPreview(state)
-        state.targetTabs = null
         state.target = null
+        state.dropIndex = null
+        updateDropHighlight(null)
     }
 
     private fun createPreviewTab(original: TabInfo): TabInfo {
@@ -176,6 +154,13 @@ class SplitablePageContainer(
         }
         state.previewTab = null
         state.previewTabs = null
+        state.dropIndex = null
+    }
+
+    private fun toTabsRelativePoint(tabs: JBEditorTabsBase, screenPoint: Point): RelativePoint {
+        val local = Point(screenPoint)
+        SwingUtilities.convertPointFromScreen(local, tabs.component)
+        return RelativePoint(tabs.component, local)
     }
 
     private fun createCloneTabForSplit(original: TabInfo): TabInfo? {
@@ -226,43 +211,15 @@ class SplitablePageContainer(
         }
     }
 
-    private fun resolveHeaderRectangle(component: JBTabsImpl): Rectangle? {
-        val header = component.lastLayoutPass?.headerRectangle
-        if (header != null && header.width > 0 && header.height > 0) {
-            return header
-        }
-        val headerSize = component.headerFitSize ?: return null
-        if (component.width <= 0 || headerSize.height <= 0) return null
-        val width = if (headerSize.width > 0) headerSize.width.coerceAtMost(component.width) else component.width
-        return Rectangle(0, 0, width, headerSize.height)
-    }
-
-    private fun clampPointToHeader(component: JBTabsImpl, local: Point) {
-        val header = resolveHeaderRectangle(component) ?: return
-        val minX = header.x
-        val maxX = header.x + header.width - 1
-        val minY = header.y
-        val maxY = header.y + header.height - 1
-        local.x = local.x.coerceIn(minX, maxX)
-        local.y = local.y.coerceIn(minY, maxY)
-    }
-
-    private fun toHeaderRelativePoint(component: JBTabsImpl, screenPoint: Point): RelativePoint {
-        val local = Point(screenPoint)
-        SwingUtilities.convertPointFromScreen(local, component.component)
-        clampPointToHeader(component, local)
-        return RelativePoint(component.component, local)
-    }
-
-    private fun computeDropIndexFromPoint(targetTabs: JBTabsImpl, screenPoint: Point): Int {
+    private fun computeDropIndexFromPoint(targetTabs: JBEditorTabsBase, screenPoint: Point): Int {
         val local = Point(screenPoint)
         SwingUtilities.convertPointFromScreen(local, targetTabs.component)
-        clampPointToHeader(targetTabs, local)
-        val visibleInfos = targetTabs.tabs
-        if (visibleInfos.isEmpty()) return 0
-        val isHorizontal = targetTabs.isHorizontalTabs
-        val centers = visibleInfos.mapNotNull { info ->
-            val label = targetTabs.getTabLabel(info) as? Component ?: return@mapNotNull null
+        val tabAtPoint = targetTabs.findInfo(local)
+        val infos = targetTabs.tabs
+        if (infos.isEmpty()) return 0
+        val isHorizontal = !targetTabs.presentation.tabsPosition.isSide
+        val centers = infos.mapNotNull { info ->
+            val label = targetTabs.getTabLabel(info) ?: return@mapNotNull null
             val bounds = label.bounds
             if (bounds.width <= 0 || bounds.height <= 0) return@mapNotNull null
             val center = if (isHorizontal) bounds.x + bounds.width / 2 else bounds.y + bounds.height / 2
@@ -270,8 +227,11 @@ class SplitablePageContainer(
         }.sortedBy { it.second }
         if (centers.isEmpty()) return targetTabs.tabCount
         val position = if (isHorizontal) local.x else local.y
+        val commitBefore = tabAtPoint?.let { targetTabs.getIndexOf(it) } ?: -1
         for ((info, center) in centers) {
-            if (position < center) {
+            val index = targetTabs.getIndexOf(info)
+            val threshold = if (index == commitBefore) center + 1 else center
+            if (position < threshold) {
                 val index = targetTabs.getIndexOf(info)
                 return if (index < 0) 0 else index
             }
@@ -281,31 +241,13 @@ class SplitablePageContainer(
     }
 
     private fun createDragImage(tab: TabInfo): DragImageDialog? {
-        val tabs = findContainerOf(tab)?.tabs as? JBTabsImpl
-        val image = createTabLabelImage(tab, tabs) ?: return null
+        val image = createTabLabelImage(tab) ?: return null
         val dialog = DragImageDialog(this)
         dialog.setImage(image)
         return dialog
     }
 
-    private fun createTabLabelImage(tab: TabInfo, tabs: JBTabsImpl?): Image? {
-        val tabLabel = tabs?.getTabLabel(tab)
-        if (tabLabel != null) {
-            val size = tabLabel.preferredSize
-            val width = size.width.coerceAtLeast(1)
-            val height = size.height.coerceAtLeast(1)
-            val gc = tabLabel.graphicsConfiguration
-                ?: GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration
-            val image = ImageUtil.createImage(gc, width, height, BufferedImage.TYPE_INT_ARGB)
-            val g2 = image.createGraphics()
-            try {
-                tabLabel.setBounds(0, 0, width, height)
-                tabLabel.paintOffscreen(g2)
-            } finally {
-                g2.dispose()
-            }
-            return image
-        }
+    private fun createTabLabelImage(tab: TabInfo): Image? {
         val fallback = JLabel(tab.text ?: "")
         fallback.icon = tab.icon
         fallback.border = EmptyBorder(4, 6, 4, 6)
@@ -374,12 +316,30 @@ class SplitablePageContainer(
         return getRoot().transferDepth > 0
     }
 
-    private fun unregisterTabs(tabContainer: JBEditorTabsBase?) {
-        val impl = tabContainer as? JBTabsImpl ?: return
-        getRoot().nestedTabsRegistry.remove(impl)
+    private fun dropHighlightBorder(): Border {
+        return JBUI.Borders.customLine(JBColor(0x4B90FF, 0x4B90FF), 2)
     }
-    
-    
+
+    private fun setDropHighlight(enabled: Boolean) {
+        if (dropHighlight == enabled) return
+        dropHighlight = enabled
+        val tabsComponent = tabs?.component ?: return
+        if (defaultTabsBorder == null) {
+            defaultTabsBorder = tabsComponent.border
+        }
+        tabsComponent.border = if (enabled) dropHighlightBorder() else defaultTabsBorder
+        tabsComponent.revalidate()
+        tabsComponent.repaint()
+    }
+
+    private fun updateDropHighlight(target: SplitablePageContainer?) {
+        val root = getRoot()
+        if (root.highlightedDropContainer === target) return
+        root.highlightedDropContainer?.setDropHighlight(false)
+        root.highlightedDropContainer = target
+        root.highlightedDropContainer?.setDropHighlight(true)
+    }
+
     fun findContainerAtScreen(screenPoint: java.awt.Point): SplitablePageContainer? {
         if (!isShowing) return null
         
@@ -395,12 +355,12 @@ class SplitablePageContainer(
     }
 
     override fun dispose() {
-        val tabsImpl = tabs as? JBTabsImpl
-        tabsImpl?.let { impl ->
-            getRoot().nestedTabsRegistry.remove(impl)
+        val root = getRoot()
+        if (root.highlightedDropContainer === this) {
+            root.updateDropHighlight(null)
         }
         getRoot().dragOutState?.let { state ->
-            if (state.source === this || state.target === this || state.previewTabs === tabsImpl) {
+            if (state.source === this || state.target === this) {
                 getRoot().clearDropOver(state)
                 getRoot().dragOutState = null
             }
@@ -456,7 +416,6 @@ class SplitablePageContainer(
         
         // Now dispose the old JBTabs wrapper (empty now, won't dispose components)
         remove(currentTabs.component)
-        unregisterTabs(currentTabs)
         (currentTabs as? Disposable)?.let { Disposer.dispose(it) }
         this.tabs = null
         
@@ -642,7 +601,6 @@ class SplitablePageContainer(
                 tabInfos.forEach { info -> survivorTabs.removeTab(info) }
                 survivor.isSplitting = wasSplitting
                 survivor.remove(survivorTabs.component)
-                unregisterTabs(survivorTabs)
             }
             
             survivor.tabs = null
@@ -753,13 +711,16 @@ class SplitablePageContainer(
             }
             container.isSplitting = wasSplitting
             container.remove(cTabs.component)
-            unregisterTabs(cTabs)
             container.tabs = null
         }
     }
     
     private fun configureTabs(newTabs: JBEditorTabsBase) {
         newTabs.addListener(this)
+        defaultTabsBorder = newTabs.component.border
+        if (dropHighlight) {
+            newTabs.component.border = dropHighlightBorder()
+        }
         
         // Listen for selection to update active leaf (same as in initTabs)
         newTabs.addListener(object : TabsListener {
@@ -773,7 +734,6 @@ class SplitablePageContainer(
         // Enable built-in drag
         newTabs.presentation.setTabDraggingEnabled(true)
         MouseDragHelper.setComponentDraggable(newTabs.component, true)
-        registerNestedTabs(newTabs)
         newTabs.tabs.toList().forEach { ensureDragOutDelegate(it) }
         
         // Track active leaf on click
@@ -885,8 +845,8 @@ class SplitablePageContainer(
             root.dragOutState?.let { existing ->
                 val sourceTabs = existing.sourceTabs
                 val stale = !existing.source.isDisplayable ||
-                    !sourceTabs.isDisplayable ||
-                    !sourceTabs.isShowing
+                    !sourceTabs.component.isDisplayable ||
+                    !sourceTabs.component.isShowing
                 if (stale) {
                     root.clearDropOver(existing)
                     root.dragOutState = null
@@ -895,7 +855,7 @@ class SplitablePageContainer(
                 }
             }
             val source = root.findContainerOf(info) ?: return
-            val sourceTabs = source.tabs as? JBTabsImpl ?: return
+            val sourceTabs = source.tabs ?: return
             val wasHidden = info.isHidden
             root.dragOutState = DragOutState(
                 tab = info,
@@ -917,8 +877,9 @@ class SplitablePageContainer(
                 root.clearDropOver(state)
                 return
             }
-            val targetTabs = target.tabs as? JBTabsImpl ?: return
-            val point = toHeaderRelativePoint(targetTabs, event.locationOnScreen)
+            root.updateDropHighlight(target)
+            val targetTabs = target.tabs ?: return
+            val point = toTabsRelativePoint(targetTabs, event.locationOnScreen)
             if (state.previewTabs !== targetTabs || state.previewTab == null) {
                 root.clearDropPreview(state)
                 val preview = createPreviewTab(state.tab)
@@ -934,8 +895,8 @@ class SplitablePageContainer(
                 val preview = state.previewTab ?: return
                 targetTabs.processDropOver(preview, point)
             }
+            state.dropIndex = computeDropIndexFromPoint(targetTabs, event.locationOnScreen)
             state.target = target
-            state.targetTabs = targetTabs
         }
 
         override fun dragOutFinished(event: MouseEvent, source: TabInfo) {
@@ -946,7 +907,7 @@ class SplitablePageContainer(
             state.dragImage = null
             val targetFromEvent = root.findContainerAtScreen(event.locationOnScreen)
             val target = targetFromEvent ?: state.target
-            val targetTabs = (target?.tabs as? JBTabsImpl) ?: state.targetTabs
+            val targetTabs = target?.tabs
 
             if (target == null || targetTabs == null) {
                 root.clearDropOver(state)
@@ -954,14 +915,10 @@ class SplitablePageContainer(
                 return
             }
 
-            val sameContainer = target === state.source && targetTabs === state.sourceTabs
+            val sameContainer = target === state.source
             if (sameContainer) {
                 val currentIndex = state.sourceTabs.tabs.indexOf(state.tab)
-                val index = if (state.sourceTabs.dropInfoIndex >= 0) {
-                    state.sourceTabs.dropInfoIndex
-                } else {
-                    computeDropIndexFromPoint(state.sourceTabs, event.locationOnScreen)
-                }
+                val index = state.dropIndex ?: computeDropIndexFromPoint(state.sourceTabs, event.locationOnScreen)
                 root.clearDropOver(state)
                 if (index >= 0 && (currentIndex < 0 || currentIndex != index)) {
                     val adjustedIndex = if (currentIndex >= 0 && index > currentIndex) index - 1 else index
@@ -978,11 +935,7 @@ class SplitablePageContainer(
                 return
             }
 
-            val dropIndex = if (targetTabs.dropInfoIndex >= 0) {
-                targetTabs.dropInfoIndex
-            } else {
-                computeDropIndexFromPoint(targetTabs, event.locationOnScreen)
-            }
+            val dropIndex = state.dropIndex ?: computeDropIndexFromPoint(targetTabs, event.locationOnScreen)
             root.clearDropOver(state)
             beginTabTransfer()
             try {

@@ -21,6 +21,10 @@ class PluginState : PersistentStateComponent<PluginState.State> {
 
         var consoleLogEnabled: Boolean = true
 
+        // 智能体 OpenAPI 配置
+        var agentOpenApiKey: String = ""
+        var agentOpenApiBaseUrl: String = ""
+
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)
         var plugins = hashMapOf<String, PluginInfo>()

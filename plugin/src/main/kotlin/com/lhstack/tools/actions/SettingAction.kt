@@ -1,8 +1,11 @@
 package com.lhstack.tools.actions
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.JBMenuItem
+import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.ui.JBColor
 import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.components.JBTextField
 import com.lhstack.tools.const.Const
@@ -17,6 +20,7 @@ import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
+import javax.swing.UIManager
 import javax.swing.*
 
 
@@ -127,6 +131,73 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                 }
             }
             this.add(consoleCheckBox)
+        })
+        panel.add(JSeparator(SwingConstants.HORIZONTAL))
+
+        // 智能体 OpenAPI 设置
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            this.add(JLabel("智能体设置: "))
+            this.add(JLabel("仅支持 OpenAPI 方式"))
+        })
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            this.add(JLabel("API Key: "))
+            val apiKeyField = JPasswordField(this.pluginState().agentOpenApiKey)
+            apiKeyField.columns = 28
+            apiKeyField.toolTipText = "OpenAPI Key"
+            this.add(apiKeyField)
+            this.add(JLabel("Base URL: "))
+            val endpointField = JBTextField(this.pluginState().agentOpenApiBaseUrl)
+            endpointField.columns = 32
+            endpointField.toolTipText = "点击输入框选择参考地址，或手动输入"
+            val endpointPresets = linkedMapOf(
+                "OpenAI" to "https://api.openai.com/v1",
+                "DeepSeek" to "https://api.deepseek.com/v1",
+                "Groq" to "https://api.groq.com/openai/v1",
+                "Moonshot" to "https://api.moonshot.cn/v1",
+                "DashScope" to "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            )
+            val endpointPopup = JBPopupMenu().apply {
+                val selectionBg = UIManager.getColor("MenuItem.selectionBackground")
+                    ?: JBColor(0x4B90FF, 0x4B90FF)
+                val selectionFg = UIManager.getColor("MenuItem.selectionForeground")
+                    ?: JBColor(0xFFFFFF, 0xFFFFFF)
+                val normalBg = UIManager.getColor("MenuItem.background")
+                val normalFg = UIManager.getColor("MenuItem.foreground")
+                endpointPresets.forEach { (name, url) ->
+                    add(JBMenuItem("$name: $url").apply {
+                        isOpaque = true
+                        background = normalBg
+                        foreground = normalFg
+                        addMouseListener(object : MouseAdapter() {
+                            override fun mouseEntered(e: MouseEvent) {
+                                background = selectionBg
+                                foreground = selectionFg
+                            }
+
+                            override fun mouseExited(e: MouseEvent) {
+                                background = normalBg
+                                foreground = normalFg
+                            }
+                        })
+                        addActionListener { endpointField.text = url }
+                    })
+                }
+            }
+            endpointField.addMouseListener(object : MouseAdapter() {
+                override fun mousePressed(e: MouseEvent) {
+                    if (SwingUtilities.isLeftMouseButton(e)) {
+                        endpointPopup.show(endpointField, 0, endpointField.height)
+                    }
+                }
+            })
+            this.add(endpointField)
+            this.add(JButton("应用").apply {
+                this.addActionListener {
+                    this.pluginState().agentOpenApiKey = String(apiKeyField.password).trim()
+                    this.pluginState().agentOpenApiBaseUrl = endpointField.text.trim()
+                    project.infoNotify("智能体设置", "已保存 OpenAPI 配置")
+                }
+            })
         })
         panel.add(JSeparator(SwingConstants.HORIZONTAL))
         

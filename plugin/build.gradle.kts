@@ -52,6 +52,8 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
+    "-keepclassmembers class * implements com.intellij.openapi.Disposable { public void dispose(); }",
+    "-keepclassmembers class * { void dispose(); }",
     "-keepclassmembers class com.lhstack.tools.plugins.PluginState** { *; }",
     "-keepclassmembers class com.lhstack.tools.plugins.PluginInfo** { *; }",
     "-keepclassmembers class com.lhstack.tools.plugins.CefPluginInfo** { *; }",
