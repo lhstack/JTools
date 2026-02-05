@@ -201,7 +201,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             closeReasoningBlock()
                         }
                         if (event.done) {
-                            appendMessage(
+                            appendToolMessage(
                                 "工具调用",
                                 "name=${event.name}\narguments=${truncate(event.arguments)}",
                                 collapsible = true,
@@ -213,7 +213,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 onToolResult = { toolLog ->
                     toolStreamingUsed = true
                     ApplicationManager.getApplication().invokeLater {
-                        appendMessage(
+                        appendToolMessage(
                             "工具结果",
                             "name=${toolLog.name}\nresult=${truncate(toolLog.result)}",
                             collapsible = true,
@@ -262,6 +262,31 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         addMessageBlock(block)
     }
 
+    private fun appendMessageBeforeAssistant(
+        role: String,
+        content: String,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean
+    ) {
+        val color = if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
+        val block = createMessageBlock(role, color, collapsible, collapsedByDefault)
+        block.textArea.text = content
+        addMessageBlock(block, assistantBlock)
+    }
+
+    private fun appendToolMessage(
+        role: String,
+        content: String,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean
+    ) {
+        if (assistantBlock != null) {
+            appendMessageBeforeAssistant(role, content, collapsible, collapsedByDefault)
+        } else {
+            appendMessage(role, content, collapsible, collapsedByDefault)
+        }
+    }
+
     private fun appendToBlock(block: MessageBlock?, text: String) {
         block ?: return
         block.textArea.append(text)
@@ -278,8 +303,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         scrollToBottom()
     }
 
-    private fun addMessageBlock(block: MessageBlock) {
-        messageContainer.add(block.panel)
+    private fun addMessageBlock(block: MessageBlock, before: MessageBlock? = null) {
+        if (before != null) {
+            val index = messageContainer.getComponentZOrder(before.panel)
+            if (index >= 0) {
+                messageContainer.add(block.panel, index)
+            } else {
+                messageContainer.add(block.panel)
+            }
+        } else {
+            messageContainer.add(block.panel)
+        }
         messageContainer.revalidate()
         messageContainer.repaint()
         scrollToBottom()

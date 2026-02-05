@@ -98,6 +98,16 @@ val proguardRules = listOf(
             public *;
             protected *;
         }
+
+        -keepclassmember class com.lhstack.tools.agent.** {
+            public *;
+            protected *;
+        }
+
+        -keepclassmember class com.lhstack.tools.dev.** {
+            public *;
+            protected *;
+        }
        
        -keepclassmember class com.intellij.util.lang.ClassPath** {
             public *;
