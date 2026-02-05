@@ -118,7 +118,7 @@ class SplitablePageContainer(
         add(newTabs.component, BorderLayout.CENTER)
     }
 
-    @Suppress("UnstableApiUsage", "DEPRECATION")
+    @Suppress("UnstableApiUsage")
     private fun registerNestedTabs(newTabs: JBEditorTabsBase) {
         val impl = newTabs as? JBTabsImpl ?: return
         val root = getRoot()
@@ -127,13 +127,11 @@ class SplitablePageContainer(
         val iterator = registry.entries.iterator()
         while (iterator.hasNext()) {
             val (otherImpl, otherContainer) = iterator.next()
-            val otherImplDisposed = (otherImpl as? Disposable)?.let { Disposer.isDisposed(it) } ?: false
-            if (Disposer.isDisposed(otherContainer) || otherImplDisposed) {
+            if (!otherContainer.isDisplayable || !otherImpl.component.isDisplayable) {
                 iterator.remove()
                 continue
             }
-            val implDisposed = (impl as? Disposable)?.let { Disposer.isDisposed(it) } ?: false
-            if (Disposer.isDisposed(this) || implDisposed) {
+            if (!isDisplayable || !impl.component.isDisplayable) {
                 return
             }
             val linkDisposable = Disposer.newDisposable()
@@ -835,6 +833,7 @@ class SplitablePageContainer(
                  split(false, getTargetTab(e), moveTarget = false)
             }
             override fun update(e: AnActionEvent) {
+                e.presentation.isVisible = newTabs.tabCount > 1
                 val target = getTargetTab(e)
                 e.presentation.isEnabled = newTabs.tabCount > 0 && target != null && canDuplicateTab(target)
             }
@@ -844,6 +843,7 @@ class SplitablePageContainer(
                  split(false, getTargetTab(e), moveTarget = true)
             }
             override fun update(e: AnActionEvent) {
+                e.presentation.isVisible = newTabs.tabCount > 1
                 e.presentation.isEnabled = (newTabs.tabCount ?: 0) > 0
             }
         })
@@ -852,6 +852,7 @@ class SplitablePageContainer(
                  split(true, getTargetTab(e), moveTarget = false)
             }
             override fun update(e: AnActionEvent) {
+                e.presentation.isVisible = newTabs.tabCount > 1
                 val target = getTargetTab(e)
                 e.presentation.isEnabled = newTabs.tabCount > 0 && target != null && canDuplicateTab(target)
             }
@@ -861,11 +862,12 @@ class SplitablePageContainer(
                  split(true, getTargetTab(e), moveTarget = true)
             }
             override fun update(e: AnActionEvent) {
+                e.presentation.isVisible = newTabs.tabCount > 1
                 e.presentation.isEnabled = (newTabs.tabCount ?: 0) > 0
             }
         })
         
-        // 如果有父容器（说明已经分屏），显示取消分屏选项
+        // 只有存在分屏时才显示取消分屏选项
         if (parentContainer != null) {
             tabsPopupGroup.addSeparator()
             tabsPopupGroup.add(object : AnAction({ "取消分屏" }, AllIcons.Actions.Cancel) {
