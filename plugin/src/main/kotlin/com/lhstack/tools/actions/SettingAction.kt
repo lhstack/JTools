@@ -1,13 +1,12 @@
 package com.lhstack.tools.actions
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.JBMenuItem
-import com.intellij.openapi.ui.JBPopupMenu
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.ui.JBColor
 import com.intellij.ui.HyperlinkLabel
 import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.JBUI
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.*
@@ -17,10 +16,11 @@ import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.StringUtils
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.FlowLayout
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
-import javax.swing.UIManager
 import javax.swing.*
 
 
@@ -139,62 +139,85 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             this.add(JLabel("智能体设置: "))
             this.add(JLabel("仅支持 OpenAPI 方式"))
         })
-        panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            this.add(JLabel("API Key: "))
-            val apiKeyField = JPasswordField(this.pluginState().agentOpenApiKey)
-            apiKeyField.columns = 28
-            apiKeyField.toolTipText = "OpenAPI Key"
-            this.add(apiKeyField)
-            this.add(JLabel("Base URL: "))
-            val endpointField = JBTextField(this.pluginState().agentOpenApiBaseUrl)
-            endpointField.columns = 32
-            endpointField.toolTipText = "点击输入框选择参考地址，或手动输入"
-            val endpointPresets = linkedMapOf(
-                "OpenAI" to "https://api.openai.com/v1",
-                "DeepSeek" to "https://api.deepseek.com/v1",
-                "Groq" to "https://api.groq.com/openai/v1",
-                "Moonshot" to "https://api.moonshot.cn/v1",
-                "DashScope" to "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            )
-            val endpointPopup = JBPopupMenu().apply {
-                val selectionBg = UIManager.getColor("MenuItem.selectionBackground")
-                    ?: JBColor(0x4B90FF, 0x4B90FF)
-                val selectionFg = UIManager.getColor("MenuItem.selectionForeground")
-                    ?: JBColor(0xFFFFFF, 0xFFFFFF)
-                val normalBg = UIManager.getColor("MenuItem.background")
-                val normalFg = UIManager.getColor("MenuItem.foreground")
-                endpointPresets.forEach { (name, url) ->
-                    add(JBMenuItem("$name: $url").apply {
-                        isOpaque = true
-                        background = normalBg
-                        foreground = normalFg
-                        addMouseListener(object : MouseAdapter() {
-                            override fun mouseEntered(e: MouseEvent) {
-                                background = selectionBg
-                                foreground = selectionFg
-                            }
-
-                            override fun mouseExited(e: MouseEvent) {
-                                background = normalBg
-                                foreground = normalFg
-                            }
-                        })
-                        addActionListener { endpointField.text = url }
-                    })
-                }
-            }
-            endpointField.addMouseListener(object : MouseAdapter() {
-                override fun mousePressed(e: MouseEvent) {
-                    if (SwingUtilities.isLeftMouseButton(e)) {
-                        endpointPopup.show(endpointField, 0, endpointField.height)
+        val apiKeyField = JPasswordField(this.pluginState().agentOpenApiKey).apply {
+            columns = 30
+            toolTipText = "OpenAPI Key"
+        }
+        val endpointField = ComboBox<String>().apply {
+            isEditable = true
+            toolTipText = "OpenAPI Base URL"
+        }
+        val modelField = JBTextField(this.pluginState().agentModel).apply {
+            columns = 20
+            toolTipText = "OpenAPI Model"
+            isEditable = true
+        }
+        val endpointPresets = linkedMapOf(
+            "OpenAI" to "https://api.openai.com/v1",
+            "DeepSeek" to "https://api.deepseek.com/v1",
+            "Groq" to "https://api.groq.com/openai/v1",
+            "Moonshot" to "https://api.moonshot.cn/v1",
+            "DashScope" to "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        endpointPresets.values.forEach { endpointField.addItem(it) }
+        endpointField.editor.item = this.pluginState().agentOpenApiBaseUrl
+        (endpointField.editor.editorComponent as? JComponent)?.addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                val editor = endpointField.editor.editorComponent as? JComponent ?: return
+                if (SwingUtilities.isLeftMouseButton(e) && !endpointField.isPopupVisible) {
+                    if (!editor.hasFocus()) {
+                        endpointField.showPopup()
+                        SwingUtilities.invokeLater { editor.requestFocusInWindow() }
                     }
                 }
-            })
-            this.add(endpointField)
+            }
+        })
+
+        val agentForm = JPanel(GridBagLayout())
+        val labelInsets = JBUI.insets(2, 0, 2, 8)
+        val fieldInsets = JBUI.insets(2, 0, 2, 0)
+        val constraints = GridBagConstraints().apply {
+            anchor = GridBagConstraints.WEST
+            fill = GridBagConstraints.HORIZONTAL
+        }
+
+        constraints.gridx = 0
+        constraints.gridy = 0
+        constraints.weightx = 0.0
+        constraints.insets = labelInsets
+        agentForm.add(JLabel("  API Key: "), constraints)
+        constraints.gridx = 1
+        constraints.weightx = 1.0
+        constraints.insets = fieldInsets
+        agentForm.add(apiKeyField, constraints)
+
+        constraints.gridx = 0
+        constraints.gridy = 1
+        constraints.weightx = 0.0
+        constraints.insets = labelInsets
+        agentForm.add(JLabel("  Base URL: "), constraints)
+        constraints.gridx = 1
+        constraints.weightx = 1.0
+        constraints.insets = fieldInsets
+        agentForm.add(endpointField, constraints)
+
+        constraints.gridx = 0
+        constraints.gridy = 2
+        constraints.weightx = 0.0
+        constraints.insets = labelInsets
+        agentForm.add(JLabel("  Model: "), constraints)
+        constraints.gridx = 1
+        constraints.weightx = 1.0
+        constraints.insets = fieldInsets
+        agentForm.add(modelField, constraints)
+
+        panel.add(agentForm)
+        panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JButton("应用").apply {
                 this.addActionListener {
                     this.pluginState().agentOpenApiKey = String(apiKeyField.password).trim()
-                    this.pluginState().agentOpenApiBaseUrl = endpointField.text.trim()
+                    this.pluginState().agentOpenApiBaseUrl = (endpointField.editor.item?.toString() ?: "").trim()
+                    this.pluginState().agentModel = modelField.text.trim()
                     project.infoNotify("智能体设置", "已保存 OpenAPI 配置")
                 }
             })

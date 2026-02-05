@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.lhstack.tools.actions.ContentPageAction
+import com.lhstack.tools.actions.AgentPageAction
 import com.lhstack.tools.actions.OpenConsolePanelAction
 import com.lhstack.tools.actions.PluginPageAction
 import com.lhstack.tools.actions.SettingAction
@@ -24,8 +25,10 @@ class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false)
                 setContent(pluginPageAction.getPanel())
             }
         }
+        val agentPageAction = AgentPageAction(this, project)
         toolBarActionGroup.add(contentPageAction)
         toolBarActionGroup.add(pluginPageAction)
+        toolBarActionGroup.add(agentPageAction)
         actionSupplier?.invoke(this, project)?.apply {
             toolBarActionGroup.add(this)
         }

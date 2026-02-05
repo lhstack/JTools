@@ -24,6 +24,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         // 智能体 OpenAPI 配置
         var agentOpenApiKey: String = ""
         var agentOpenApiBaseUrl: String = ""
+        var agentModel: String = "gpt-4o-mini"
 
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)

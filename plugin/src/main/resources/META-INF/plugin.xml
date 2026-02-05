@@ -99,8 +99,22 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.5</h2>
+            <h2>📦 Version v1.1.2.6</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🤖 <b>Agent Chat:</b> Added built-in agent action with streaming output, reasoning blocks, and collapsible tool logs</li>
+                <li>🤖 <b>智能体对话：</b>新增智能体入口，支持流式输出、推理块展示与工具调用折叠日志</li>
+                <li>🧰 <b>Function Calling:</b> Aggregated plugin and system tools with unique identifiers to avoid name conflicts</li>
+                <li>🧰 <b>函数调用：</b>聚合插件与系统工具并增加唯一标识，避免名称冲突</li>
+                <li>📦 <b>Plugin Ops:</b> Added local/URL/batch installation and uninstall tool calls</li>
+                <li>📦 <b>插件管理：</b>新增本地/URL/批量安装与卸载工具调用</li>
+                <li>🧪 <b>Dev Testing:</b> Developer panel can expose current plugin instance tool calls for testing</li>
+                <li>🧪 <b>开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试</li>
+                <li>🎨 <b>Chat UX:</b> Improved input UX (soft-wrap, borders, Shift+Enter send) and duplicate tool-call guard</li>
+                <li>🎨 <b>对话体验：</b>优化输入体验（软换行、边框、Shift+Enter 发送）并增加重复工具调用拦截</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.5</h2>
             <ul>
                 <li>🧩 <b>Split Enhancements:</b> Added split-right/split-down and move-to-split workflows aligned with IDE behavior</li>
                 <li>🧩 <b>分屏增强：</b>新增向右/向下分屏及分屏并移动的操作流程，与 IDE 行为保持一致</li>
