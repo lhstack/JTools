@@ -99,8 +99,18 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.3</h2>
+            <h2>📦 Version v1.1.2.5</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧩 <b>Split Enhancements:</b> Added split-right/split-down and move-to-split workflows aligned with IDE behavior</li>
+                <li>🧩 <b>分屏增强：</b>新增向右/向下分屏及分屏并移动的操作流程，与 IDE 行为保持一致</li>
+                <li>🖱️ <b>Drag & Drop UX:</b> Improved intra-split reorder and cross-split drag preview/highlight</li>
+                <li>🖱️ <b>拖拽体验：</b>优化同分屏排序与跨分屏拖拽预览/高亮效果</li>
+                <li>🧱 <b>Stability:</b> Fixed content loss and gray-area issues during split drag operations</li>
+                <li>🧱 <b>稳定性：</b>修复分屏拖拽过程中内容丢失与灰色区域问题</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.3</h2>
             <ul>
                 <li>🪟 <b>Dialog Refactoring:</b> Removed DialogWrapper support, now using JFrame for improved stability and compatibility</li>
                 <li>🪟 <b>弹窗重构：</b>移除 DialogWrapper 支持，改用 JFrame 实现，提升弹窗稳定性和兼容性</li>

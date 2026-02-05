@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.tabs.JBEditorTabsBase
 import com.intellij.ui.tabs.JBTabsFactory
@@ -182,6 +183,7 @@ class SplitablePageContainer(
     private fun createCloneTabForSplit(original: TabInfo): TabInfo? {
         val originalPanel = original.component as? PluginTabPanel ?: return null
         val plugin = originalPanel.plugin
+        if (!plugin.supportMultiOpens()) return null
         val pluginInfo = originalPanel.pluginInfo
         val pluginPanel = plugin.catch("创建插件面板") { plugin.createPanel(project) } ?: return null
         val pluginTabPanel = PluginTabPanel(
@@ -428,7 +430,7 @@ class SplitablePageContainer(
         if (isSplit) return // Already split
         val currentTabs = tabs ?: return
         if (currentTabs.tabCount <= 0) return
-        val effectiveMoveTarget = moveTarget && currentTabs.tabCount > 1
+        val effectiveMoveTarget = moveTarget
 
         // Set flag to prevent reentrant merge
         isSplitting = true
@@ -436,6 +438,11 @@ class SplitablePageContainer(
         // Use targetTab if provided, otherwise fall back to selectedInfo
         val tabToSplit = targetTab ?: currentTabs.selectedInfo ?: currentTabs.tabs.firstOrNull()
         if (tabToSplit == null) {
+            isSplitting = false
+            return
+        }
+        val canDuplicate = (tabToSplit.component as? PluginTabPanel)?.plugin?.supportMultiOpens() ?: true
+        if (!effectiveMoveTarget && !canDuplicate) {
             isSplitting = false
             return
         }
@@ -767,6 +774,7 @@ class SplitablePageContainer(
         
         // Enable built-in drag
         newTabs.presentation.setTabDraggingEnabled(true)
+        MouseDragHelper.setComponentDraggable(newTabs.component, true)
         registerNestedTabs(newTabs)
         newTabs.tabs.toList().forEach { ensureDragOutDelegate(it) }
         
@@ -774,6 +782,9 @@ class SplitablePageContainer(
         newTabs.addTabMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 if (!SwingUtilities.isLeftMouseButton(e)) return
+                val point = SwingUtilities.convertPoint(e.component, e.point, newTabs.component)
+                newTabs.findInfo(point)?.let { ensureDragOutDelegate(it) }
+                newTabs.presentation.setTabDraggingEnabled(true)
                 updateActiveLeaf(this@SplitablePageContainer)
             }
         })
@@ -795,6 +806,11 @@ class SplitablePageContainer(
                 return newTabs.findInfo(point)
             }
             return newTabs.selectedInfo
+        }
+
+        fun canDuplicateTab(info: TabInfo?): Boolean {
+            val panel = info?.component as? PluginTabPanel ?: return true
+            return panel.plugin.supportMultiOpens()
         }
         
         tabsPopupGroup.add(object : AnAction({ "关闭" }, Icons.closeAllIcon()) {
@@ -819,7 +835,8 @@ class SplitablePageContainer(
                  split(false, getTargetTab(e), moveTarget = false)
             }
             override fun update(e: AnActionEvent) {
-                e.presentation.isEnabled = (newTabs.tabCount ?: 0) > 0
+                val target = getTargetTab(e)
+                e.presentation.isEnabled = newTabs.tabCount > 0 && target != null && canDuplicateTab(target)
             }
         })
         tabsPopupGroup.add(object : AnAction({ "向右分屏并移动" }, Icons.moveright()) {
@@ -835,7 +852,8 @@ class SplitablePageContainer(
                  split(true, getTargetTab(e), moveTarget = false)
             }
             override fun update(e: AnActionEvent) {
-                e.presentation.isEnabled = (newTabs.tabCount ?: 0) > 0
+                val target = getTargetTab(e)
+                e.presentation.isEnabled = newTabs.tabCount > 0 && target != null && canDuplicateTab(target)
             }
         })
         tabsPopupGroup.add(object : AnAction({ "向下分屏并移动" }, Icons.movedown()) {
@@ -862,7 +880,18 @@ class SplitablePageContainer(
     private inner class ToolTabDragOutDelegate : TabInfo.DragOutDelegate {
         override fun dragOutStarted(mouseEvent: MouseEvent, info: TabInfo) {
             val root = getRoot()
-            if (root.dragOutState != null) return
+            root.dragOutState?.let { existing ->
+                val sourceTabs = existing.sourceTabs
+                val stale = !existing.source.isDisplayable ||
+                    !sourceTabs.isDisplayable ||
+                    !sourceTabs.isShowing
+                if (stale) {
+                    root.clearDropOver(existing)
+                    root.dragOutState = null
+                } else {
+                    return
+                }
+            }
             val source = root.findContainerOf(info) ?: return
             val sourceTabs = source.tabs as? JBTabsImpl ?: return
             val wasHidden = info.isHidden
