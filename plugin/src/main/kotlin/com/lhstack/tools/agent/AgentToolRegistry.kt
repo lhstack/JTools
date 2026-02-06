@@ -75,6 +75,7 @@ class AgentToolRegistry private constructor(
     companion object {
         private const val MAX_TOOL_NAME_LENGTH = 64
         private const val TOOL_PREFIX = "plugin_"
+        private const val DEFAULT_MAX_LIST_ENTRIES = 1000
 
         fun build(project: Project): AgentToolRegistry {
             val tools = mutableListOf<AgentTool>()
@@ -498,13 +499,14 @@ class AgentToolRegistry private constructor(
             registerTool(
                 AgentTool(
                     name = "jtools_list_files",
-                    description = "列出指定路径下的文件(只读)",
+                    description = "列出指定路径下的文件(只读,结果可能截断)",
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
                             "path": { "type": "string", "description": "目录路径" },
-                            "depth": { "type": "integer", "description": "递归深度,默认1", "default": 1 }
+                            "depth": { "type": "integer", "description": "递归深度,默认1", "default": 1 },
+                            "maxEntries": { "type": "integer", "description": "最多返回条目数,默认1000", "default": 1000 }
                           },
                           "required": ["path"]
                         }
@@ -514,10 +516,12 @@ class AgentToolRegistry private constructor(
                             ?: return@AgentTool error(project, "参数解析失败")
                         val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
                         val depth = payload.get("depth")?.takeIf { !it.isJsonNull }?.asInt ?: 1
+                        val maxEntries = payload.get("maxEntries")?.takeIf { !it.isJsonNull }?.asInt
+                            ?: DEFAULT_MAX_LIST_ENTRIES
                         if (path.isBlank()) {
                             return@AgentTool error(project, "path 不能为空")
                         }
-                        val result = listFiles(path, depth)
+                        val result = listFiles(path, depth, maxEntries)
                         success(project, result)
                     }
                 )
@@ -869,16 +873,34 @@ class AgentToolRegistry private constructor(
             )
         }
 
-        private fun listFiles(path: String, depth: Int): List<Map<String, Any?>> {
+        private fun listFiles(path: String, depth: Int, maxEntries: Int): Map<String, Any?> {
             val root = File(path)
+            val limit = if (maxEntries <= 0) DEFAULT_MAX_LIST_ENTRIES else maxEntries
             if (!root.exists() || !root.isDirectory) {
-                return emptyList()
+                return mapOf(
+                    "path" to root.absolutePath,
+                    "exists" to false,
+                    "isDirectory" to root.isDirectory,
+                    "items" to emptyList<Map<String, Any?>>(),
+                    "count" to 0,
+                    "maxEntries" to limit,
+                    "truncated" to false
+                )
             }
             val maxDepth = if (depth <= 0) 1 else depth
-            return root.walkTopDown()
+            val items = mutableListOf<Map<String, Any?>>()
+            val iterator = root.walkTopDown()
                 .maxDepth(maxDepth)
                 .filter { it != root }
-                .map { file ->
+                .iterator()
+            var truncated = false
+            while (iterator.hasNext()) {
+                val file = iterator.next()
+                if (items.size >= limit) {
+                    truncated = true
+                    break
+                }
+                items.add(
                     mapOf(
                         "name" to file.name,
                         "path" to file.absolutePath,
@@ -886,7 +908,17 @@ class AgentToolRegistry private constructor(
                         "sizeBytes" to if (file.isFile) file.length() else 0L,
                         "lastModified" to file.lastModified()
                     )
-                }.toList()
+                )
+            }
+            return mapOf(
+                "path" to root.absolutePath,
+                "exists" to true,
+                "isDirectory" to true,
+                "items" to items,
+                "count" to items.size,
+                "maxEntries" to limit,
+                "truncated" to truncated
+            )
         }
 
         private fun readFile(path: String, maxBytes: Int): Map<String, Any?> {

@@ -112,6 +112,10 @@
                 <li>🧪 <b>开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试</li>
                 <li>🎨 <b>Chat UX:</b> Improved input UX (soft-wrap, borders, Shift+Enter send) and duplicate tool-call guard</li>
                 <li>🎨 <b>对话体验：</b>优化输入体验（软换行、边框、Shift+Enter 发送）并增加重复工具调用拦截</li>
+                <li>⚙️ <b>Agent Limits:</b> Added configurable max tool iterations and capped tool results to prevent oversized context</li>
+                <li>⚙️ <b>智能体限制：</b>新增最大工具调用轮次配置，并限制工具返回内容长度以避免超大上下文</li>
+                <li>📂 <b>File Listing:</b> Added maxEntries and truncation metadata for jtools_list_files to avoid huge outputs</li>
+                <li>📂 <b>文件列表：</b>jtools_list_files 支持 maxEntries 并返回截断信息，避免超大输出</li>
             </ul>
 
             <h2>📦 Version v1.1.2.5</h2>

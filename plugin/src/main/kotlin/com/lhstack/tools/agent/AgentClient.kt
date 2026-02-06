@@ -33,6 +33,12 @@ class AgentClient {
         .connectTimeout(Duration.ofMinutes(5))
         .build()
 
+    companion object {
+        private const val DEFAULT_MAX_TOOL_ITERATIONS = 5
+        private const val MAX_REPEAT_TOOL_CALLS = 2
+        private const val MAX_TOOL_RESULT_CHARS = 20_000
+    }
+
     fun complete(
         messages: MutableList<JsonObject>,
         toolRegistry: AgentToolRegistry,
@@ -43,14 +49,16 @@ class AgentClient {
         onReasoningDelta: ((String) -> Unit)? = null,
         onToolCall: ((ToolCallStreamEvent) -> Unit)? = null,
         onToolResult: ((ToolCallLog) -> Unit)? = null,
+        maxToolIterations: Int = DEFAULT_MAX_TOOL_ITERATIONS,
     ): AgentCompletionResult {
         val toolCalls = mutableListOf<ToolCallLog>()
         val endpoint = normalizeEndpoint(baseUrl)
         var iterations = 0
         var lastToolSignature: String? = null
         var repeatedToolCalls = 0
+        val maxIterations = if (maxToolIterations <= 0) DEFAULT_MAX_TOOL_ITERATIONS else maxToolIterations
 
-        while (iterations < 5) {
+        while (iterations < maxIterations) {
             val response = try {
                 if (onDelta == null) {
                     requestChatCompletion(messages, toolRegistry.toolsJson(), apiKey, endpoint, model)
@@ -82,22 +90,22 @@ class AgentClient {
 
             val toolCallsArray = message.getAsJsonArray("tool_calls")
             if (toolCallsArray != null && toolCallsArray.size() > 0) {
-            val signature = buildToolSignature(toolCallsArray)
-            if (signature != null) {
-                if (signature == lastToolSignature) {
-                    repeatedToolCalls += 1
-                } else {
-                    repeatedToolCalls = 0
+                val signature = buildToolSignature(toolCallsArray)
+                if (signature != null) {
+                    if (signature == lastToolSignature) {
+                        repeatedToolCalls += 1
+                    } else {
+                        repeatedToolCalls = 0
+                    }
+                    lastToolSignature = signature
+                    if (repeatedToolCalls >= MAX_REPEAT_TOOL_CALLS) {
+                        return AgentCompletionResult(
+                            assistantContent = null,
+                            toolCalls = toolCalls,
+                            errorMessage = "检测到连续相同工具调用，已终止。请提供更多信息或调整问题。"
+                        )
+                    }
                 }
-                lastToolSignature = signature
-                if (repeatedToolCalls >= 1) {
-                    return AgentCompletionResult(
-                        assistantContent = null,
-                        toolCalls = toolCalls,
-                        errorMessage = "检测到连续相同工具调用，已终止。请提供更多信息或调整问题。"
-                    )
-                }
-            }
                 messages.add(message)
                 val toolResults = executeTools(toolRegistry, toolCallsArray, toolCalls, onToolResult)
                 toolResults.forEach { messages.add(it) }
@@ -116,7 +124,7 @@ class AgentClient {
         return AgentCompletionResult(
             assistantContent = null,
             toolCalls = toolCalls,
-            errorMessage = "函数调用次数过多"
+            errorMessage = "函数调用次数过多(上限: $maxIterations)"
         )
     }
 
@@ -313,14 +321,15 @@ class AgentClient {
                     """{"ok":false,"error":"调用失败: ${e.message ?: "unknown"}"}"""
                 }
             }
-            val toolLog = ToolCallLog(name, arguments, result)
+            val safeResult = truncateForModel(result, MAX_TOOL_RESULT_CHARS)
+            val toolLog = ToolCallLog(name, arguments, safeResult)
             toolLogs.add(toolLog)
             onToolResult?.invoke(toolLog)
             toolMessages.add(
                 JsonObject().apply {
                     addProperty("role", "tool")
                     addProperty("tool_call_id", callId)
-                    addProperty("content", result)
+                    addProperty("content", safeResult)
                 }
             )
         }
@@ -335,6 +344,13 @@ class AgentClient {
         } else {
             "$normalized/chat/completions"
         }
+    }
+
+    private fun truncateForModel(value: String, maxChars: Int): String {
+        if (value.length <= maxChars) {
+            return value
+        }
+        return value.take(maxChars) + "...(truncated, maxChars=$maxChars, length=${value.length})"
     }
 
     private fun buildToolSignature(toolCallsArray: JsonArray): String? {

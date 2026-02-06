@@ -152,6 +152,11 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             toolTipText = "OpenAPI Model"
             isEditable = true
         }
+        val maxIterationsField = JBTextField(this.pluginState().agentMaxToolIterations.toString()).apply {
+            columns = 6
+            toolTipText = "最大工具调用轮次(正整数, 默认30)"
+            isEditable = true
+        }
         val endpointPresets = linkedMapOf(
             "OpenAI" to "https://api.openai.com/v1",
             "DeepSeek" to "https://api.deepseek.com/v1",
@@ -211,6 +216,16 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         constraints.insets = fieldInsets
         agentForm.add(modelField, constraints)
 
+        constraints.gridx = 0
+        constraints.gridy = 3
+        constraints.weightx = 0.0
+        constraints.insets = labelInsets
+        agentForm.add(JLabel("  Max Tool Iterations: "), constraints)
+        constraints.gridx = 1
+        constraints.weightx = 1.0
+        constraints.insets = fieldInsets
+        agentForm.add(maxIterationsField, constraints)
+
         panel.add(agentForm)
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JButton("应用").apply {
@@ -218,6 +233,10 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                     this.pluginState().agentOpenApiKey = String(apiKeyField.password).trim()
                     this.pluginState().agentOpenApiBaseUrl = (endpointField.editor.item?.toString() ?: "").trim()
                     this.pluginState().agentModel = modelField.text.trim()
+                    val maxIterations = maxIterationsField.text.trim().toIntOrNull()
+                    if (maxIterations != null && maxIterations > 0) {
+                        this.pluginState().agentMaxToolIterations = maxIterations
+                    }
                     project.infoNotify("智能体设置", "已保存 OpenAPI 配置")
                 }
             })

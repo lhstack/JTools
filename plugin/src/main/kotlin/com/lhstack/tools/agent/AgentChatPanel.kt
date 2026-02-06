@@ -141,6 +141,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val baseUrl = project.pluginState().agentOpenApiBaseUrl.trim()
         val model = project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+        val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
         inputArea.text = ""
         appendMessage("用户", text, collapsible = false, collapsedByDefault = false)
         sendButton.isEnabled = false
@@ -220,7 +221,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             collapsedByDefault = true
                         )
                     }
-                }
+                },
+                maxToolIterations = maxToolIterations
             )
             ApplicationManager.getApplication().invokeLater {
                 if (assistantStarted.get()) {
