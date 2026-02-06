@@ -31,6 +31,12 @@
         <li><b>🚀 Multi-Language Development:</b> Full support for Java, Kotlin, and JavaScript plugin development with rapid debugging capabilities.</li>
         <li><b>📂 Customizable Storage:</b> Configure your preferred plugin installation directory with automatic isolation by JetBrains product and version.</li>
         <li><b>📋 Integrated Logging:</b> Built-in logging console with soft-wrap output for easy troubleshooting during development and runtime.</li>
+        <li><b>🤖 Agent Chat:</b> Built-in agent entry with streaming output, reasoning blocks, and collapsible tool logs.</li>
+        <li><b>🧰 Function Calling:</b> Aggregated plugin and system tools with unique identifiers to avoid name conflicts.</li>
+        <li><b>📦 Plugin Ops:</b> Local/URL/batch install and uninstall tool calls for faster workflows.</li>
+        <li><b>🧪 Dev Testing:</b> Developer panel can expose current plugin instance tool calls for debugging.</li>
+        <li><b>⚙️ Agent Limits:</b> Configurable max tool iterations and tool result size limits to prevent oversized context.</li>
+        <li><b>📂 File Listing:</b> jtools_list_files supports maxEntries with truncation metadata.</li>
         <li><b>🔧 Dynamic SDK Management:</b> Automatic SDK dependency resolution for IDEA, Maven, and Gradle projects.</li>
         <li><b>🌐 Web Integration:</b> JavaScript plugins enable flexible web page integration with custom development options.</li>
         <li><b>🪟 Multi-Instance Support:</b> Open multiple instances of the same plugin simultaneously with proper resource management.</li>
@@ -72,6 +78,12 @@
         <li><b>🚀 多语言开发：</b>全面支持 Java、Kotlin 和 JavaScript 插件开发，具备快速调试能力。</li>
         <li><b>📂 自定义存储：</b>可配置首选的插件安装目录，按 JetBrains 产品和版本自动隔离。</li>
         <li><b>📋 集成日志：</b>内置日志控制台，支持软换行输出，便于开发和运行时故障排查。</li>
+        <li><b>🤖 智能体对话：</b>内置智能体入口，支持流式输出、推理块展示与工具调用折叠日志。</li>
+        <li><b>🧰 函数调用：</b>聚合插件与系统工具并增加唯一标识，避免名称冲突。</li>
+        <li><b>📦 插件管理：</b>支持本地/URL/批量安装与卸载的工具调用。</li>
+        <li><b>🧪 开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试。</li>
+        <li><b>⚙️ 智能体限制：</b>可配置最大工具调用轮次并限制工具返回长度，避免超大上下文。</li>
+        <li><b>📂 文件列表：</b>jtools_list_files 支持 maxEntries 并返回截断信息。</li>
         <li><b>🔧 动态 SDK 管理：</b>自动解析 IDEA、Maven 和 Gradle 项目的 SDK 依赖。</li>
         <li><b>🌐 Web 集成：</b>JavaScript 插件支持灵活的网页集成和自定义开发。</li>
         <li><b>🪟 多实例支持：</b>支持同时打开同一插件的多个实例，并具备完善的资源管理。</li>

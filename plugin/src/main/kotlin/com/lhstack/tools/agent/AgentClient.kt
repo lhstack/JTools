@@ -3,11 +3,16 @@ package com.lhstack.tools.agent
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.util.concurrency.AppExecutorUtil
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 data class ToolCallLog(
     val name: String,
@@ -32,11 +37,13 @@ class AgentClient {
     private val httpClient: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofMinutes(5))
         .build()
+    private val toolExecutor = AppExecutorUtil.getAppExecutorService()
 
     companion object {
         private const val DEFAULT_MAX_TOOL_ITERATIONS = 5
         private const val MAX_REPEAT_TOOL_CALLS = 2
         private const val MAX_TOOL_RESULT_CHARS = 20_000
+        private const val DEFAULT_TOOL_TIMEOUT_MS = 120_000L
     }
 
     fun complete(
@@ -50,6 +57,7 @@ class AgentClient {
         onToolCall: ((ToolCallStreamEvent) -> Unit)? = null,
         onToolResult: ((ToolCallLog) -> Unit)? = null,
         maxToolIterations: Int = DEFAULT_MAX_TOOL_ITERATIONS,
+        toolTimeoutMs: Long = DEFAULT_TOOL_TIMEOUT_MS,
     ): AgentCompletionResult {
         val toolCalls = mutableListOf<ToolCallLog>()
         val endpoint = normalizeEndpoint(baseUrl)
@@ -107,7 +115,13 @@ class AgentClient {
                     }
                 }
                 messages.add(message)
-                val toolResults = executeTools(toolRegistry, toolCallsArray, toolCalls, onToolResult)
+                val toolResults = executeTools(
+                    toolRegistry,
+                    toolCallsArray,
+                    toolCalls,
+                    onToolResult,
+                    toolTimeoutMs
+                )
                 toolResults.forEach { messages.add(it) }
                 iterations++
                 continue
@@ -301,6 +315,7 @@ class AgentClient {
         toolCallsArray: JsonArray,
         toolLogs: MutableList<ToolCallLog>,
         onToolResult: ((ToolCallLog) -> Unit)?,
+        toolTimeoutMs: Long,
     ): List<JsonObject> {
         val toolMessages = mutableListOf<JsonObject>()
         toolCallsArray.forEach { element ->
@@ -315,11 +330,7 @@ class AgentClient {
             val result = if (tool == null) {
                 """{"ok":false,"error":"未找到函数: $name"}"""
             } else {
-                try {
-                    tool.call(arguments)
-                } catch (e: Throwable) {
-                    """{"ok":false,"error":"调用失败: ${e.message ?: "unknown"}"}"""
-                }
+                runToolWithTimeout(tool, arguments, toolTimeoutMs)
             }
             val safeResult = truncateForModel(result, MAX_TOOL_RESULT_CHARS)
             val toolLog = ToolCallLog(name, arguments, safeResult)
@@ -334,6 +345,28 @@ class AgentClient {
             )
         }
         return toolMessages
+    }
+
+    private fun runToolWithTimeout(tool: AgentTool, arguments: String, timeoutMs: Long): String {
+        if (timeoutMs <= 0) {
+            return try {
+                tool.call(arguments)
+            } catch (e: Throwable) {
+                """{"ok":false,"error":"调用失败: ${e.message ?: "unknown"}"}"""
+            }
+        }
+        val future = CompletableFuture.supplyAsync({ tool.call(arguments) }, toolExecutor)
+        return try {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            future.cancel(true)
+            """{"ok":false,"error":"工具执行超时(${timeoutMs}ms)"}"""
+        } catch (e: ExecutionException) {
+            val message = e.cause?.message ?: "unknown"
+            """{"ok":false,"error":"调用失败: $message"}"""
+        } catch (e: Throwable) {
+            """{"ok":false,"error":"调用失败: ${e.message ?: "unknown"}"}"""
+        }
     }
 
     private fun normalizeEndpoint(baseUrl: String): String {

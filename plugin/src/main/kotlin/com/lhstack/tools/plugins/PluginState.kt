@@ -26,6 +26,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentOpenApiBaseUrl: String = ""
         var agentModel: String = "gpt-4o-mini"
         var agentMaxToolIterations: Int = 30
+        var agentToolTimeoutMs: Int = 120_000
 
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)
