@@ -71,6 +71,45 @@ fun String.ifNotBlank(consumer: (String) -> Unit) {
     }
 }
 
+fun String?.equalsAnyIgnoreCase(vararg others: String?): Boolean {
+    if (others.isEmpty()) {
+        return false
+    }
+    for (other in others) {
+        if (this.equalsIgnoreCase(other)) {
+            return true
+        }
+    }
+    return false
+}
+
+fun String?.endsWithAny(vararg suffixes: String?): Boolean {
+    val text = this ?: return false
+    if (text.isEmpty() || suffixes.isEmpty()) {
+        return false
+    }
+    for (suffix in suffixes) {
+        if (suffix != null && text.endsWith(suffix)) {
+            return true
+        }
+    }
+    return false
+}
+
+fun String?.endsWithIgnoreCase(suffix: String?): Boolean {
+    val text = this ?: return suffix == null
+    val search = suffix ?: return false
+    return text.endsWith(search, ignoreCase = true)
+}
+
+fun String?.equalsIgnoreCase(other: String?): Boolean {
+    return if (this == null) {
+        other == null
+    } else {
+        other != null && this.equals(other, ignoreCase = true)
+    }
+}
+
 fun File.refresh(){
     ApplicationManager.getApplication().invokeLater {
         VfsUtil.markDirtyAndRefresh(false,true,true,this)

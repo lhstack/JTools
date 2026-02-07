@@ -54,7 +54,6 @@ import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 import org.apache.commons.io.FileUtils
-import org.apache.commons.lang3.StringUtils
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.jps.model.java.JavaResourceRootType
@@ -82,7 +81,7 @@ fun Project.getModules(): MutableList<Module> {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(it)
         val systemId = modulePropertyManager.getExternalSystemId()
         if (ModuleRootManager.getInstance(it).sourceRoots.size > 0) {
-            if (StringUtils.equalsAnyIgnoreCase(systemId, "gradle")) {
+            if (systemId.equalsAnyIgnoreCase("gradle")) {
                 it.name.endsWith(".main")
             } else {
                 true
@@ -919,7 +918,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
     private fun hasInstallLibrary(module: Module): Boolean {
         val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(module)
         val systemId = modulePropertyManager.getExternalSystemId()
-        if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
+        if (systemId.equalsAnyIgnoreCase(GradleConstants.SYSTEM_ID.id)) {
             ProjectBuildModel.get(project).getModuleBuildModel(module)?.let {
                 for (dependencyModel in it.dependencies().all()) {
                     if (dependencyModel is FileDependencyModel) {
@@ -930,7 +929,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                 }
             }
             return false
-        } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
+        } else if (systemId.equalsAnyIgnoreCase("maven")) {
             MavenProjectsManager.getInstance(project).findProject(module)?.let {
                 PsiManager.getInstance(project).findFile(it.file)?.apply {
                     if (this is XmlFile) {
@@ -968,7 +967,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     val that = this
                     val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
                     val systemId = modulePropertyManager.getExternalSystemId()
-                    if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
+                    if (systemId.equalsAnyIgnoreCase(GradleConstants.SYSTEM_ID.id)) {
                         ProjectBuildModel.get(project).getModuleBuildModel(this)?.let {
                             for (dependencyModel in it.dependencies().all()) {
                                 if (dependencyModel is FileDependencyModel) {
@@ -983,7 +982,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             project.basePath!!,
                             ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)
                         )
-                    } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
+                    } else if (systemId.equalsAnyIgnoreCase("maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
                             PsiManager.getInstance(project).findFile(it.file)?.apply {
                                 if (this is XmlFile) {
@@ -1045,7 +1044,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     }
                     val modulePropertyManager = ExternalSystemModulePropertyManager.getInstance(this)
                     val systemId = modulePropertyManager.getExternalSystemId()
-                    if (StringUtils.equalsAnyIgnoreCase(systemId, GradleConstants.SYSTEM_ID.id)) {
+                    if (systemId.equalsAnyIgnoreCase(GradleConstants.SYSTEM_ID.id)) {
                         ProjectBuildModel.get(project).getModuleBuildModel(this)?.let {
                             if (!it.dependencies().files()
                                     .any { f -> f.file().valueAsString() == Const.JTOOLS_SDK_INSTALL_PATH }
@@ -1057,7 +1056,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         ExternalSystemUtil.refreshProject(
                             project.basePath!!, ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)
                         )
-                    } else if (StringUtils.equalsAnyIgnoreCase(systemId, "maven")) {
+                    } else if (systemId.equalsAnyIgnoreCase("maven")) {
                         MavenProjectsManager.getInstance(project).findProject(this)?.let {
                             MavenDomUtil.getMavenDomProjectModel(project, it.file)?.let { module ->
                                 if (!module.dependencies.dependencies.any { i -> i.groupId.value == Const.JTOOLS_SDK_MAVEN_GROUP_ID && i.artifactId.value == Const.JTOOLS_SDK_MAVEN_ARTIFACT_ID }) {

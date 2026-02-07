@@ -9,8 +9,11 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -39,6 +42,25 @@ class AgentClient {
         .build()
     private val toolExecutor = AppExecutorUtil.getAppExecutorService()
 
+    class CancelToken {
+        private val cancelled = AtomicBoolean(false)
+        private val futureRef = AtomicReference<CompletableFuture<*>>()
+
+        fun cancel() {
+            cancelled.set(true)
+            futureRef.getAndSet(null)?.cancel(true)
+        }
+
+        fun isCancelled(): Boolean = cancelled.get()
+
+        fun register(future: CompletableFuture<*>) {
+            futureRef.getAndSet(future)?.cancel(true)
+            if (cancelled.get()) {
+                future.cancel(true)
+            }
+        }
+    }
+
     companion object {
         private const val DEFAULT_MAX_TOOL_ITERATIONS = 5
         private const val MAX_REPEAT_TOOL_CALLS = 2
@@ -58,6 +80,7 @@ class AgentClient {
         onToolResult: ((ToolCallLog) -> Unit)? = null,
         maxToolIterations: Int = DEFAULT_MAX_TOOL_ITERATIONS,
         toolTimeoutMs: Long = DEFAULT_TOOL_TIMEOUT_MS,
+        cancelToken: CancelToken? = null,
     ): AgentCompletionResult {
         val toolCalls = mutableListOf<ToolCallLog>()
         val endpoint = normalizeEndpoint(baseUrl)
@@ -67,9 +90,16 @@ class AgentClient {
         val maxIterations = if (maxToolIterations <= 0) DEFAULT_MAX_TOOL_ITERATIONS else maxToolIterations
 
         while (iterations < maxIterations) {
+            if (cancelToken?.isCancelled() == true) {
+                return AgentCompletionResult(
+                    assistantContent = null,
+                    toolCalls = toolCalls,
+                    errorMessage = "已取消"
+                )
+            }
             val response = try {
                 if (onDelta == null) {
-                    requestChatCompletion(messages, toolRegistry.toolsJson(), apiKey, endpoint, model)
+                    requestChatCompletion(messages, toolRegistry.toolsJson(), apiKey, endpoint, model, cancelToken)
                 } else {
                     requestChatCompletionStream(
                         messages,
@@ -79,7 +109,8 @@ class AgentClient {
                         model,
                         onDelta,
                         onReasoningDelta,
-                        onToolCall
+                        onToolCall,
+                        cancelToken
                     )
                 }
             } catch (e: Throwable) {
@@ -87,6 +118,14 @@ class AgentClient {
                     assistantContent = null,
                     toolCalls = toolCalls,
                     errorMessage = e.message ?: "请求失败"
+                )
+            }
+
+            if (cancelToken?.isCancelled() == true) {
+                return AgentCompletionResult(
+                    assistantContent = null,
+                    toolCalls = toolCalls,
+                    errorMessage = "已取消"
                 )
             }
 
@@ -120,8 +159,16 @@ class AgentClient {
                     toolCallsArray,
                     toolCalls,
                     onToolResult,
-                    toolTimeoutMs
+                    toolTimeoutMs,
+                    cancelToken
                 )
+                if (cancelToken?.isCancelled() == true) {
+                    return AgentCompletionResult(
+                        assistantContent = null,
+                        toolCalls = toolCalls,
+                        errorMessage = "已取消"
+                    )
+                }
                 toolResults.forEach { messages.add(it) }
                 iterations++
                 continue
@@ -148,6 +195,7 @@ class AgentClient {
         apiKey: String,
         endpoint: String,
         model: String,
+        cancelToken: CancelToken?,
     ): Pair<String?, JsonObject?> {
         val requestBody = JsonObject().apply {
             addProperty("model", model)
@@ -162,7 +210,18 @@ class AgentClient {
             .timeout(Duration.ofSeconds(120))
             .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
             .build()
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        val future = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+        cancelToken?.register(future)
+        val response = try {
+            future.get()
+        } catch (e: CancellationException) {
+            return "已取消" to null
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return "请求已中断" to null
+        } catch (e: ExecutionException) {
+            return (e.cause?.message ?: "请求失败") to null
+        }
         if (response.statusCode() !in 200..299) {
             return "请求失败: ${response.statusCode()} ${response.body()}" to null
         }
@@ -189,6 +248,7 @@ class AgentClient {
         onDelta: (String) -> Unit,
         onReasoningDelta: ((String) -> Unit)?,
         onToolCall: ((ToolCallStreamEvent) -> Unit)?,
+        cancelToken: CancelToken?,
     ): Pair<String?, JsonObject?> {
         val requestBody = JsonObject().apply {
             addProperty("model", model)
@@ -205,7 +265,18 @@ class AgentClient {
             .timeout(Duration.ofSeconds(120))
             .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
             .build()
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofLines())
+        val future = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofLines())
+        cancelToken?.register(future)
+        val response = try {
+            future.get()
+        } catch (e: CancellationException) {
+            return "已取消" to null
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return "请求已中断" to null
+        } catch (e: ExecutionException) {
+            return (e.cause?.message ?: "请求失败") to null
+        }
         if (response.statusCode() !in 200..299) {
             return "请求失败: ${response.statusCode()}" to null
         }
@@ -216,6 +287,9 @@ class AgentClient {
         response.body().use { lines ->
             val iterator = lines.iterator()
             while (iterator.hasNext()) {
+                if (cancelToken?.isCancelled() == true) {
+                    return "已取消" to null
+                }
                 val line = iterator.next().trim()
                 if (line.isEmpty()) {
                     continue
@@ -316,9 +390,16 @@ class AgentClient {
         toolLogs: MutableList<ToolCallLog>,
         onToolResult: ((ToolCallLog) -> Unit)?,
         toolTimeoutMs: Long,
+        cancelToken: CancelToken?,
     ): List<JsonObject> {
         val toolMessages = mutableListOf<JsonObject>()
-        toolCallsArray.forEach { element ->
+        if (cancelToken?.isCancelled() == true) {
+            return toolMessages
+        }
+        for (element in toolCallsArray) {
+            if (cancelToken?.isCancelled() == true) {
+                break
+            }
             val call = element.asJsonObject
             val callId = call.get("id")?.asString.orEmpty()
             val function = call.getAsJsonObject("function")

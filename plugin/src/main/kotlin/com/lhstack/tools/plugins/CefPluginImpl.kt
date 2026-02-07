@@ -12,9 +12,10 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
+import com.lhstack.tools.ext.endsWithAny
+import com.lhstack.tools.ext.endsWithIgnoreCase
 import com.lhstack.tools.ext.fullMsg
 import com.lhstack.tools.ext.gson
-import org.apache.commons.lang3.StringUtils
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefMessageRouter
@@ -916,28 +917,28 @@ class CefResourceHandler(private var url: String, private val classLoader: Plugi
         } else {
             // 使用 resourcePath 来判断 MIME 类型
             response.mimeType = when {
-                StringUtils.endsWithIgnoreCase(resourcePath, ".html") -> "text/html"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".css") -> "text/css"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".js") -> "application/javascript"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".json") -> "application/json"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".png") -> "image/png"
-                StringUtils.endsWithAny(resourcePath.lowercase(), ".jpg", ".jpeg") -> "image/jpeg"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".gif") -> "image/gif"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".svg") -> "image/svg+xml"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".ico") -> "image/x-icon"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".webp") -> "image/webp"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".woff") -> "font/woff"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".woff2") -> "font/woff2"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".ttf") -> "font/ttf"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".eot") -> "application/vnd.ms-fontobject"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".xml") -> "application/xml"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".txt") -> "text/plain"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".md") -> "text/markdown"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".pdf") -> "application/pdf"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".zip") -> "application/zip"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".mp3") -> "audio/mpeg"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".mp4") -> "video/mp4"
-                StringUtils.endsWithIgnoreCase(resourcePath, ".webm") -> "video/webm"
+                resourcePath.endsWithIgnoreCase(".html") -> "text/html"
+                resourcePath.endsWithIgnoreCase(".css") -> "text/css"
+                resourcePath.endsWithIgnoreCase(".js") -> "application/javascript"
+                resourcePath.endsWithIgnoreCase(".json") -> "application/json"
+                resourcePath.endsWithIgnoreCase(".png") -> "image/png"
+                resourcePath.lowercase().endsWithAny(".jpg", ".jpeg") -> "image/jpeg"
+                resourcePath.endsWithIgnoreCase(".gif") -> "image/gif"
+                resourcePath.endsWithIgnoreCase(".svg") -> "image/svg+xml"
+                resourcePath.endsWithIgnoreCase(".ico") -> "image/x-icon"
+                resourcePath.endsWithIgnoreCase(".webp") -> "image/webp"
+                resourcePath.endsWithIgnoreCase(".woff") -> "font/woff"
+                resourcePath.endsWithIgnoreCase(".woff2") -> "font/woff2"
+                resourcePath.endsWithIgnoreCase(".ttf") -> "font/ttf"
+                resourcePath.endsWithIgnoreCase(".eot") -> "application/vnd.ms-fontobject"
+                resourcePath.endsWithIgnoreCase(".xml") -> "application/xml"
+                resourcePath.endsWithIgnoreCase(".txt") -> "text/plain"
+                resourcePath.endsWithIgnoreCase(".md") -> "text/markdown"
+                resourcePath.endsWithIgnoreCase(".pdf") -> "application/pdf"
+                resourcePath.endsWithIgnoreCase(".zip") -> "application/zip"
+                resourcePath.endsWithIgnoreCase(".mp3") -> "audio/mpeg"
+                resourcePath.endsWithIgnoreCase(".mp4") -> "video/mp4"
+                resourcePath.endsWithIgnoreCase(".webm") -> "video/webm"
                 else -> "application/octet-stream"
             }
             response.status = if (isOpen) 200 else 404

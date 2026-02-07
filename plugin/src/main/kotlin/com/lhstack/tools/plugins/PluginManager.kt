@@ -10,7 +10,6 @@ import com.lhstack.tools.ext.*
 import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.collections.CollectionUtils
 import org.apache.commons.io.FileUtils
-import org.apache.commons.lang3.StringUtils
 import org.jetbrains.annotations.NonNls
 import java.io.File
 import java.io.InputStream
@@ -255,7 +254,7 @@ class PluginManager {
                     return
                 }
 
-                if (StringUtils.equalsIgnoreCase(file.extension, "jar")) {
+                if (file.extension.equalsIgnoreCase("jar")) {
                     newPluginFile = File(this.pluginState().pluginBasePath, "${pluginId}.jar").parentMkdirs()
                     if (!newPluginFile.exists()) {
                         FileUtils.copyFile(file, newPluginFile)

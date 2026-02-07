@@ -13,7 +13,6 @@ import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
-import org.apache.commons.lang3.StringUtils
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.FlowLayout
 import java.awt.GridBagConstraints
@@ -88,7 +87,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                                     val classloader = this.pluginManager().classloaders.remove(v)
                                     val oldFile = File(v.path)
                                     val newFile = File(this.absolutePath, oldFile.name)
-                                    if (StringUtils.equalsAnyIgnoreCase(v.type,"js")) {
+                                    if (v.type.equalsAnyIgnoreCase("js")) {
                                         FileUtils.copyDirectory(oldFile, newFile)
                                     } else {
                                         FileUtils.copyFile(oldFile, newFile)
@@ -147,11 +146,6 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             isEditable = true
             toolTipText = "OpenAPI Base URL"
         }
-        val modelField = JBTextField(this.pluginState().agentModel).apply {
-            columns = 20
-            toolTipText = "OpenAPI Model"
-            isEditable = true
-        }
         val maxIterationsField = JBTextField(this.pluginState().agentMaxToolIterations.toString()).apply {
             columns = 6
             toolTipText = "最大工具调用轮次(正整数, 默认30)"
@@ -169,8 +163,12 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             "Moonshot" to "https://api.moonshot.cn/v1",
             "DashScope" to "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
+        val savedEndpoint = this.pluginState().agentOpenApiBaseUrl.trim()
+        if (savedEndpoint.isNotEmpty() && !endpointPresets.values.contains(savedEndpoint)) {
+            endpointField.addItem(savedEndpoint)
+        }
         endpointPresets.values.forEach { endpointField.addItem(it) }
-        endpointField.editor.item = this.pluginState().agentOpenApiBaseUrl
+        endpointField.editor.item = savedEndpoint
         (endpointField.editor.editorComponent as? JComponent)?.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 val editor = endpointField.editor.editorComponent as? JComponent ?: return
@@ -215,16 +213,6 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         constraints.gridy = 2
         constraints.weightx = 0.0
         constraints.insets = labelInsets
-        agentForm.add(JLabel("  Model: "), constraints)
-        constraints.gridx = 1
-        constraints.weightx = 1.0
-        constraints.insets = fieldInsets
-        agentForm.add(modelField, constraints)
-
-        constraints.gridx = 0
-        constraints.gridy = 3
-        constraints.weightx = 0.0
-        constraints.insets = labelInsets
         agentForm.add(JLabel("  Max Tool Iterations: "), constraints)
         constraints.gridx = 1
         constraints.weightx = 1.0
@@ -232,7 +220,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         agentForm.add(maxIterationsField, constraints)
 
         constraints.gridx = 0
-        constraints.gridy = 4
+        constraints.gridy = 3
         constraints.weightx = 0.0
         constraints.insets = labelInsets
         agentForm.add(JLabel("  Tool Timeout (ms): "), constraints)
@@ -247,7 +235,6 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                 this.addActionListener {
                     this.pluginState().agentOpenApiKey = String(apiKeyField.password).trim()
                     this.pluginState().agentOpenApiBaseUrl = (endpointField.editor.item?.toString() ?: "").trim()
-                    this.pluginState().agentModel = modelField.text.trim()
                     val maxIterations = maxIterationsField.text.trim().toIntOrNull()
                     if (maxIterations != null && maxIterations > 0) {
                         this.pluginState().agentMaxToolIterations = maxIterations

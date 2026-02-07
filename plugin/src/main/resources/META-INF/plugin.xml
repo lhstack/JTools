@@ -111,8 +111,20 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.6</h2>
+            <h2>📦 Version v1.1.2.7</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🤖 <b>Agent Chat:</b> Added session history with create/rename/delete management</li>
+                <li>🤖 <b>智能体对话：</b>新增会话历史，并支持新建/重命名/删除管理</li>
+                <li>🎛️ <b>Model Control:</b> Model selection and management moved into the chat panel</li>
+                <li>🎛️ <b>模型管理：</b>模型选择与管理迁移到对话面板</li>
+                <li>⏹️ <b>Request Control:</b> Added stop action to cancel in-flight responses</li>
+                <li>⏹️ <b>请求控制：</b>新增停止按钮可终止当前回复</li>
+                <li>🔗 <b>Base URL:</b> Fixed saved Base URL being overridden by presets on first open</li>
+                <li>🔗 <b>Base URL：</b>修复首次打开设置时已保存地址被预设覆盖的问题</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.6</h2>
             <ul>
                 <li>🤖 <b>Agent Chat:</b> Added built-in agent action with streaming output, reasoning blocks, and collapsible tool logs</li>
                 <li>🤖 <b>智能体对话：</b>新增智能体入口，支持流式输出、推理块展示与工具调用折叠日志</li>
@@ -278,9 +290,9 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends config-file="java.xml" optional="true">com.intellij.java</depends>
-    <depends optional="true">org.jetbrains.idea.maven</depends>
-    <depends optional="true">com.intellij.gradle</depends>
-    <depends optional="true">org.jetbrains.idea.gradle.dsl</depends>
+    <depends optional="true" config-file="maven.xml">org.jetbrains.idea.maven</depends>
+    <depends optional="true" config-file="gradle.xml">com.intellij.gradle</depends>
+    <depends optional="true" config-file="gradle-dsl.xml">org.jetbrains.idea.gradle.dsl</depends>
     <idea-version since-build="251" until-build="261.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"

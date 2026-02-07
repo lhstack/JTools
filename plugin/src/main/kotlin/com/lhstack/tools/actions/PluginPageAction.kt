@@ -26,7 +26,6 @@ import com.lhstack.tools.ext.*
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.*
-import org.apache.commons.lang3.StringUtils
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.datatransfer.DataFlavor
@@ -76,7 +75,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                         return
                     }
                     val file = files[0]
-                    if (!StringUtils.equalsAnyIgnoreCase(file.extension, "jar", "zip")) {
+                    if (!file.extension.equalsAnyIgnoreCase("jar", "zip")) {
                         project.errorNotify("插件安装", "插件仅支持jar,zip包方式安装")
                         return
                     }
@@ -195,7 +194,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
         group.add(object : AnAction({ "导出插件" }, Icons.exportIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 //js插件
-                if (StringUtils.equalsAnyIgnoreCase(pluginInfo.type, "js")) {
+                if (pluginInfo.type.equalsAnyIgnoreCase("js")) {
                     project.chooseSaveFile("插件导出", pluginInfo.name, plugin.pluginDesc() ?: "", "zip") {
                         val filePath = it.presentableUrl
                         File(pluginInfo.path).zip(File(filePath))

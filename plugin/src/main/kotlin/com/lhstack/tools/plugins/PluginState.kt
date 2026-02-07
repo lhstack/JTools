@@ -3,6 +3,7 @@ package com.lhstack.tools.plugins
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.lhstack.tools.converter.JsonConverter
+import com.lhstack.tools.agent.AgentSessionState
 
 @Service
 @State(name = "data", storages = [Storage("ToolsPluginState.xml")])
@@ -25,6 +26,9 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentOpenApiKey: String = ""
         var agentOpenApiBaseUrl: String = ""
         var agentModel: String = "gpt-4o-mini"
+        var agentModels: MutableList<String> = mutableListOf("gpt-4o-mini")
+        var agentSessions: MutableList<AgentSessionState> = mutableListOf()
+        var agentActiveSessionId: String = ""
         var agentMaxToolIterations: Int = 30
         var agentToolTimeoutMs: Int = 120_000
 

@@ -1,44 +1,71 @@
 package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.BorderLayout
+import java.awt.Component
+import java.awt.Dialog
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.event.ActionEvent
 import java.awt.event.InputEvent
+import java.awt.event.ItemEvent
 import java.awt.event.KeyEvent
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.DefaultComboBoxModel
+import javax.swing.DefaultListCellRenderer
+import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JDialog
 import javax.swing.JLabel
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.KeyStroke
+import javax.swing.ListSelectionModel
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
+import javax.swing.WindowConstants
 
 class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
     private val messageContainer = JPanel(VerticalLayout(8))
     private val chatScroll = JBScrollPane(messageContainer)
     private val inputArea = JBTextArea(3, 0)
     private val sendButton = JButton("发送")
-    private val clearButton = JButton("清空")
+    private val stopButton = JButton("停止")
+    private val quickClearButton = JButton("清空当前")
+    private val sessionManageButton = JButton("会话管理")
+    private val modelManageButton = JButton("模型管理")
     private val statusLabel = JLabel()
     private val inputHintLabel = JLabel("Shift+Enter 发送, Enter 换行")
+    private val sessionModel = DefaultComboBoxModel<ChatSession>()
+    private val sessionSelector = ComboBox<ChatSession>()
+    private val modelSelector = ComboBox<String>()
     private val client = AgentClient()
-    private val messages = mutableListOf<JsonObject>()
     private val sending = AtomicBoolean(false)
+    private val requestCounter = AtomicInteger(0)
+    @Volatile private var activeRequestId = 0
+    private var cancelToken: AgentClient.CancelToken? = null
+    private var currentSession: ChatSession? = null
+    private var updatingSessionSelection = false
+    private var updatingModelSelection = false
 
     private var assistantBlock: MessageBlock? = null
     private var reasoningBlock: MessageBlock? = null
@@ -47,12 +74,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     init {
         setupChatContainer()
         setupInputArea()
+        setupSessionSelector()
+        setupModelSelector()
+        stopButton.isEnabled = false
         val root = JPanel(BorderLayout())
         root.add(buildTopBar(), BorderLayout.NORTH)
         root.add(buildChatContainer(), BorderLayout.CENTER)
         root.add(buildInputBar(), BorderLayout.SOUTH)
         setContent(root)
-        resetMessages()
+        initSessions()
         updateStatus()
     }
 
@@ -82,19 +112,561 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         })
     }
 
-    private fun buildTopBar(): JComponent {
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
-            isOpaque = false
-            add(clearButton.apply {
-                addActionListener {
-                    clearConversation()
+    private fun setupSessionSelector() {
+        sessionSelector.model = sessionModel
+        sessionSelector.maximumRowCount = 8
+        sessionSelector.isEditable = false
+        sessionSelector.renderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?,
+                value: Any?,
+                index: Int,
+                isSelected: Boolean,
+                cellHasFocus: Boolean
+            ): Component {
+                val text = (value as? ChatSession)?.title ?: value?.toString().orEmpty()
+                return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus)
+            }
+        }
+        sessionSelector.addActionListener {
+            if (updatingSessionSelection || sending.get()) {
+                return@addActionListener
+            }
+            val selected = sessionSelector.selectedItem as? ChatSession ?: return@addActionListener
+            switchSession(selected)
+        }
+    }
+
+    private fun setupModelSelector() {
+        modelSelector.isEditable = true
+        refreshModelSelector(project.pluginState().agentModel)
+        modelSelector.addItemListener { event ->
+            if (updatingModelSelection || event.stateChange != ItemEvent.SELECTED) {
+                return@addItemListener
+            }
+            updateCurrentModel(resolveSelectedModel())
+        }
+        modelSelector.addActionListener {
+            if (updatingModelSelection) {
+                return@addActionListener
+            }
+            updateCurrentModel(resolveSelectedModel())
+        }
+    }
+
+    private fun resolveSelectedModel(): String {
+        val selected = modelSelector.selectedItem?.toString()?.trim().orEmpty()
+        if (selected.isNotEmpty()) {
+            return selected
+        }
+        return modelSelector.editor.item?.toString()?.trim().orEmpty()
+    }
+
+    private fun initSessions() {
+        val stored = project.pluginState().agentSessions
+        if (stored.isNotEmpty()) {
+            stored.forEach { state ->
+                sessionModel.addElement(toSession(state))
+            }
+            val activeId = project.pluginState().agentActiveSessionId
+            val active = (0 until sessionModel.size)
+                .map { sessionModel.getElementAt(it) }
+                .firstOrNull { it.id == activeId }
+                ?: sessionModel.getElementAt(0)
+            switchSession(active)
+        } else {
+            val session = createSession()
+            switchSession(session)
+        }
+    }
+
+    private fun createSession(): ChatSession {
+        val modelName = modelSelector.editor.item?.toString()?.trim().orEmpty()
+        val resolvedModel = modelName.ifBlank {
+            project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+        }
+        val state = AgentSessionState().apply {
+            id = UUID.randomUUID().toString()
+            title = "新会话"
+            autoTitle = true
+            model = resolvedModel
+        }
+        val session = toSession(state)
+        resetMessages(session)
+        project.pluginState().agentSessions.add(state)
+        sessionModel.addElement(session)
+        return session
+    }
+
+    private fun toSession(state: AgentSessionState): ChatSession {
+        if (state.id.isBlank()) {
+            state.id = UUID.randomUUID().toString()
+        }
+        val resolvedModel = state.model.trim().ifBlank {
+            project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+        }
+        state.model = resolvedModel
+        val messages = mutableListOf<JsonObject>()
+        state.messages.forEach { raw ->
+            try {
+                messages.add(JsonParser.parseString(raw).asJsonObject)
+            } catch (_: Throwable) {
+                // ignore malformed persisted message
+            }
+        }
+        val renders = state.renders.map { renderState ->
+            RenderItem(
+                role = renderState.role,
+                content = renderState.content,
+                collapsible = renderState.collapsible,
+                collapsedByDefault = renderState.collapsedByDefault,
+                state = renderState
+            )
+        }.toMutableList()
+        return ChatSession(
+            id = state.id,
+            title = state.title.ifBlank { "新会话" },
+            autoTitle = state.autoTitle,
+            model = resolvedModel,
+            messages = messages,
+            renders = renders,
+            state = state
+        )
+    }
+
+    private fun switchSession(session: ChatSession) {
+        currentSession = session
+        project.pluginState().agentActiveSessionId = session.id
+        updatingSessionSelection = true
+        sessionSelector.selectedItem = session
+        updatingSessionSelection = false
+        ensureModelExists(session.model)
+        refreshModelSelector(session.model)
+        renderSession(session)
+        updateStatus()
+    }
+
+    private fun renderSession(session: ChatSession) {
+        messageContainer.removeAll()
+        messageContainer.revalidate()
+        messageContainer.repaint()
+        assistantBlock = null
+        reasoningBlock = null
+        session.renders.forEach { item ->
+            appendRenderedItem(item)
+        }
+        scrollToBottom()
+    }
+
+    private fun appendRenderedItem(item: RenderItem) {
+        val color = if (item.role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
+        val block = createMessageBlock(item.role, color, item.collapsible, item.collapsedByDefault, item)
+        block.textArea.text = item.content
+        addMessageBlock(block)
+    }
+
+    private fun addRenderItem(item: RenderItem, before: RenderItem? = null) {
+        val session = currentSession ?: return
+        val stateItem = item.state ?: AgentRenderState().apply {
+            role = item.role
+            content = item.content
+            collapsible = item.collapsible
+            collapsedByDefault = item.collapsedByDefault
+        }.also { item.state = it }
+        if (before != null) {
+            val index = session.renders.indexOf(before)
+            if (index >= 0) {
+                session.renders.add(index, item)
+                session.state.renders.add(index, stateItem)
+                return
+            }
+        }
+        session.renders.add(item)
+        session.state.renders.add(stateItem)
+    }
+
+    private fun syncSessionMessages(session: ChatSession) {
+        session.state.messages.clear()
+        session.messages.forEach { message ->
+            session.state.messages.add(message.toString())
+        }
+    }
+
+    private fun updateCurrentModel(model: String) {
+        val session = currentSession ?: return
+        val resolved = model.trim().ifBlank { "gpt-4o-mini" }
+        session.model = resolved
+        session.state.model = resolved
+        project.pluginState().agentModel = resolved
+        ensureModelExists(resolved)
+        refreshModelSelector(resolved)
+        updateStatus()
+    }
+
+    private fun refreshModelSelector(selected: String?) {
+        updatingModelSelection = true
+        modelSelector.removeAllItems()
+        val models = ensureModelList()
+        val candidate = selected?.trim().orEmpty()
+        if (candidate.isNotEmpty() && !models.contains(candidate)) {
+            models.add(candidate)
+        }
+        models.forEach { modelSelector.addItem(it) }
+        val resolved = selected?.trim().orEmpty().ifBlank {
+            currentSession?.model?.trim().orEmpty().ifBlank { models.first() }
+        }
+        modelSelector.selectedItem = resolved
+        modelSelector.editor.item = resolved
+        updatingModelSelection = false
+    }
+
+    private fun ensureModelList(): MutableList<String> {
+        val models = project.pluginState().agentModels
+        if (models.isEmpty()) {
+            models.add("gpt-4o-mini")
+        }
+        return models
+    }
+
+    private fun ensureModelExists(model: String) {
+        val trimmed = model.trim().ifBlank { return }
+        val models = ensureModelList()
+        if (!models.contains(trimmed)) {
+            models.add(trimmed)
+        }
+    }
+
+    private fun updateSessionTitle(text: String) {
+        val session = currentSession ?: return
+        if (!session.autoTitle) {
+            return
+        }
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            return
+        }
+        session.title = trimmed.take(20)
+        session.autoTitle = false
+        session.state.title = session.title
+        session.state.autoTitle = session.autoTitle
+        sessionSelector.repaint()
+    }
+
+    private fun renameSession(session: ChatSession) {
+        val input = Messages.showInputDialog(
+            this,
+            "请输入会话名称",
+            "重命名会话",
+            null,
+            session.title,
+            null
+        ) ?: return
+        val name = input.trim()
+        if (name.isEmpty()) {
+            return
+        }
+        session.title = name
+        session.autoTitle = false
+        session.state.title = name
+        session.state.autoTitle = false
+        sessionSelector.repaint()
+    }
+
+    private fun deleteSession(session: ChatSession) {
+        val message = if (sending.get() && session == currentSession) {
+            "当前会话正在回复，是否终止并删除？"
+        } else {
+            "确定要删除会话吗？"
+        }
+        val confirmed = Messages.showYesNoDialog(
+            this,
+            message,
+            "删除会话",
+            null
+        )
+        if (confirmed != Messages.YES) {
+            return
+        }
+        if (sending.get() && session == currentSession) {
+            cancelCurrentRequest()
+        }
+        val index = sessionModel.getIndexOf(session)
+        sessionModel.removeElement(session)
+        project.pluginState().agentSessions.remove(session.state)
+        if (sessionModel.size <= 0) {
+            switchSession(createSession())
+            return
+        }
+        if (session == currentSession) {
+            val nextIndex = if (index <= 0) 0 else minOf(index, sessionModel.size - 1)
+            switchSession(sessionModel.getElementAt(nextIndex))
+        } else {
+            sessionSelector.repaint()
+        }
+    }
+
+    private fun clearSession(session: ChatSession) {
+        val message = if (sending.get() && session == currentSession) {
+            "当前会话正在回复，是否终止并清空？"
+        } else {
+            "确定要清空会话吗？"
+        }
+        val confirmed = Messages.showYesNoDialog(
+            this,
+            message,
+            "清空会话",
+            null
+        )
+        if (confirmed != Messages.YES) {
+            return
+        }
+        if (sending.get() && session == currentSession) {
+            cancelCurrentRequest()
+        }
+        session.renders.clear()
+        session.state.renders.clear()
+        resetMessages(session)
+        if (session == currentSession) {
+            renderSession(session)
+        }
+    }
+
+    private fun openSessionManager() {
+        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "会话管理", Dialog.ModalityType.APPLICATION_MODAL)
+        dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
+        val listModel = DefaultListModel<ChatSession>()
+        val list = JBList(listModel).apply {
+            selectionMode = ListSelectionModel.SINGLE_SELECTION
+            cellRenderer = object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: JList<*>?,
+                    value: Any?,
+                    index: Int,
+                    isSelected: Boolean,
+                    cellHasFocus: Boolean
+                ): Component {
+                    val text = (value as? ChatSession)?.title ?: value?.toString().orEmpty()
+                    return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus)
                 }
+            }
+        }
+        val newButton = JButton("新建")
+        val renameButton = JButton("重命名")
+        val deleteButton = JButton("删除")
+        val closeButton = JButton("关闭")
+        val refreshList = {
+            listModel.clear()
+            for (i in 0 until sessionModel.size) {
+                listModel.addElement(sessionModel.getElementAt(i))
+            }
+            currentSession?.let { list.setSelectedValue(it, true) }
+        }
+        refreshList()
+
+        fun updateDeleteState() {
+            val selected = list.selectedValue
+            deleteButton.isEnabled = !(sending.get() && selected == currentSession)
+        }
+
+        newButton.addActionListener {
+            if (sending.get()) {
+                return@addActionListener
+            }
+            val session = createSession()
+            switchSession(session)
+            refreshList()
+            list.setSelectedValue(session, true)
+        }
+        renameButton.addActionListener {
+            val selected = list.selectedValue ?: return@addActionListener
+            renameSession(selected)
+            list.repaint()
+        }
+        deleteButton.addActionListener {
+            val selected = list.selectedValue ?: return@addActionListener
+            deleteSession(selected)
+            refreshList()
+            updateDeleteState()
+        }
+        closeButton.addActionListener { dialog.dispose() }
+        list.addListSelectionListener { updateDeleteState() }
+        newButton.isEnabled = !sending.get()
+        updateDeleteState()
+
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
+            add(newButton)
+            add(renameButton)
+            add(deleteButton)
+            add(closeButton)
+        }
+        val content = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(8)
+            add(JBScrollPane(list), BorderLayout.CENTER)
+            add(buttonPanel, BorderLayout.SOUTH)
+        }
+        dialog.contentPane = content
+        dialog.setSize(420, 320)
+        dialog.setLocationRelativeTo(this)
+        dialog.isVisible = true
+    }
+
+    private fun openModelManager() {
+        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "模型管理", Dialog.ModalityType.APPLICATION_MODAL)
+        dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
+        val listModel = DefaultListModel<String>()
+        val list = JBList(listModel).apply {
+            selectionMode = ListSelectionModel.SINGLE_SELECTION
+        }
+        val addButton = JButton("新增")
+        val renameButton = JButton("改名")
+        val deleteButton = JButton("删除")
+        val closeButton = JButton("关闭")
+        val refreshList = {
+            listModel.clear()
+            ensureModelList().forEach { listModel.addElement(it) }
+            currentSession?.model?.let { list.setSelectedValue(it, true) }
+        }
+        refreshList()
+
+        addButton.addActionListener {
+            val input = Messages.showInputDialog(this, "请输入模型名称", "新增模型", null) ?: return@addActionListener
+            val name = input.trim()
+            if (name.isEmpty()) {
+                return@addActionListener
+            }
+            ensureModelExists(name)
+            updateCurrentModel(name)
+            refreshList()
+            list.setSelectedValue(name, true)
+        }
+        renameButton.addActionListener {
+            val current = list.selectedValue ?: return@addActionListener
+            val input = Messages.showInputDialog(this, "请输入新的模型名称", "修改模型", null, current, null)
+                ?: return@addActionListener
+            val name = input.trim()
+            if (name.isEmpty() || name == current) {
+                return@addActionListener
+            }
+            val models = ensureModelList()
+            models.remove(current)
+            if (!models.contains(name)) {
+                models.add(name)
+            }
+            updateSessionsModelName(current, name)
+            if (currentSession?.model == current) {
+                updateCurrentModel(name)
+            } else {
+                refreshModelSelector(currentSession?.model)
+                updateStatus()
+            }
+            refreshList()
+            list.setSelectedValue(name, true)
+        }
+        deleteButton.addActionListener {
+            val current = list.selectedValue ?: return@addActionListener
+            val confirmed = Messages.showYesNoDialog(this, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
+            if (confirmed != Messages.YES) {
+                return@addActionListener
+            }
+            val models = ensureModelList()
+            models.remove(current)
+            if (models.isEmpty()) {
+                models.add("gpt-4o-mini")
+            }
+            val fallback = models.first()
+            updateSessionsModelName(current, fallback)
+            if (currentSession?.model == current) {
+                updateCurrentModel(fallback)
+            } else {
+                refreshModelSelector(currentSession?.model)
+                updateStatus()
+            }
+            refreshList()
+            list.setSelectedValue(fallback, true)
+        }
+        closeButton.addActionListener { dialog.dispose() }
+
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
+            add(addButton)
+            add(renameButton)
+            add(deleteButton)
+            add(closeButton)
+        }
+        val content = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(8)
+            add(JBScrollPane(list), BorderLayout.CENTER)
+            add(buttonPanel, BorderLayout.SOUTH)
+        }
+        dialog.contentPane = content
+        dialog.setSize(360, 300)
+        dialog.setLocationRelativeTo(this)
+        dialog.isVisible = true
+    }
+
+    private fun updateSessionsModelName(oldName: String, newName: String) {
+        for (i in 0 until sessionModel.size) {
+            val session = sessionModel.getElementAt(i)
+            if (session.model == oldName) {
+                session.model = newName
+                session.state.model = newName
+            }
+        }
+    }
+
+    private fun beginRequestUi() {
+        sendButton.isEnabled = false
+        stopButton.isEnabled = true
+        sessionManageButton.isEnabled = true
+        sessionSelector.isEnabled = false
+        modelSelector.isEnabled = false
+        modelManageButton.isEnabled = false
+        setInputEnabled(false)
+    }
+
+    private fun finishRequestUi() {
+        sendButton.isEnabled = true
+        stopButton.isEnabled = false
+        sessionManageButton.isEnabled = true
+        sessionSelector.isEnabled = true
+        modelSelector.isEnabled = true
+        modelManageButton.isEnabled = true
+        setInputEnabled(true)
+        cancelToken = null
+        sending.set(false)
+    }
+
+    private fun cancelCurrentRequest() {
+        if (!sending.get()) {
+            return
+        }
+        cancelToken?.cancel()
+        activeRequestId = requestCounter.incrementAndGet()
+        closeAssistantBlock()
+        closeReasoningBlock()
+        appendMessage("系统", "已终止当前请求", collapsible = false, collapsedByDefault = false)
+        finishRequestUi()
+    }
+
+    private fun isActiveRequest(requestId: Int, token: AgentClient.CancelToken?): Boolean {
+        return requestId == activeRequestId && token?.isCancelled() != true
+    }
+
+    private fun buildTopBar(): JComponent {
+        val sessionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+            isOpaque = false
+            add(JLabel("会话: "))
+            add(sessionSelector)
+            add(quickClearButton.apply {
+                addActionListener { currentSession?.let { clearSession(it) } }
+            })
+            add(sessionManageButton.apply {
+                addActionListener { openSessionManager() }
             })
         }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(6, 8, 0, 8)
             add(statusLabel, BorderLayout.CENTER)
-            add(buttonPanel, BorderLayout.EAST)
+            add(sessionPanel, BorderLayout.EAST)
         }
     }
 
@@ -113,13 +685,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         inputHintLabel.foreground = JBColor.GRAY
         inputHintLabel.horizontalAlignment = SwingConstants.LEFT
+        val modelPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+            isOpaque = false
+            add(JLabel("模型: "))
+            add(modelSelector)
+            add(modelManageButton.apply { addActionListener { openModelManager() } })
+        }
+        val header = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(inputHintLabel, BorderLayout.WEST)
+            add(modelPanel, BorderLayout.EAST)
+        }
+        val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+            isOpaque = false
+            add(sendButton.apply { addActionListener { sendMessage() } })
+            add(stopButton.apply { addActionListener { cancelCurrentRequest() } })
+        }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)
-            add(inputHintLabel, BorderLayout.NORTH)
+            add(header, BorderLayout.NORTH)
             add(inputScroll, BorderLayout.CENTER)
-            add(sendButton.apply {
-                addActionListener { sendMessage() }
-            }, BorderLayout.EAST)
+            add(actionPanel, BorderLayout.EAST)
         }
     }
 
@@ -127,6 +713,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (sending.get() || !sendButton.isEnabled || !inputArea.isEnabled) {
             return
         }
+        val session = currentSession ?: return
         val text = inputArea.text.trim()
         if (text.isEmpty()) {
             return
@@ -140,21 +727,29 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             return
         }
         val baseUrl = project.pluginState().agentOpenApiBaseUrl.trim()
-        val model = project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+        val model = session.model.trim().ifBlank {
+            project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+        }
+        updateCurrentModel(model)
         val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
         val toolTimeoutMs = project.pluginState().agentToolTimeoutMs.takeIf { it > 0 } ?: 120_000
+        val requestId = requestCounter.incrementAndGet()
+        activeRequestId = requestId
+        val token = AgentClient.CancelToken()
+        cancelToken = token
+        suppressToolMarkup = false
         inputArea.text = ""
         appendMessage("用户", text, collapsible = false, collapsedByDefault = false)
-        sendButton.isEnabled = false
-        clearButton.isEnabled = false
-        setInputEnabled(false)
+        updateSessionTitle(text)
+        beginRequestUi()
         updateStatus()
 
         val userMessage = JsonObject().apply {
             addProperty("role", "user")
             addProperty("content", text)
         }
-        messages.add(userMessage)
+        session.messages.add(userMessage)
+        syncSessionMessages(session)
 
         ApplicationManager.getApplication().executeOnPooledThread {
             val toolRegistry = AgentToolRegistry.build(project)
@@ -164,7 +759,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val streamedContent = AtomicBoolean(false)
             var toolStreamingUsed = false
             val result = client.complete(
-                messages,
+                session.messages,
                 toolRegistry,
                 apiKey,
                 baseUrl,
@@ -172,6 +767,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 onDelta = { delta ->
                     streamedContent.set(true)
                     ApplicationManager.getApplication().invokeLater {
+                        if (!isActiveRequest(requestId, token)) {
+                            return@invokeLater
+                        }
                         if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
                             closeReasoningBlock()
                         }
@@ -180,7 +778,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             return@invokeLater
                         }
                         if (assistantStarted.compareAndSet(false, true)) {
-                            assistantBlock = createMessageBlock("助手", UIUtil.getLabelForeground(), false, false)
+                            val item = RenderItem("助手", "", collapsible = false, collapsedByDefault = false)
+                            addRenderItem(item)
+                            assistantBlock = createMessageBlock("助手", UIUtil.getLabelForeground(), false, false, item)
                             addMessageBlock(assistantBlock!!)
                         }
                         appendToBlock(assistantBlock, filtered)
@@ -189,8 +789,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 onReasoningDelta = { delta ->
                     streamedContent.set(true)
                     ApplicationManager.getApplication().invokeLater {
+                        if (!isActiveRequest(requestId, token)) {
+                            return@invokeLater
+                        }
                         if (reasoningStarted.compareAndSet(false, true)) {
-                            reasoningBlock = createMessageBlock("推理", JBColor(0x6A6A6A, 0x9A9A9A), true, false)
+                            val item = RenderItem("推理", "", collapsible = true, collapsedByDefault = false)
+                            addRenderItem(item)
+                            reasoningBlock = createMessageBlock("推理", JBColor(0x6A6A6A, 0x9A9A9A), true, false, item)
                             addMessageBlock(reasoningBlock!!)
                         }
                         appendToBlock(reasoningBlock, delta)
@@ -199,6 +804,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 onToolCall = { event ->
                     toolStreamingUsed = true
                     ApplicationManager.getApplication().invokeLater {
+                        if (!isActiveRequest(requestId, token)) {
+                            return@invokeLater
+                        }
                         if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
                             closeReasoningBlock()
                         }
@@ -215,6 +823,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 onToolResult = { toolLog ->
                     toolStreamingUsed = true
                     ApplicationManager.getApplication().invokeLater {
+                        if (!isActiveRequest(requestId, token)) {
+                            return@invokeLater
+                        }
                         appendToolMessage(
                             "工具结果",
                             "name=${toolLog.name}\nresult=${truncate(toolLog.result)}",
@@ -224,9 +835,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     }
                 },
                 maxToolIterations = maxToolIterations,
-                toolTimeoutMs = toolTimeoutMs.toLong()
+                toolTimeoutMs = toolTimeoutMs.toLong(),
+                cancelToken = token
             )
             ApplicationManager.getApplication().invokeLater {
+                if (!isActiveRequest(requestId, token)) {
+                    return@invokeLater
+                }
                 if (assistantStarted.get()) {
                     closeAssistantBlock()
                 }
@@ -251,17 +866,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                         appendMessage("助手", content, collapsible = false, collapsedByDefault = false)
                     }
                 }
-                sendButton.isEnabled = true
-                clearButton.isEnabled = true
-                setInputEnabled(true)
-                sending.set(false)
+                syncSessionMessages(session)
+                finishRequestUi()
             }
         }
     }
 
     private fun appendMessage(role: String, content: String, collapsible: Boolean, collapsedByDefault: Boolean) {
         val color = if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
-        val block = createMessageBlock(role, color, collapsible, collapsedByDefault)
+        val item = RenderItem(role, content, collapsible, collapsedByDefault)
+        addRenderItem(item)
+        val block = createMessageBlock(role, color, collapsible, collapsedByDefault, item)
         block.textArea.text = content
         addMessageBlock(block)
     }
@@ -273,7 +888,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         collapsedByDefault: Boolean
     ) {
         val color = if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
-        val block = createMessageBlock(role, color, collapsible, collapsedByDefault)
+        val item = RenderItem(role, content, collapsible, collapsedByDefault)
+        addRenderItem(item, assistantBlock?.renderItem)
+        val block = createMessageBlock(role, color, collapsible, collapsedByDefault, item)
         block.textArea.text = content
         addMessageBlock(block, assistantBlock)
     }
@@ -294,6 +911,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun appendToBlock(block: MessageBlock?, text: String) {
         block ?: return
         block.textArea.append(text)
+        block.renderItem?.let {
+            it.content += text
+            it.state?.content = it.content
+        }
         scrollToBottom()
     }
 
@@ -334,7 +955,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         title: String,
         textColor: java.awt.Color,
         collapsible: Boolean,
-        collapsedByDefault: Boolean
+        collapsedByDefault: Boolean,
+        renderItem: RenderItem? = null
     ): MessageBlock {
         val panel = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -382,20 +1004,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         panel.add(header, BorderLayout.NORTH)
         panel.add(contentPanel, BorderLayout.CENTER)
 
-        return MessageBlock(panel, contentArea)
+        return MessageBlock(panel, contentArea, renderItem)
     }
 
-    private fun clearConversation() {
-        messageContainer.removeAll()
-        messageContainer.revalidate()
-        messageContainer.repaint()
-        assistantBlock = null
-        reasoningBlock = null
-        resetMessages()
-    }
-
-    private fun resetMessages() {
-        messages.clear()
+    private fun resetMessages(session: ChatSession) {
+        session.messages.clear()
         val systemMessage = JsonObject().apply {
             addProperty("role", "system")
             addProperty(
@@ -403,13 +1016,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 "你是 JTools 智能体, 可调用工具完成任务。插件工具名称以 plugin_ 开头, 系统工具以 jtools_ 开头。避免连续重复调用同一个工具, 如果无法获得新信息请停止并向用户说明。不要在回答内容中输出任何 tool_call/tool_result 标记或 XML 块。"
             )
         }
-        messages.add(systemMessage)
+        session.messages.add(systemMessage)
+        syncSessionMessages(session)
     }
 
     private fun updateStatus() {
         val apiKey = project.pluginState().agentOpenApiKey.trim()
         val baseUrl = project.pluginState().agentOpenApiBaseUrl.trim().ifBlank { "https://api.openai.com/v1" }
-        val model = project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+        val model = currentSession?.model?.trim()
+            ?.ifBlank { project.pluginState().agentModel.trim() }
+            ?.ifBlank { "gpt-4o-mini" }
+            ?: "gpt-4o-mini"
         statusLabel.text = if (apiKey.isBlank()) {
             "API Key 未配置 | Base URL: $baseUrl | Model: $model"
         } else {
@@ -468,5 +1085,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private data class MessageBlock(val panel: JComponent, val textArea: JBTextArea)
+    private data class RenderItem(
+        val role: String,
+        var content: String,
+        val collapsible: Boolean,
+        val collapsedByDefault: Boolean,
+        var state: AgentRenderState? = null,
+    )
+
+    private class ChatSession(
+        val id: String,
+        var title: String,
+        var autoTitle: Boolean,
+        var model: String,
+        val messages: MutableList<JsonObject>,
+        val renders: MutableList<RenderItem>,
+        val state: AgentSessionState,
+    ) {
+        override fun toString(): String = title
+    }
+
+    private data class MessageBlock(val panel: JComponent, val textArea: JBTextArea, val renderItem: RenderItem?)
 }
