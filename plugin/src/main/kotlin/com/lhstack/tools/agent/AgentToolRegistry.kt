@@ -76,6 +76,10 @@ class AgentToolRegistry private constructor(
         private const val MAX_TOOL_NAME_LENGTH = 64
         private const val TOOL_PREFIX = "plugin_"
         private const val DEFAULT_MAX_LIST_ENTRIES = 1000
+        private const val SYSTEM_PLUGIN_ID = "jtools_system"
+        private const val SYSTEM_PLUGIN_NAME = "系统"
+        private const val SYSTEM_PLUGIN_PATH = "<internal>"
+        private const val SYSTEM_PLUGIN_TYPE = "system"
 
         fun build(project: Project): AgentToolRegistry {
             val tools = mutableListOf<AgentTool>()
@@ -144,6 +148,12 @@ class AgentToolRegistry private constructor(
                 }
             }
 
+            val systemPluginInfo = buildSystemPluginInfo()
+            if (!pluginInfoById.containsKey(systemPluginInfo.id)) {
+                pluginInfoById[systemPluginInfo.id] = systemPluginInfo
+                pluginInfosByName.getOrPut(systemPluginInfo.name) { mutableListOf() }.add(systemPluginInfo)
+            }
+
             val registry = AgentToolRegistry(
                 tools = tools,
                 toolByName = toolByName,
@@ -152,7 +162,7 @@ class AgentToolRegistry private constructor(
                 pluginInfosByName = pluginInfosByName,
             )
 
-            registerJtoolsFunctions(project, registry, ::registerTool)
+            registerJtoolsFunctions(project, registry, systemPluginInfo, ::registerTool)
 
             return registry
         }
@@ -160,6 +170,7 @@ class AgentToolRegistry private constructor(
         private fun registerJtoolsFunctions(
             project: Project,
             registry: AgentToolRegistry,
+            systemPluginInfo: PluginInfo,
             registerTool: (AgentTool) -> Unit,
         ) {
             registerTool(
@@ -175,11 +186,16 @@ class AgentToolRegistry private constructor(
                                 "name" to info.name,
                                 "version" to info.version,
                                 "type" to info.type,
-                                "source" to if (devInfo?.id == info.id) "developer" else "installed"
+                                "source" to when {
+                                    info.id == SYSTEM_PLUGIN_ID -> "system"
+                                    devInfo?.id == info.id -> "developer"
+                                    else -> "installed"
+                                }
                             )
                         }
                         success(project, plugins)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -191,7 +207,8 @@ class AgentToolRegistry private constructor(
                     call = {
                         val details = collectPluginDetails(project)
                         success(project, details)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -235,7 +252,8 @@ class AgentToolRegistry private constructor(
                         } ?: return@AgentTool error(project, "插件信息未找到")
 
                         success(project, detail)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -261,7 +279,8 @@ class AgentToolRegistry private constructor(
                         }
                         val result = installPluginFromPath(project, path)
                         success(project, result)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -298,7 +317,8 @@ class AgentToolRegistry private constructor(
                             installPluginFromPath(project, path)
                         }
                         success(project, mapOf("total" to files.size, "results" to results))
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -326,7 +346,8 @@ class AgentToolRegistry private constructor(
                         }
                         val result = installPluginFromUrl(project, url, sha256)
                         success(project, result)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -369,7 +390,8 @@ class AgentToolRegistry private constructor(
                             ?: return@AgentTool error(project, "插件实例未找到")
                         val result = uninstallPlugin(project, pluginInfo, plugin)
                         success(project, result)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -381,7 +403,8 @@ class AgentToolRegistry private constructor(
                     call = {
                         val info = buildSystemInfo()
                         success(project, info)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -404,7 +427,8 @@ class AgentToolRegistry private constructor(
                             prefix.isBlank() || k.startsWith(prefix)
                         }
                         success(project, env)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -430,7 +454,8 @@ class AgentToolRegistry private constructor(
                         }
                         val value = System.getenv(name)
                         success(project, mapOf("name" to name, "value" to value))
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -448,7 +473,8 @@ class AgentToolRegistry private constructor(
                             )
                         }
                         success(project, projects)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -492,7 +518,8 @@ class AgentToolRegistry private constructor(
                             "moduleCount" to moduleCount
                         )
                         success(project, info)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -523,7 +550,8 @@ class AgentToolRegistry private constructor(
                         }
                         val result = listFiles(path, depth, maxEntries)
                         success(project, result)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
 
@@ -551,136 +579,20 @@ class AgentToolRegistry private constructor(
                         }
                         val result = readFile(path, maxBytes)
                         success(project, result)
-                    }
+                    },
+                    pluginInfo = systemPluginInfo
                 )
             )
+        }
 
-            registerTool(
-                AgentTool(
-                    name = "jtools_list_plugin_functions",
-                    description = "获取某个插件的 function calling 列表, 需要 pluginId 或 pluginName",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "pluginId": { "type": "string", "description": "插件ID" },
-                            "pluginName": { "type": "string", "description": "插件名称" }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val pluginId = payload.get("pluginId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginName = payload.get("pluginName")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginInfo = when {
-                            pluginId.isNotBlank() -> registry.pluginInfoById[pluginId]
-                            pluginName.isNotBlank() -> {
-                                val matches = registry.findPluginByName(pluginName)
-                                if (matches.size == 1) {
-                                    matches.first()
-                                } else {
-                                    return@AgentTool error(
-                                        project,
-                                        if (matches.isEmpty()) "未找到插件: $pluginName"
-                                        else "插件名称重复, 请使用 pluginId: ${matches.map { it.id }}"
-                                    )
-                                }
-                            }
-                            else -> null
-                        } ?: return@AgentTool error(project, "需要提供 pluginId 或 pluginName")
-
-                        val toolInfos = registry.listPluginToolsById(pluginInfo.id).map { tool ->
-                            mapOf(
-                                "toolName" to tool.name,
-                                "name" to tool.originName,
-                                "description" to tool.description,
-                                "parameters" to tool.parametersJson
-                            )
-                        }
-                        success(project, toolInfos)
-                    }
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_list_all_functions",
-                    description = "获取所有插件的 function calling 列表",
-                    parametersJson = emptyParameters(),
-                    call = {
-                        val result = registry.listPlugins().map { info ->
-                            mapOf(
-                                "plugin" to mapOf(
-                                    "id" to info.id,
-                                    "name" to info.name,
-                                    "version" to info.version,
-                                    "type" to info.type
-                                ),
-                                "functions" to registry.listPluginToolsById(info.id).map { tool ->
-                                    mapOf(
-                                        "toolName" to tool.name,
-                                        "name" to tool.originName,
-                                        "description" to tool.description,
-                                        "parameters" to tool.parametersJson
-                                    )
-                                }
-                            )
-                        }
-                        success(project, result)
-                    }
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_call_plugin_function",
-                    description = "调用某个插件的 function calling, 推荐传 toolName",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "toolName": { "type": "string", "description": "函数唯一名称(推荐)" },
-                            "pluginId": { "type": "string", "description": "插件ID" },
-                            "functionName": { "type": "string", "description": "插件函数原始名称" },
-                            "arguments": { "type": "object", "description": "函数参数", "additionalProperties": true },
-                            "argumentsJson": { "type": "string", "description": "函数参数JSON字符串" }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val toolName = payload.get("toolName")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginId = payload.get("pluginId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val functionName = payload.get("functionName")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val argumentsJson = payload.get("argumentsJson")?.takeIf { !it.isJsonNull }?.asString
-                        val argumentsObject = payload.get("arguments")?.takeIf { !it.isJsonNull }
-
-                        val arguments = when {
-                            !argumentsJson.isNullOrBlank() -> argumentsJson
-                            argumentsObject != null -> project.gson.toJson(argumentsObject)
-                            else -> "{}"
-                        }
-
-                        val tool = when {
-                            toolName.isNotBlank() -> registry.findTool(toolName)
-                            pluginId.isNotBlank() && functionName.isNotBlank() ->
-                                registry.listPluginToolsById(pluginId).firstOrNull { it.originName == functionName }
-                            else -> null
-                        } ?: return@AgentTool error(project, "未找到可调用的函数")
-
-                        if (tool.pluginInfo == null) {
-                            return@AgentTool error(project, "该函数不是插件函数")
-                        }
-
-                        return@AgentTool try {
-                            success(project, tool.call(arguments))
-                        } catch (e: Throwable) {
-                            error(project, "调用失败: ${e.message ?: "unknown"}")
-                        }
-                    }
-                )
+        private fun buildSystemPluginInfo(): PluginInfo {
+            return PluginInfo(
+                id = SYSTEM_PLUGIN_ID,
+                path = SYSTEM_PLUGIN_PATH,
+                name = SYSTEM_PLUGIN_NAME,
+                version = Helper.JTOOLS_VERSION.toString(),
+                created = 0L,
+                type = SYSTEM_PLUGIN_TYPE
             )
         }
 
@@ -1003,6 +915,23 @@ class AgentToolRegistry private constructor(
                         "exists" to file.exists(),
                         "sizeBytes" to sizeBytes,
                         "implClass" to devPlugin.javaClass.name
+                    )
+                )
+            }
+            val systemPluginInfo = buildSystemPluginInfo()
+            if (result.none { it["id"] == systemPluginInfo.id }) {
+                result.add(
+                    mapOf(
+                        "id" to systemPluginInfo.id,
+                        "name" to systemPluginInfo.name,
+                        "version" to systemPluginInfo.version,
+                        "type" to systemPluginInfo.type,
+                        "source" to "system",
+                        "created" to systemPluginInfo.created,
+                        "path" to systemPluginInfo.path,
+                        "exists" to false,
+                        "sizeBytes" to 0L,
+                        "implClass" to "builtin"
                     )
                 )
             }
