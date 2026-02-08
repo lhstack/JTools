@@ -111,8 +111,20 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.7</h2>
+            <h2>📦 Version v1.1.2.8</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🔌 <b>MCP Client:</b> Added external MCP server support with stdio/SSE/streamable HTTP transports</li>
+                <li>🔌 <b>MCP 客户端：</b>新增外部 MCP 服务支持，覆盖 stdio/SSE/streamable HTTP 传输</li>
+                <li>🧭 <b>MCP Config:</b> New multi-server manager UI with tool/resource/prompt lists and refresh actions</li>
+                <li>🧭 <b>MCP 配置：</b>新增多服务管理界面，支持工具/资源/提示列表与刷新</li>
+                <li>📶 <b>Availability Monitor:</b> Background ping checks with status badges and notifications</li>
+                <li>📶 <b>可用性监控：</b>后台定时检测并显示状态，失败通过通知提示</li>
+                <li>🧰 <b>Toolbar UX:</b> Switched to action toolbars with icons and fixed enable/disable states</li>
+                <li>🧰 <b>工具栏体验：</b>使用 ActionToolbar 图标按钮并修复可用状态切换</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.7</h2>
             <ul>
                 <li>🤖 <b>Agent Chat:</b> Added session history with create/rename/delete management</li>
                 <li>🤖 <b>智能体对话：</b>新增会话历史，并支持新建/重命名/删除管理</li>

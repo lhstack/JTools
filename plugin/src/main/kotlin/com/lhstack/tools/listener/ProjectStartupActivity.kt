@@ -14,10 +14,12 @@ import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.ext.sysLogger
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
+import com.lhstack.tools.agent.McpAvailabilityService
 
 class ProjectStartupActivity : StartupActivity,ProjectActivity, DumbAware {
 
     override fun runActivity(project: Project) {
+        McpAvailabilityService.getInstance(project)
         ApplicationManager.getApplication().invokeLater {
             this.pluginManager().plugins { pluginInfo, plugin ->
                 try {

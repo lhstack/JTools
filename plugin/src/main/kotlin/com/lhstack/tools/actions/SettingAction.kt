@@ -248,7 +248,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             })
         })
         panel.add(JSeparator(SwingConstants.HORIZONTAL))
-        
+
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JLabel("插件仓库: "))
             this.add(HyperlinkLabel("跳转").apply {

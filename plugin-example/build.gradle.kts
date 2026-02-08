@@ -19,8 +19,7 @@ repositories {
 }
 
 dependencies{
-    implementation(project(":sdk"))
-    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
+    implementation(files("/Users/lhstack/.jtools/sdk/sdk.jar"))
     intellijPlatform{
         intellijIdeaCommunity("2025.2")
     }

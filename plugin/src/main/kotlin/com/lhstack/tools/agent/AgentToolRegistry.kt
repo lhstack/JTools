@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets
 import kotlin.math.min
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
+import com.lhstack.tools.plugins.pluginState
 
 data class AgentTool(
     val name: String,
@@ -75,6 +76,7 @@ class AgentToolRegistry private constructor(
     companion object {
         private const val MAX_TOOL_NAME_LENGTH = 64
         private const val TOOL_PREFIX = "plugin_"
+        private const val MCP_TOOL_PREFIX = "mcp_"
         private const val DEFAULT_MAX_LIST_ENTRIES = 1000
         private const val SYSTEM_PLUGIN_ID = "jtools_system"
         private const val SYSTEM_PLUGIN_NAME = "系统"
@@ -163,6 +165,7 @@ class AgentToolRegistry private constructor(
             )
 
             registerJtoolsFunctions(project, registry, systemPluginInfo, ::registerTool)
+            registerMcpTools(project, ::registerTool)
 
             return registry
         }
@@ -583,6 +586,198 @@ class AgentToolRegistry private constructor(
                     pluginInfo = systemPluginInfo
                 )
             )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_list_servers",
+                    description = "列出已配置的 MCP 服务器",
+                    parametersJson = emptyParameters(),
+                    call = {
+                        val servers = McpSupport.safeServers(project.pluginState().agentMcpServers).map { server ->
+                            McpSupport.ensureServerId(server)
+                            mapOf(
+                                "id" to server.id,
+                                "name" to server.name,
+                                "enabled" to server.enabled,
+                                "transport" to server.transport
+                            )
+                        }
+                        success(project, servers)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_list_resources",
+                    description = "列出指定 MCP 服务器的资源列表",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string", "description": "MCP 服务器 ID" }
+                          },
+                          "required": ["serverId"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
+                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
+                        val resources = McpClientManager.safeListResources(server)
+                        success(project, resources)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_read_resource",
+                    description = "读取指定 MCP 资源内容",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string", "description": "MCP 服务器 ID" },
+                            "uri": { "type": "string", "description": "资源 URI" }
+                          },
+                          "required": ["serverId", "uri"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
+                        val uri = payload.get("uri")?.asString?.trim().orEmpty()
+                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
+                        if (uri.isBlank()) {
+                            return@AgentTool error(project, "uri 不能为空")
+                        }
+                        return@AgentTool try {
+                            val result = McpClientManager.getClient(server).readResource(uri)
+                            success(project, result)
+                        } catch (e: Throwable) {
+                            error(project, "MCP 读取资源失败: ${e.message ?: "unknown"}")
+                        }
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_list_prompts",
+                    description = "列出指定 MCP 服务器的提示模板",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string", "description": "MCP 服务器 ID" }
+                          },
+                          "required": ["serverId"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
+                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
+                        val prompts = McpClientManager.safeListPrompts(server)
+                        success(project, prompts)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_get_prompt",
+                    description = "获取 MCP 提示模板内容",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string", "description": "MCP 服务器 ID" },
+                            "name": { "type": "string", "description": "提示模板名称" },
+                            "arguments": { "type": "object", "description": "提示模板参数" }
+                          },
+                          "required": ["serverId", "name"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
+                        val name = payload.get("name")?.asString?.trim().orEmpty()
+                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
+                        if (name.isBlank()) {
+                            return@AgentTool error(project, "name 不能为空")
+                        }
+                        val arguments = payload.getAsJsonObject("arguments")
+                        return@AgentTool try {
+                            val result = McpClientManager.getClient(server).getPrompt(name, arguments)
+                            success(project, result)
+                        } catch (e: Throwable) {
+                            error(project, "MCP 获取提示失败: ${e.message ?: "unknown"}")
+                        }
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+        }
+
+        private fun registerMcpTools(project: Project, registerTool: (AgentTool) -> Unit) {
+            val state = project.pluginState()
+            if (!state.agentMcpEnabled) {
+                return
+            }
+            val servers = McpSupport.safeServers(state.agentMcpServers)
+                .filter { it.enabled }
+                .onEach { McpSupport.ensureServerId(it) }
+            McpClientManager.syncStates(servers)
+            servers.forEach { server ->
+                val disabled = server.disabledTools.toSet()
+                val tools = McpClientManager.safeListTools(server)
+                tools.forEach { tool ->
+                    if (disabled.contains(tool.name)) {
+                        return@forEach
+                    }
+                    val toolName = buildMcpToolName(server.id, tool.name)
+                    val description = buildMcpToolDescription(server.name, tool)
+                    registerTool(
+                        AgentTool(
+                            name = toolName,
+                            description = description,
+                            parametersJson = tool.inputSchema.toString(),
+                            call = { args -> callMcpTool(project, server, tool.name, args) },
+                            originName = tool.name
+                        )
+                    )
+                }
+            }
+        }
+
+        private fun buildMcpToolName(serverId: String, toolName: String): String {
+            val safeName = sanitizeName(toolName).ifBlank { "tool" }
+            val serverHash = DigestUtils.md5Hex(serverId).substring(0, 6)
+            val prefix = "$MCP_TOOL_PREFIX${serverHash}_"
+            val maxLength = (MAX_TOOL_NAME_LENGTH - prefix.length).coerceAtLeast(1)
+            return prefix + safeName.take(maxLength)
+        }
+
+        private fun buildMcpToolDescription(serverName: String, tool: McpToolDescriptorState): String {
+            val base = tool.description.takeIf { it.isNotBlank() } ?: tool.name
+            return "MCP[$serverName]: $base (name=${tool.name})"
+        }
+
+        private fun callMcpTool(project: Project, server: McpServerState, toolName: String, arguments: String): String {
+            val payload = parseArgs(arguments)
+                ?: return error(project, "参数解析失败")
+            return try {
+                val result = McpClientManager.getClient(server).requestTool(toolName, payload)
+                success(project, result)
+            } catch (e: Throwable) {
+                error(project, "MCP 调用失败: ${e.message ?: "unknown"}")
+            }
         }
 
         private fun buildSystemPluginInfo(): PluginInfo {
@@ -976,6 +1171,16 @@ class AgentToolRegistry private constructor(
 
         private fun findPluginInstance(project: Project, pluginId: String): IPlugin? {
             return project.pluginManager().pluginInstances.entries.firstOrNull { it.key.id == pluginId }?.value
+        }
+
+        private fun findMcpServer(project: Project, serverId: String): McpServerState? {
+            if (serverId.isBlank()) {
+                return null
+            }
+            return McpSupport.safeServers(project.pluginState().agentMcpServers).firstOrNull { server ->
+                McpSupport.ensureServerId(server)
+                server.id == serverId
+            }
         }
 
         private fun parseArgs(arguments: String): JsonObject? {

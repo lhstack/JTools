@@ -31,6 +31,8 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentActiveSessionId: String = ""
         var agentMaxToolIterations: Int = 30
         var agentToolTimeoutMs: Int = 120_000
+        var agentMcpEnabled: Boolean = true
+        var agentMcpServers: MutableList<com.lhstack.tools.agent.McpServerState> = mutableListOf()
 
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)
@@ -43,6 +45,10 @@ class PluginState : PersistentStateComponent<PluginState.State> {
     }
 
     override fun loadState(state: State) {
+        val rawServers = state.agentMcpServers.toMutableList()
+        com.lhstack.tools.agent.McpSupport.cleanServers(rawServers)
+        state.agentMcpServers = rawServers
+        state.agentSessions = state.agentSessions.filterIsInstance<AgentSessionState>().toMutableList()
         this.state = state
     }
 }

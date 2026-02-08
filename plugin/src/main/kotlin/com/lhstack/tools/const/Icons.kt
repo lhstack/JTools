@@ -53,5 +53,31 @@ class Icons {
         fun movedown() = findIcon("icons/movedown.svg")
         
         fun unsplitIcon() = findIcon("icons/unsplit.svg")
+
+        fun runIcon() = findIcon("icons/run.svg")
+
+        fun mcpAddIcon() = findIcon("icons/mcp_add.svg")
+
+        fun mcpCopyIcon() = findIcon("icons/mcp_copy.svg")
+
+        fun mcpDeleteIcon() = findIcon("icons/mcp_delete.svg")
+
+        fun mcpInsertContentIcon() = findIcon("icons/mcp_insert_content.svg")
+
+        fun mcpInsertUriIcon() = findIcon("icons/mcp_insert_uri.svg")
+
+        fun mcpInsertPromptIcon() = findIcon("icons/mcp_insert_prompt.svg")
+
+        fun mcpTestIcon() = findIcon("icons/mcp_test.svg")
+
+        fun mcpRefreshIcon() = findIcon("icons/mcp_refresh.svg")
+
+        fun mcpSaveIcon() = findIcon("icons/mcp_save.svg")
+
+        fun mcpRefreshToolsIcon() = findIcon("icons/mcp_refresh_tools.svg")
+
+        fun mcpRefreshResourcesIcon() = findIcon("icons/mcp_refresh_resources.svg")
+
+        fun mcpRefreshPromptsIcon() = findIcon("icons/mcp_refresh_prompts.svg")
     }
 }

@@ -2,6 +2,11 @@ package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
@@ -13,6 +18,7 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
@@ -28,6 +34,8 @@ import java.awt.event.KeyEvent
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.Box
+import javax.swing.BoxLayout
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
@@ -48,11 +56,24 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val messageContainer = JPanel(VerticalLayout(8))
     private val chatScroll = JBScrollPane(messageContainer)
     private val inputArea = JBTextArea(3, 0)
-    private val sendButton = JButton("发送")
-    private val stopButton = JButton("停止")
-    private val quickClearButton = JButton("清空当前")
-    private val sessionManageButton = JButton("会话管理")
-    private val modelManageButton = JButton("模型管理")
+    private val actionToolbars = mutableListOf<ActionToolbar>()
+    private val actionEnabledState = mutableMapOf<AnAction, Boolean>()
+    private val quickClearAction = createAction("清空当前会话", Icons.closeAllIcon()) {
+        currentSession?.let { clearSession(it) }
+    }
+    private val sessionManageAction = createAction("会话管理", Icons.libraryIcon()) { openSessionManager() }
+    private val modelManageAction = createAction("模型管理", Icons.toolIcon()) { openModelManager() }
+    private val mcpManageAction = createAction("MCP 配置", Icons.settingIcon()) { openMcpManager() }
+    private val sendAction = createAction(
+        "发送",
+        Icons.runIcon(),
+        enabledProvider = { !sending.get() && inputArea.isEnabled }
+    ) { sendMessage() }
+    private val stopAction = createAction(
+        "停止",
+        Icons.stopIcon(),
+        enabledProvider = { sending.get() }
+    ) { cancelCurrentRequest() }
     private val statusLabel = JLabel()
     private val inputHintLabel = JLabel("Shift+Enter 发送, Enter 换行")
     private val sessionModel = DefaultComboBoxModel<ChatSession>()
@@ -76,7 +97,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupInputArea()
         setupSessionSelector()
         setupModelSelector()
-        stopButton.isEnabled = false
+        setActionEnabled(stopAction, false)
         val root = JPanel(BorderLayout())
         root.add(buildTopBar(), BorderLayout.NORTH)
         root.add(buildChatContainer(), BorderLayout.CENTER)
@@ -84,6 +105,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setContent(root)
         initSessions()
         updateStatus()
+        updateToolbars()
     }
 
     private fun setupChatContainer() {
@@ -152,6 +174,43 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             updateCurrentModel(resolveSelectedModel())
         }
+    }
+
+    private fun createAction(
+        description: String,
+        icon: javax.swing.Icon,
+        enabledProvider: (() -> Boolean)? = null,
+        action: () -> Unit
+    ): AnAction {
+        return object : AnAction({ description }, icon) {
+            override fun actionPerformed(e: AnActionEvent) {
+                action()
+            }
+
+            override fun update(e: AnActionEvent) {
+                val enabled = (enabledProvider?.invoke() ?: true) && isActionEnabled(this)
+                e.presentation.isEnabled = enabled
+            }
+        }
+    }
+
+    private fun setActionEnabled(action: AnAction, enabled: Boolean) {
+        actionEnabledState[action] = enabled
+    }
+
+    private fun isActionEnabled(action: AnAction): Boolean {
+        return actionEnabledState[action] != false
+    }
+
+    private fun updateToolbars() {
+        actionToolbars.forEach { it.updateActionsAsync() }
+    }
+
+    private fun createToolbar(id: String, group: DefaultActionGroup, horizontal: Boolean, target: JComponent): JComponent {
+        val toolbar = ActionManager.getInstance().createActionToolbar(id, group, horizontal)
+        toolbar.targetComponent = target
+        actionToolbars.add(toolbar)
+        return toolbar.component
     }
 
     private fun resolveSelectedModel(): String {
@@ -506,7 +565,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         dialog.contentPane = content
         dialog.setSize(420, 320)
-        dialog.setLocationRelativeTo(this)
+        dialog.setLocationRelativeTo(null)
         dialog.isVisible = true
     }
 
@@ -599,7 +658,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         dialog.contentPane = content
         dialog.setSize(360, 300)
-        dialog.setLocationRelativeTo(this)
+        dialog.setLocationRelativeTo(null)
+        dialog.isVisible = true
+    }
+
+    private fun openMcpManager() {
+        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "MCP 配置", Dialog.ModalityType.MODELESS)
+        dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
+        val panel = McpConfigPanel(project) { text ->
+            if (text.isNotBlank()) {
+                inputArea.append(if (inputArea.text.isBlank()) text else "\n$text")
+                inputArea.requestFocusInWindow()
+            }
+        }
+        dialog.addWindowListener(object : java.awt.event.WindowAdapter() {
+            override fun windowClosed(e: java.awt.event.WindowEvent?) {
+                panel.dispose()
+            }
+        })
+        dialog.contentPane = panel.component
+        dialog.setSize(720, 520)
+        dialog.setLocationRelativeTo(null)
         dialog.isVisible = true
     }
 
@@ -614,25 +693,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun beginRequestUi() {
-        sendButton.isEnabled = false
-        stopButton.isEnabled = true
-        sessionManageButton.isEnabled = true
+        setActionEnabled(sendAction, false)
+        setActionEnabled(stopAction, true)
         sessionSelector.isEnabled = false
         modelSelector.isEnabled = false
-        modelManageButton.isEnabled = false
+        setActionEnabled(modelManageAction, false)
+        setActionEnabled(mcpManageAction, false)
         setInputEnabled(false)
+        updateToolbars()
     }
 
     private fun finishRequestUi() {
-        sendButton.isEnabled = true
-        stopButton.isEnabled = false
-        sessionManageButton.isEnabled = true
+        setActionEnabled(sendAction, true)
+        setActionEnabled(stopAction, false)
         sessionSelector.isEnabled = true
         modelSelector.isEnabled = true
-        modelManageButton.isEnabled = true
+        setActionEnabled(modelManageAction, true)
+        setActionEnabled(mcpManageAction, true)
         setInputEnabled(true)
         cancelToken = null
         sending.set(false)
+        updateToolbars()
     }
 
     private fun cancelCurrentRequest() {
@@ -656,12 +737,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             isOpaque = false
             add(JLabel("会话: "))
             add(sessionSelector)
-            add(quickClearButton.apply {
-                addActionListener { currentSession?.let { clearSession(it) } }
-            })
-            add(sessionManageButton.apply {
-                addActionListener { openSessionManager() }
-            })
+            val group = DefaultActionGroup().apply {
+                add(quickClearAction)
+                add(sessionManageAction)
+            }
+            add(createToolbar("AgentSessionToolbar", group, true, this))
         }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(6, 8, 0, 8)
@@ -685,21 +765,38 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         inputHintLabel.foreground = JBColor.GRAY
         inputHintLabel.horizontalAlignment = SwingConstants.LEFT
-        val modelPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+        val modelPanel = JPanel().apply {
             isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(Box.createHorizontalGlue())
             add(JLabel("模型: "))
+            add(Box.createHorizontalStrut(6))
             add(modelSelector)
-            add(modelManageButton.apply { addActionListener { openModelManager() } })
         }
         val header = JPanel(BorderLayout()).apply {
             isOpaque = false
             add(inputHintLabel, BorderLayout.WEST)
-            add(modelPanel, BorderLayout.EAST)
         }
-        val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+        val actionPanel = JPanel().apply {
             isOpaque = false
-            add(sendButton.apply { addActionListener { sendMessage() } })
-            add(stopButton.apply { addActionListener { cancelCurrentRequest() } })
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(modelPanel)
+            add(Box.createVerticalStrut(6))
+            val sendGroup = DefaultActionGroup().apply {
+                add(modelManageAction)
+                add(mcpManageAction)
+                addSeparator()
+                add(sendAction)
+                add(stopAction)
+            }
+            val sendToolbar = createToolbar("AgentSendToolbar", sendGroup, true, this)
+            val sendToolbarPanel = JPanel().apply {
+                isOpaque = false
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                add(Box.createHorizontalGlue())
+                add(sendToolbar)
+            }
+            add(sendToolbarPanel)
         }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)
@@ -710,7 +807,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun sendMessage() {
-        if (sending.get() || !sendButton.isEnabled || !inputArea.isEnabled) {
+        if (sending.get() || !isActionEnabled(sendAction) || !inputArea.isEnabled) {
             return
         }
         val session = currentSession ?: return
@@ -1027,10 +1124,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?.ifBlank { project.pluginState().agentModel.trim() }
             ?.ifBlank { "gpt-4o-mini" }
             ?: "gpt-4o-mini"
-        statusLabel.text = if (apiKey.isBlank()) {
-            "API Key 未配置 | Base URL: $baseUrl | Model: $model"
+        val mcpServers = McpSupport.safeServers(project.pluginState().agentMcpServers)
+        val enabledCount = mcpServers.count { it.enabled }
+        val mcpStatus = if (project.pluginState().agentMcpEnabled) {
+            "MCP: $enabledCount/${mcpServers.size}"
         } else {
-            "OpenAPI: 已配置 | Base URL: $baseUrl | Model: $model"
+            "MCP: 未启用"
+        }
+        statusLabel.text = if (apiKey.isBlank()) {
+            "API Key 未配置 | Base URL: $baseUrl | Model: $model | $mcpStatus"
+        } else {
+            "OpenAPI: 已配置 | Base URL: $baseUrl | Model: $model | $mcpStatus"
         }
     }
 

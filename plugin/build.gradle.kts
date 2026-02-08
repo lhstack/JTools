@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.2.7"
+version = "1.1.2.8"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -23,6 +23,8 @@ repositories {
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
     implementation("cn.hutool:hutool-core:5.8.37")
+    implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
     implementation(project(":sdk"))
     intellijPlatform{
         intellijIdeaCommunity("2025.2")
@@ -103,6 +105,19 @@ val proguardRules = listOf(
             public *;
             protected *;
         }
+
+        -keep class com.lhstack.tools.agent.McpAvailabilityService { *; }
+        -keep class com.lhstack.tools.agent.McpClient { *; }
+        -keep class com.lhstack.tools.agent.McpClientManager { *; }
+        -keep class com.lhstack.tools.agent.McpConfigPanel { *; }
+        -keep class com.lhstack.tools.agent.McpServerState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.McpServerState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.AgentSessionState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.AgentRenderState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.McpToolDescriptorState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.McpResourceDescriptorState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.McpPromptArgumentState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.McpPromptDescriptorState { *; }
 
         -keepclassmember class com.lhstack.tools.dev.** {
             public *;
