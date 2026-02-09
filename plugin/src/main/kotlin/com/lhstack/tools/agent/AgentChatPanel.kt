@@ -921,7 +921,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
             init {
                 title = "供应方配置"
-                setSize(JBUI.scale(980), JBUI.scale(520))
+                setSize(JBUI.scale(1000), JBUI.scale(520))
                 init()
             }
 
