@@ -23,6 +23,7 @@ import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.BorderLayout
+import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.net.URI
@@ -157,6 +158,7 @@ class McpConfigPanel(
         globalEnabledCheck.addActionListener {
             project.pluginState().agentMcpEnabled = globalEnabledCheck.isSelected
         }
+        configureFixedWidths()
     }
 
     private fun buildServerListButtons(): JComponent {
@@ -466,6 +468,32 @@ class McpConfigPanel(
         setRowsVisible(authQueryRows, !isStdio && authType == McpAuthType.QUERY)
         formPanel?.revalidate()
         formPanel?.repaint()
+    }
+
+    private fun configureFixedWidths() {
+        val fieldWidth = JBUI.scale(480)
+        setFixedWidth(nameField, fieldWidth)
+        setFixedWidth(transportCombo, fieldWidth)
+        setFixedWidth(stdioCommandField, fieldWidth)
+        setFixedWidth(stdioArgsScroll, fieldWidth)
+        setFixedWidth(stdioEnvScroll, fieldWidth)
+        setFixedWidth(urlField, fieldWidth)
+        setFixedWidth(headersScroll, fieldWidth)
+        setFixedWidth(authTypeCombo, fieldWidth)
+        setFixedWidth(authHeaderNameField, fieldWidth)
+        setFixedWidth(authHeaderValueField, fieldWidth)
+        setFixedWidth(authUsernameField, fieldWidth)
+        setFixedWidth(authPasswordField, fieldWidth)
+        setFixedWidth(authQueryParamField, fieldWidth)
+        setFixedWidth(authQueryValueField, fieldWidth)
+    }
+
+    private fun setFixedWidth(component: JComponent, width: Int) {
+        val size = component.preferredSize
+        val dimension = Dimension(width, size.height)
+        component.preferredSize = dimension
+        component.minimumSize = dimension
+        component.maximumSize = dimension
     }
 
     private fun setRowsVisible(rows: List<Row>, visible: Boolean) {

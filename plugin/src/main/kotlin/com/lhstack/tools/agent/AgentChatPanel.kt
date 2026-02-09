@@ -950,7 +950,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             init {
                 this.title = "MCP 配置"
-                this.setSize(720,520)
+                this.setSize(JBUI.scale(920), JBUI.scale(520))
+                this.setResizable(false)
                 Disposer.register(this.disposable){
                     panel.dispose()
                 }
