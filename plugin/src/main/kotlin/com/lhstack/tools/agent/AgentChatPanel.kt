@@ -2,11 +2,7 @@ package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
@@ -15,53 +11,22 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
-import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import com.jetbrains.rd.generator.nova.array
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
-import java.awt.BorderLayout
-import java.awt.Component
-import java.awt.Dialog
-import java.awt.Dimension
-import java.awt.FlowLayout
-import java.awt.Font
-import java.awt.FontMetrics
-import java.awt.event.ActionEvent
-import java.awt.event.ActionListener
-import java.awt.event.FocusAdapter
-import java.awt.event.FocusEvent
-import java.awt.event.InputEvent
-import java.awt.event.ItemEvent
-import java.awt.event.KeyEvent
-import java.util.UUID
+import java.awt.*
+import java.awt.event.*
+import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import javax.swing.Action
-import javax.swing.Box
-import javax.swing.BoxLayout
-import javax.swing.ComboBoxEditor
-import javax.swing.DefaultComboBoxModel
-import javax.swing.DefaultListCellRenderer
-import javax.swing.DefaultListModel
-import javax.swing.JButton
-import javax.swing.JComponent
-import javax.swing.JDialog
-import javax.swing.JLabel
-import javax.swing.JList
-import javax.swing.JPanel
-import javax.swing.KeyStroke
-import javax.swing.ListSelectionModel
-import javax.swing.ScrollPaneConstants
-import javax.swing.SwingConstants
-import javax.swing.SwingUtilities
-import javax.swing.WindowConstants
+import javax.swing.*
 
 class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
     private val messageContainer = JPanel(VerticalLayout(8))
@@ -759,82 +724,87 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openSessionManager() {
-        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "会话管理", Dialog.ModalityType.APPLICATION_MODAL)
-        dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
-        val listModel = DefaultListModel<ChatSession>()
-        val list = JBList(listModel).apply {
-            selectionMode = ListSelectionModel.SINGLE_SELECTION
-            cellRenderer = object : DefaultListCellRenderer() {
-                override fun getListCellRendererComponent(
-                    list: JList<*>?,
-                    value: Any?,
-                    index: Int,
-                    isSelected: Boolean,
-                    cellHasFocus: Boolean
-                ): Component {
-                    val text = (value as? ChatSession)?.title ?: value?.toString().orEmpty()
-                    return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus)
+        object:DialogWrapper(project,false) {
+            init {
+                this.title = "会话管理"
+                this.setSize(420,320)
+                this.init()
+            }
+
+            override fun createActions(): Array<out Action?> {
+                return arrayOf()
+            }
+
+            override fun createCenterPanel(): JComponent? {
+                val listModel = DefaultListModel<ChatSession>()
+                val list = JBList(listModel).apply {
+                    selectionMode = ListSelectionModel.SINGLE_SELECTION
+                    cellRenderer = object : DefaultListCellRenderer() {
+                        override fun getListCellRendererComponent(
+                            list: JList<*>?,
+                            value: Any?,
+                            index: Int,
+                            isSelected: Boolean,
+                            cellHasFocus: Boolean
+                        ): Component {
+                            val text = (value as? ChatSession)?.title ?: value?.toString().orEmpty()
+                            return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus)
+                        }
+                    }
+                }
+                val newButton = JButton("新建")
+                val renameButton = JButton("重命名")
+                val deleteButton = JButton("删除")
+                val refreshList = {
+                    listModel.clear()
+                    for (i in 0 until sessionModel.size) {
+                        listModel.addElement(sessionModel.getElementAt(i))
+                    }
+                    currentSession?.let { list.setSelectedValue(it, true) }
+                }
+                refreshList()
+
+                fun updateDeleteState() {
+                    val selected = list.selectedValue
+                    deleteButton.isEnabled = !(sending.get() && selected == currentSession)
+                }
+
+                newButton.addActionListener {
+                    if (sending.get()) {
+                        return@addActionListener
+                    }
+                    val session = createSession()
+                    switchSession(session)
+                    refreshList()
+                    list.setSelectedValue(session, true)
+                }
+                renameButton.addActionListener {
+                    val selected = list.selectedValue ?: return@addActionListener
+                    renameSession(selected)
+                    list.repaint()
+                }
+                deleteButton.addActionListener {
+                    val selected = list.selectedValue ?: return@addActionListener
+                    deleteSession(selected)
+                    refreshList()
+                    updateDeleteState()
+                }
+                list.addListSelectionListener { updateDeleteState() }
+                newButton.isEnabled = !sending.get()
+                updateDeleteState()
+
+                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
+                    add(newButton)
+                    add(renameButton)
+                    add(deleteButton)
+                }
+                return JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(8)
+                    add(JBScrollPane(list), BorderLayout.CENTER)
+                    add(buttonPanel, BorderLayout.SOUTH)
                 }
             }
-        }
-        val newButton = JButton("新建")
-        val renameButton = JButton("重命名")
-        val deleteButton = JButton("删除")
-        val closeButton = JButton("关闭")
-        val refreshList = {
-            listModel.clear()
-            for (i in 0 until sessionModel.size) {
-                listModel.addElement(sessionModel.getElementAt(i))
-            }
-            currentSession?.let { list.setSelectedValue(it, true) }
-        }
-        refreshList()
-
-        fun updateDeleteState() {
-            val selected = list.selectedValue
-            deleteButton.isEnabled = !(sending.get() && selected == currentSession)
-        }
-
-        newButton.addActionListener {
-            if (sending.get()) {
-                return@addActionListener
-            }
-            val session = createSession()
-            switchSession(session)
-            refreshList()
-            list.setSelectedValue(session, true)
-        }
-        renameButton.addActionListener {
-            val selected = list.selectedValue ?: return@addActionListener
-            renameSession(selected)
-            list.repaint()
-        }
-        deleteButton.addActionListener {
-            val selected = list.selectedValue ?: return@addActionListener
-            deleteSession(selected)
-            refreshList()
-            updateDeleteState()
-        }
-        closeButton.addActionListener { dialog.dispose() }
-        list.addListSelectionListener { updateDeleteState() }
-        newButton.isEnabled = !sending.get()
-        updateDeleteState()
-
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
-            add(newButton)
-            add(renameButton)
-            add(deleteButton)
-            add(closeButton)
-        }
-        val content = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(8)
-            add(JBScrollPane(list), BorderLayout.CENTER)
-            add(buttonPanel, BorderLayout.SOUTH)
-        }
-        dialog.contentPane = content
-        dialog.setSize(420, 320)
-        dialog.setLocationRelativeTo(null)
-        dialog.isVisible = true
+        }.showAndGet()
     }
 
     private fun openModelManager() {
@@ -844,102 +814,105 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             return
         }
         val providerId = provider.id
-        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "模型管理", Dialog.ModalityType.APPLICATION_MODAL)
-        dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
-        val listModel = DefaultListModel<String>()
-        val list = JBList(listModel).apply {
-            selectionMode = ListSelectionModel.SINGLE_SELECTION
-        }
-        val addButton = JButton("新增")
-        val renameButton = JButton("改名")
-        val deleteButton = JButton("删除")
-        val closeButton = JButton("关闭")
-        val refreshList = {
-            listModel.clear()
-            ensureModelList(provider).forEach { listModel.addElement(it) }
-            currentSession?.model?.let { list.setSelectedValue(it, true) }
-        }
-        refreshList()
+        object:DialogWrapper(project,false){
+            init {
+                this.title = "模型管理"
+                this.setSize(360,300)
+                this.init()
+            }
 
-        addButton.addActionListener {
-            val input = Messages.showInputDialog(this, "请输入模型名称", "新增模型", null) ?: return@addActionListener
-            val name = input.trim()
-            if (name.isEmpty()) {
-                return@addActionListener
+            override fun createActions(): Array<out Action?> {
+                return arrayOf()
             }
-            ensureModelExists(provider, name)
-            updateCurrentModel(name)
-            refreshList()
-            list.setSelectedValue(name, true)
-        }
-        renameButton.addActionListener {
-            val current = list.selectedValue ?: return@addActionListener
-            val input = Messages.showInputDialog(this, "请输入新的模型名称", "修改模型", null, current, null)
-                ?: return@addActionListener
-            val name = input.trim()
-            if (name.isEmpty() || name == current) {
-                return@addActionListener
-            }
-            val models = ensureModelList(provider)
-            models.remove(current)
-            if (!models.contains(name)) {
-                models.add(name)
-            }
-            if (provider.activeModel == current) {
-                provider.activeModel = name
-            }
-            updateSessionsModelName(providerId, current, name)
-            if (currentSession?.model == current) {
-                updateCurrentModel(name)
-            } else {
-                refreshModelSelector(currentSession?.model)
-                updateStatus()
-            }
-            refreshList()
-            list.setSelectedValue(name, true)
-        }
-        deleteButton.addActionListener {
-            val current = list.selectedValue ?: return@addActionListener
-            val confirmed = Messages.showYesNoDialog(this, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
-            if (confirmed != Messages.YES) {
-                return@addActionListener
-            }
-            val models = ensureModelList(provider)
-            models.remove(current)
-            if (models.isEmpty()) {
-                models.add("gpt-4o-mini")
-            }
-            val fallback = models.first()
-            if (provider.activeModel == current) {
-                provider.activeModel = fallback
-            }
-            updateSessionsModelName(providerId, current, fallback)
-            if (currentSession?.model == current) {
-                updateCurrentModel(fallback)
-            } else {
-                refreshModelSelector(currentSession?.model)
-                updateStatus()
-            }
-            refreshList()
-            list.setSelectedValue(fallback, true)
-        }
-        closeButton.addActionListener { dialog.dispose() }
+            override fun createCenterPanel(): JComponent {
+                val listModel = DefaultListModel<String>()
+                val list = JBList(listModel).apply {
+                    selectionMode = ListSelectionModel.SINGLE_SELECTION
+                }
+                val addButton = JButton("新增")
+                val renameButton = JButton("改名")
+                val deleteButton = JButton("删除")
+                val refreshList = {
+                    listModel.clear()
+                    ensureModelList(provider).forEach { listModel.addElement(it) }
+                    currentSession?.model?.let { list.setSelectedValue(it, true) }
+                }
+                refreshList()
 
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
-            add(addButton)
-            add(renameButton)
-            add(deleteButton)
-            add(closeButton)
-        }
-        val content = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(8)
-            add(JBScrollPane(list), BorderLayout.CENTER)
-            add(buttonPanel, BorderLayout.SOUTH)
-        }
-        dialog.contentPane = content
-        dialog.setSize(360, 300)
-        dialog.setLocationRelativeTo(null)
-        dialog.isVisible = true
+                addButton.addActionListener {
+                    val input = Messages.showInputDialog(project, "请输入模型名称", "新增模型", null) ?: return@addActionListener
+                    val name = input.trim()
+                    if (name.isEmpty()) {
+                        return@addActionListener
+                    }
+                    ensureModelExists(provider, name)
+                    updateCurrentModel(name)
+                    refreshList()
+                    list.setSelectedValue(name, true)
+                }
+                renameButton.addActionListener {
+                    val current = list.selectedValue ?: return@addActionListener
+                    val input = Messages.showInputDialog(project, "请输入新的模型名称", "修改模型", null, current, null)
+                        ?: return@addActionListener
+                    val name = input.trim()
+                    if (name.isEmpty() || name == current) {
+                        return@addActionListener
+                    }
+                    val models = ensureModelList(provider)
+                    models.remove(current)
+                    if (!models.contains(name)) {
+                        models.add(name)
+                    }
+                    if (provider.activeModel == current) {
+                        provider.activeModel = name
+                    }
+                    updateSessionsModelName(providerId, current, name)
+                    if (currentSession?.model == current) {
+                        updateCurrentModel(name)
+                    } else {
+                        refreshModelSelector(currentSession?.model)
+                        updateStatus()
+                    }
+                    refreshList()
+                    list.setSelectedValue(name, true)
+                }
+                deleteButton.addActionListener {
+                    val current = list.selectedValue ?: return@addActionListener
+                    val confirmed = Messages.showYesNoDialog(project, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
+                    if (confirmed != Messages.YES) {
+                        return@addActionListener
+                    }
+                    val models = ensureModelList(provider)
+                    models.remove(current)
+                    if (models.isEmpty()) {
+                        models.add("gpt-4o-mini")
+                    }
+                    val fallback = models.first()
+                    if (provider.activeModel == current) {
+                        provider.activeModel = fallback
+                    }
+                    updateSessionsModelName(providerId, current, fallback)
+                    if (currentSession?.model == current) {
+                        updateCurrentModel(fallback)
+                    } else {
+                        refreshModelSelector(currentSession?.model)
+                        updateStatus()
+                    }
+                    refreshList()
+                    list.setSelectedValue(fallback, true)
+                }
+                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
+                    add(addButton)
+                    add(renameButton)
+                    add(deleteButton)
+                }
+                return JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(8)
+                    add(JBScrollPane(list), BorderLayout.CENTER)
+                    add(buttonPanel, BorderLayout.SOUTH)
+                }
+            }
+        }.showAndGet()
     }
 
     private fun openProviderManager() {
