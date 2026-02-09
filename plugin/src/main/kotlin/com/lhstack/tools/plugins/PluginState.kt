@@ -29,6 +29,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentModels: MutableList<String> = mutableListOf("gpt-4o-mini")
         var agentSessions: MutableList<AgentSessionState> = mutableListOf()
         var agentActiveSessionId: String = ""
+        var agentActiveSessionIdByProject: MutableMap<String, String> = mutableMapOf()
         var agentMaxToolIterations: Int = 30
         var agentToolTimeoutMs: Int = 120_000
         var agentMcpEnabled: Boolean = true

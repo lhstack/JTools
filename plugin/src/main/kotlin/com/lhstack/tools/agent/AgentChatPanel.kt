@@ -17,6 +17,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -28,9 +29,14 @@ import org.jdesktop.swingx.VerticalLayout
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dialog
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.FontMetrics
 import java.awt.event.ActionEvent
+import java.awt.event.ActionListener
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import java.awt.event.InputEvent
 import java.awt.event.ItemEvent
 import java.awt.event.KeyEvent
@@ -40,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.Action
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.ComboBoxEditor
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
@@ -83,6 +90,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val sessionModel = DefaultComboBoxModel<ChatSession>()
     private val sessionSelector = ComboBox<ChatSession>()
     private val modelSelector = ComboBox<String>()
+    private val comboFixedWidth = JBUI.scale(180)
+    private val projectKey = resolveProjectKey()
     private val client = AgentClient()
     private val sending = AtomicBoolean(false)
     private val requestCounter = AtomicInteger(0)
@@ -142,18 +151,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         sessionSelector.model = sessionModel
         sessionSelector.maximumRowCount = 8
         sessionSelector.isEditable = false
-        sessionSelector.renderer = object : DefaultListCellRenderer() {
-            override fun getListCellRendererComponent(
-                list: JList<*>?,
-                value: Any?,
-                index: Int,
-                isSelected: Boolean,
-                cellHasFocus: Boolean
-            ): Component {
-                val text = (value as? ChatSession)?.title ?: value?.toString().orEmpty()
-                return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus)
-            }
-        }
+        configureComboBox(sessionSelector, comboFixedWidth, { (it as? ChatSession)?.title ?: it?.toString().orEmpty() })
         sessionSelector.addActionListener {
             if (updatingSessionSelection || sending.get()) {
                 return@addActionListener
@@ -165,6 +163,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun setupModelSelector() {
         modelSelector.isEditable = true
+        configureComboBox(modelSelector, comboFixedWidth, { it?.toString().orEmpty() }, ellipsizeEditor = true)
         refreshModelSelector(project.pluginState().agentModel)
         modelSelector.addItemListener { event ->
             if (updatingModelSelection || event.stateChange != ItemEvent.SELECTED) {
@@ -177,6 +176,150 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 return@addActionListener
             }
             updateCurrentModel(resolveSelectedModel())
+        }
+    }
+
+    private fun configureComboBox(
+        comboBox: ComboBox<*>,
+        fixedWidth: Int,
+        textProvider: (Any?) -> String,
+        ellipsizeEditor: Boolean = false
+    ) {
+        applyFixedWidth(comboBox, fixedWidth)
+        comboBox.renderer = createEllipsisRenderer(comboBox, textProvider)
+        if (ellipsizeEditor) {
+            comboBox.editor = EllipsisComboBoxEditor(comboBox, textProvider)
+        }
+    }
+
+    private fun applyFixedWidth(comboBox: ComboBox<*>, fixedWidth: Int) {
+        val height = comboBox.preferredSize.height
+        val size = Dimension(fixedWidth, height)
+        comboBox.preferredSize = size
+        comboBox.minimumSize = size
+        comboBox.maximumSize = size
+    }
+
+    private fun createEllipsisRenderer(
+        comboBox: ComboBox<*>,
+        textProvider: (Any?) -> String
+    ): DefaultListCellRenderer {
+        return object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?,
+                value: Any?,
+                index: Int,
+                isSelected: Boolean,
+                cellHasFocus: Boolean
+            ): Component {
+                val fullText = textProvider(value)
+                val displayText = if (index < 0) {
+                    val metrics = getFontMetrics(font ?: comboBox.font)
+                    ellipsizeText(fullText, metrics, comboDisplayWidth(comboBox))
+                } else {
+                    fullText
+                }
+                val label = super.getListCellRendererComponent(
+                    list,
+                    displayText,
+                    index,
+                    isSelected,
+                    cellHasFocus
+                ) as JLabel
+                label.toolTipText = fullText.takeIf { it.isNotBlank() }
+                return label
+            }
+        }
+    }
+
+    private fun comboDisplayWidth(comboBox: ComboBox<*>): Int {
+        val rawWidth = if (comboBox.width > 0) comboBox.width else comboBox.preferredSize.width
+        return maxOf(0, rawWidth - JBUI.scale(32))
+    }
+
+    private fun ellipsizeText(text: String, metrics: FontMetrics, maxWidth: Int): String {
+        if (text.isBlank()) {
+            return text
+        }
+        if (metrics.stringWidth(text) <= maxWidth) {
+            return text
+        }
+        val ellipsis = "..."
+        val ellipsisWidth = metrics.stringWidth(ellipsis)
+        if (maxWidth <= ellipsisWidth) {
+            return ellipsis
+        }
+        var low = 0
+        var high = text.length
+        while (low < high) {
+            val mid = (low + high) / 2
+            val width = metrics.stringWidth(text.substring(0, mid)) + ellipsisWidth
+            if (width <= maxWidth) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        val end = maxOf(0, low - 1)
+        return text.substring(0, end) + ellipsis
+    }
+
+    private inner class EllipsisComboBoxEditor(
+        private val comboBox: ComboBox<*>,
+        private val textProvider: (Any?) -> String
+    ) : ComboBoxEditor {
+        private val textField = JBTextField()
+        private var currentItem: Any? = null
+
+        init {
+            textField.border = JBUI.Borders.empty(0, 4)
+            textField.addFocusListener(object : FocusAdapter() {
+                override fun focusGained(e: FocusEvent) {
+                    textField.text = textProvider(currentItem)
+                    textField.selectAll()
+                }
+
+                override fun focusLost(e: FocusEvent) {
+                    currentItem = textField.text
+                    updateDisplay()
+                }
+            })
+        }
+
+        override fun getEditorComponent(): Component = textField
+
+        override fun setItem(anObject: Any?) {
+            currentItem = anObject
+            updateDisplay()
+        }
+
+        override fun getItem(): Any? {
+            if (textField.hasFocus()) {
+                currentItem = textField.text
+            }
+            return currentItem?.toString().orEmpty()
+        }
+
+        override fun selectAll() {
+            textField.selectAll()
+        }
+
+        override fun addActionListener(l: ActionListener) {
+            textField.addActionListener(l)
+        }
+
+        override fun removeActionListener(l: ActionListener) {
+            textField.removeActionListener(l)
+        }
+
+        private fun updateDisplay() {
+            val fullText = textProvider(currentItem)
+            textField.toolTipText = fullText.takeIf { it.isNotBlank() }
+            textField.text = if (textField.hasFocus()) {
+                fullText
+            } else {
+                ellipsizeText(fullText, textField.getFontMetrics(textField.font), comboDisplayWidth(comboBox))
+            }
         }
     }
 
@@ -226,12 +369,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun initSessions() {
-        val stored = project.pluginState().agentSessions
+        val stored = resolveStoredSessions()
         if (stored.isNotEmpty()) {
             stored.forEach { state ->
                 sessionModel.addElement(toSession(state))
             }
-            val activeId = project.pluginState().agentActiveSessionId
+            val activeId = resolveActiveSessionId(stored)
             val active = (0 until sessionModel.size)
                 .map { sessionModel.getElementAt(it) }
                 .firstOrNull { it.id == activeId }
@@ -250,6 +393,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val state = AgentSessionState().apply {
             id = UUID.randomUUID().toString()
+            projectKey = this@AgentChatPanel.projectKey
             title = "新会话"
             autoTitle = true
             model = resolvedModel
@@ -264,6 +408,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun toSession(state: AgentSessionState): ChatSession {
         if (state.id.isBlank()) {
             state.id = UUID.randomUUID().toString()
+        }
+        if (state.projectKey.isBlank()) {
+            state.projectKey = projectKey
         }
         val resolvedModel = state.model.trim().ifBlank {
             project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
@@ -299,7 +446,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun switchSession(session: ChatSession) {
         currentSession = session
-        project.pluginState().agentActiveSessionId = session.id
+        setActiveSessionId(session.id)
         updatingSessionSelection = true
         sessionSelector.selectedItem = session
         updatingSessionSelection = false
@@ -738,6 +885,48 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun isActiveRequest(requestId: Int, token: AgentClient.CancelToken?): Boolean {
         return requestId == activeRequestId && token?.isCancelled() != true
+    }
+
+    private fun resolveProjectKey(): String {
+        val basePath = project.basePath?.replace("\\", "/")?.trim().orEmpty()
+        return if (basePath.isNotEmpty()) basePath else project.name
+    }
+
+    private fun resolveStoredSessions(): List<AgentSessionState> {
+        val all = project.pluginState().agentSessions
+        val matched = all.filter { it.projectKey == projectKey }
+        if (matched.isNotEmpty()) {
+            return matched
+        }
+        val legacy = all.filter { it.projectKey.isBlank() }
+        if (legacy.isNotEmpty()) {
+            legacy.forEach { it.projectKey = projectKey }
+            return legacy
+        }
+        return emptyList()
+    }
+
+    private fun resolveActiveSessionId(stored: List<AgentSessionState>): String? {
+        if (stored.isEmpty()) {
+            return null
+        }
+        val state = project.pluginState()
+        val byProject = state.agentActiveSessionIdByProject[projectKey]
+        if (!byProject.isNullOrBlank() && stored.any { it.id == byProject }) {
+            return byProject
+        }
+        val legacy = state.agentActiveSessionId.takeIf { it.isNotBlank() && stored.any { session -> session.id == it } }
+        if (legacy != null) {
+            state.agentActiveSessionIdByProject[projectKey] = legacy
+            return legacy
+        }
+        return null
+    }
+
+    private fun setActiveSessionId(sessionId: String) {
+        val state = project.pluginState()
+        state.agentActiveSessionIdByProject[projectKey] = sessionId
+        state.agentActiveSessionId = sessionId
     }
 
     private fun buildTopBar(): JComponent {
