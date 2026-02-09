@@ -74,7 +74,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
     private val sessionManageAction = createAction("会话管理", Icons.libraryIcon()) { openSessionManager() }
     private val modelManageAction = createAction("模型管理", Icons.toolIcon()) { openModelManager() }
-    private val mcpManageAction = createAction("MCP 配置", Icons.settingIcon()) { openMcpManager() }
+    private val providerManageAction = createAction("供应方管理", Icons.providerConfigIcon()) { openProviderManager() }
+    private val mcpManageAction = createAction("MCP 配置", Icons.mcpConfigIcon()) { openMcpManager() }
     private val sendAction = createAction(
         "发送",
         Icons.runIcon(),
@@ -88,7 +89,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val statusLabel = JLabel()
     private val inputHintLabel = JLabel("Shift+Enter 发送, Enter 换行")
     private val sessionModel = DefaultComboBoxModel<ChatSession>()
+    private val providerModel = DefaultComboBoxModel<AgentProviderState>()
     private val sessionSelector = ComboBox<ChatSession>()
+    private val providerSelector = ComboBox<AgentProviderState>()
     private val modelSelector = ComboBox<String>()
     private val comboFixedWidth = JBUI.scale(180)
     private val projectKey = resolveProjectKey()
@@ -99,6 +102,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var cancelToken: AgentClient.CancelToken? = null
     private var currentSession: ChatSession? = null
     private var updatingSessionSelection = false
+    private var updatingProviderSelection = false
     private var updatingModelSelection = false
 
     private var assistantBlock: MessageBlock? = null
@@ -109,6 +113,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupChatContainer()
         setupInputArea()
         setupSessionSelector()
+        setupProviderSelector()
         setupModelSelector()
         setActionEnabled(stopAction, false)
         val root = JPanel(BorderLayout())
@@ -161,10 +166,29 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private fun setupProviderSelector() {
+        providerSelector.model = providerModel
+        providerSelector.maximumRowCount = 8
+        providerSelector.isEditable = false
+        configureComboBox(providerSelector, comboFixedWidth, {
+            val provider = it as? AgentProviderState
+            val type = AgentProviderType.fromId(provider?.type).displayName
+            if (provider == null) "" else "${provider.name} ($type)"
+        })
+        providerSelector.addActionListener {
+            if (updatingProviderSelection || sending.get()) {
+                return@addActionListener
+            }
+            val selected = providerSelector.selectedItem as? AgentProviderState ?: return@addActionListener
+            updateCurrentProvider(selected)
+        }
+        refreshProviderSelector(null)
+    }
+
     private fun setupModelSelector() {
         modelSelector.isEditable = true
         configureComboBox(modelSelector, comboFixedWidth, { it?.toString().orEmpty() }, ellipsizeEditor = true)
-        refreshModelSelector(project.pluginState().agentModel)
+        refreshModelSelector(resolveDefaultModel(resolveSelectedProvider()))
         modelSelector.addItemListener { event ->
             if (updatingModelSelection || event.stateChange != ItemEvent.SELECTED) {
                 return@addItemListener
@@ -388,12 +412,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun createSession(): ChatSession {
         val modelName = modelSelector.editor.item?.toString()?.trim().orEmpty()
+        val resolvedProvider = resolveSelectedProvider()
         val resolvedModel = modelName.ifBlank {
-            project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
+            resolveDefaultModel(resolvedProvider)
+        }
+        if (resolvedProvider != null) {
+            resolvedProvider.activeModel = resolvedModel
+            ensureModelExists(resolvedProvider, resolvedModel)
         }
         val state = AgentSessionState().apply {
             id = UUID.randomUUID().toString()
             projectKey = this@AgentChatPanel.projectKey
+            providerId = resolvedProvider?.id.orEmpty()
             title = "新会话"
             autoTitle = true
             model = resolvedModel
@@ -412,10 +442,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (state.projectKey.isBlank()) {
             state.projectKey = projectKey
         }
-        val resolvedModel = state.model.trim().ifBlank {
-            project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
-        }
+        val resolvedProvider = resolveProviderForSession(state)
+        val resolvedModel = state.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
         state.model = resolvedModel
+        resolvedProvider?.let { ensureModelExists(it, resolvedModel) }
         val messages = mutableListOf<JsonObject>()
         state.messages.forEach { raw ->
             try {
@@ -438,6 +468,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             title = state.title.ifBlank { "新会话" },
             autoTitle = state.autoTitle,
             model = resolvedModel,
+            providerId = resolvedProvider?.id.orEmpty(),
             messages = messages,
             renders = renders,
             state = state
@@ -450,8 +481,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updatingSessionSelection = true
         sessionSelector.selectedItem = session
         updatingSessionSelection = false
-        ensureModelExists(session.model)
-        refreshModelSelector(session.model)
+        val resolvedProvider = resolveProviderForSession(session.state)
+        session.providerId = resolvedProvider?.id.orEmpty()
+        refreshProviderSelector(session.providerId)
+        val resolvedModel = session.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
+        session.model = resolvedModel
+        session.state.model = resolvedModel
+        resolvedProvider?.let { ensureModelExists(it, resolvedModel) }
+        refreshModelSelector(resolvedModel)
         renderSession(session)
         updateStatus()
     }
@@ -504,46 +541,126 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun updateCurrentModel(model: String) {
         val session = currentSession ?: return
-        val resolved = model.trim().ifBlank { "gpt-4o-mini" }
+        val provider = resolveSelectedProvider()
+        val resolved = model.trim().ifBlank { resolveDefaultModel(provider) }
         session.model = resolved
         session.state.model = resolved
-        project.pluginState().agentModel = resolved
-        ensureModelExists(resolved)
+        if (provider != null) {
+            ensureModelExists(provider, resolved)
+            provider.activeModel = resolved
+        }
         refreshModelSelector(resolved)
+        updateStatus()
+    }
+
+    private fun updateCurrentProvider(provider: AgentProviderState) {
+        val session = currentSession ?: return
+        session.providerId = provider.id
+        session.state.providerId = provider.id
+        project.pluginState().agentActiveProviderId = provider.id
+        val resolvedModel = resolveDefaultModel(provider)
+        provider.activeModel = resolvedModel
+        session.model = resolvedModel
+        session.state.model = resolvedModel
+        refreshModelSelector(resolvedModel)
         updateStatus()
     }
 
     private fun refreshModelSelector(selected: String?) {
         updatingModelSelection = true
         modelSelector.removeAllItems()
-        val models = ensureModelList()
+        val provider = resolveSelectedProvider()
+        val models = ensureModelList(provider)
         val candidate = selected?.trim().orEmpty()
         if (candidate.isNotEmpty() && !models.contains(candidate)) {
             models.add(candidate)
         }
         models.forEach { modelSelector.addItem(it) }
-        val resolved = selected?.trim().orEmpty().ifBlank {
-            currentSession?.model?.trim().orEmpty().ifBlank { models.first() }
+        val resolved = candidate.ifBlank {
+            provider?.activeModel?.trim().orEmpty().ifBlank {
+                currentSession?.model?.trim().orEmpty().ifBlank { models.first() }
+            }
         }
         modelSelector.selectedItem = resolved
         modelSelector.editor.item = resolved
         updatingModelSelection = false
     }
 
-    private fun ensureModelList(): MutableList<String> {
-        val models = project.pluginState().agentModels
-        if (models.isEmpty()) {
-            models.add("gpt-4o-mini")
-        }
-        return models
+    private fun refreshProviderSelector(selectedProviderId: String?) {
+        updatingProviderSelection = true
+        providerSelector.removeAllItems()
+        val providers = ensureProviderList()
+        providers.forEach { providerSelector.addItem(it) }
+        val resolvedId = selectedProviderId
+            ?: currentSession?.providerId
+            ?: project.pluginState().agentActiveProviderId
+        val resolved = providers.firstOrNull { it.id == resolvedId } ?: providers.firstOrNull()
+        providerSelector.selectedItem = resolved
+        updatingProviderSelection = false
     }
 
-    private fun ensureModelExists(model: String) {
+    private fun ensureModelList(provider: AgentProviderState?): MutableList<String> {
+        if (provider == null) {
+            return mutableListOf("gpt-4o-mini")
+        }
+        AgentProviderSupport.normalizeProvider(provider)
+        return provider.models
+    }
+
+    private fun ensureModelExists(provider: AgentProviderState, model: String) {
         val trimmed = model.trim().ifBlank { return }
-        val models = ensureModelList()
+        val models = ensureModelList(provider)
         if (!models.contains(trimmed)) {
             models.add(trimmed)
         }
+    }
+
+    private fun resolveDefaultModel(provider: AgentProviderState?): String {
+        provider?.let { AgentProviderSupport.normalizeProvider(it) }
+        val active = provider?.activeModel?.trim().orEmpty()
+        if (active.isNotBlank()) {
+            return active
+        }
+        val models = provider?.models?.filter { it.isNotBlank() }.orEmpty()
+        return models.firstOrNull() ?: "gpt-4o-mini"
+    }
+
+    private fun ensureProviderList(): MutableList<AgentProviderState> {
+        val providers = project.pluginState().agentProviders
+        if (providers.isEmpty()) {
+            val provider = AgentProviderState().apply {
+                id = UUID.randomUUID().toString()
+                name = "OpenAI"
+                type = AgentProviderType.OPENAI.id
+                baseUrl = AgentProviderSupport.defaultBaseUrl(AgentProviderType.OPENAI)
+                apiKey = project.pluginState().agentOpenApiKey.trim()
+            }
+            AgentProviderSupport.normalizeProvider(provider)
+            providers.add(provider)
+            if (project.pluginState().agentActiveProviderId.isBlank()) {
+                project.pluginState().agentActiveProviderId = provider.id
+            }
+        } else {
+            providers.forEach { AgentProviderSupport.normalizeProvider(it) }
+        }
+        return providers
+    }
+
+    private fun resolveProviderForSession(state: AgentSessionState): AgentProviderState? {
+        val providers = ensureProviderList()
+        val existing = providers.firstOrNull { it.id == state.providerId && state.providerId.isNotBlank() }
+        if (existing != null) {
+            return existing
+        }
+        val fallback = providers.firstOrNull { it.id == project.pluginState().agentActiveProviderId }
+            ?: providers.firstOrNull()
+        state.providerId = fallback?.id.orEmpty()
+        return fallback
+    }
+
+    private fun resolveSelectedProvider(): AgentProviderState? {
+        return (providerSelector.selectedItem as? AgentProviderState)
+            ?: ensureProviderList().firstOrNull()
     }
 
     private fun updateSessionTitle(text: String) {
@@ -721,6 +838,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openModelManager() {
+        val provider = resolveSelectedProvider()
+        if (provider == null) {
+            project.errorNotify("模型管理", "请先选择供应方")
+            return
+        }
+        val providerId = provider.id
         val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "模型管理", Dialog.ModalityType.APPLICATION_MODAL)
         dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
         val listModel = DefaultListModel<String>()
@@ -733,7 +856,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val closeButton = JButton("关闭")
         val refreshList = {
             listModel.clear()
-            ensureModelList().forEach { listModel.addElement(it) }
+            ensureModelList(provider).forEach { listModel.addElement(it) }
             currentSession?.model?.let { list.setSelectedValue(it, true) }
         }
         refreshList()
@@ -744,7 +867,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             if (name.isEmpty()) {
                 return@addActionListener
             }
-            ensureModelExists(name)
+            ensureModelExists(provider, name)
             updateCurrentModel(name)
             refreshList()
             list.setSelectedValue(name, true)
@@ -757,12 +880,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             if (name.isEmpty() || name == current) {
                 return@addActionListener
             }
-            val models = ensureModelList()
+            val models = ensureModelList(provider)
             models.remove(current)
             if (!models.contains(name)) {
                 models.add(name)
             }
-            updateSessionsModelName(current, name)
+            if (provider.activeModel == current) {
+                provider.activeModel = name
+            }
+            updateSessionsModelName(providerId, current, name)
             if (currentSession?.model == current) {
                 updateCurrentModel(name)
             } else {
@@ -778,13 +904,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             if (confirmed != Messages.YES) {
                 return@addActionListener
             }
-            val models = ensureModelList()
+            val models = ensureModelList(provider)
             models.remove(current)
             if (models.isEmpty()) {
                 models.add("gpt-4o-mini")
             }
             val fallback = models.first()
-            updateSessionsModelName(current, fallback)
+            if (provider.activeModel == current) {
+                provider.activeModel = fallback
+            }
+            updateSessionsModelName(providerId, current, fallback)
             if (currentSession?.model == current) {
                 updateCurrentModel(fallback)
             } else {
@@ -813,12 +942,37 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         dialog.isVisible = true
     }
 
+    private fun openProviderManager() {
+        val dialog = object : DialogWrapper(project, false) {
+            private val panel = AgentProviderConfigPanel(project)
+
+            init {
+                title = "供应方配置"
+                setSize(JBUI.scale(980), JBUI.scale(520))
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent = panel.component
+
+            override fun createActions(): Array<out Action?> = arrayOf()
+
+            override fun dispose() {
+                panel.dispose()
+                super.dispose()
+            }
+        }
+        dialog.showAndGet()
+        refreshProvidersAfterChange()
+    }
+
     private fun openMcpManager() {
         val dialog = object: DialogWrapper(project,false){
             val panel = McpConfigPanel(project) { text ->
                 if (text.isNotBlank()) {
-                    inputArea.append(if (inputArea.text.isBlank()) text else "\n$text")
-                    inputArea.requestFocusInWindow()
+                    SwingUtilities.invokeLater {
+                        inputArea.append(if (inputArea.text.isBlank()) text else "\n$text")
+                        inputArea.requestFocusInWindow()
+                    }
                 }
             }
             init {
@@ -837,10 +991,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         dialog.showAndGet()
     }
 
-    private fun updateSessionsModelName(oldName: String, newName: String) {
+    private fun refreshProvidersAfterChange() {
+        val previousId = currentSession?.providerId
+        refreshProviderSelector(previousId)
+        val selected = resolveSelectedProvider()
+        if (currentSession != null && selected != null && currentSession?.providerId != selected.id) {
+            updateCurrentProvider(selected)
+        } else {
+            updateStatus()
+        }
+    }
+
+    private fun updateSessionsModelName(providerId: String, oldName: String, newName: String) {
         for (i in 0 until sessionModel.size) {
             val session = sessionModel.getElementAt(i)
-            if (session.model == oldName) {
+            if (session.providerId == providerId && session.model == oldName) {
                 session.model = newName
                 session.state.model = newName
             }
@@ -851,7 +1016,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setActionEnabled(sendAction, false)
         setActionEnabled(stopAction, true)
         sessionSelector.isEnabled = false
+        providerSelector.isEnabled = false
         modelSelector.isEnabled = false
+        setActionEnabled(providerManageAction, false)
         setActionEnabled(modelManageAction, false)
         setActionEnabled(mcpManageAction, false)
         setInputEnabled(false)
@@ -862,7 +1029,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setActionEnabled(sendAction, true)
         setActionEnabled(stopAction, false)
         sessionSelector.isEnabled = true
+        providerSelector.isEnabled = true
         modelSelector.isEnabled = true
+        setActionEnabled(providerManageAction, true)
         setActionEnabled(modelManageAction, true)
         setActionEnabled(mcpManageAction, true)
         setInputEnabled(true)
@@ -962,6 +1131,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         inputHintLabel.foreground = JBColor.GRAY
         inputHintLabel.horizontalAlignment = SwingConstants.LEFT
+        val providerPanel = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(Box.createHorizontalGlue())
+            add(JLabel("供应方: "))
+            add(Box.createHorizontalStrut(6))
+            add(providerSelector)
+        }
         val modelPanel = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -976,8 +1153,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val actionPanel = JPanel(BorderLayout()).apply {
             isOpaque = false
-            add(modelPanel, BorderLayout.NORTH)
+            val selectorPanel = JPanel().apply {
+                isOpaque = false
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                add(providerPanel)
+                add(Box.createVerticalStrut(4))
+                add(modelPanel)
+            }
+            add(selectorPanel, BorderLayout.NORTH)
             val sendGroup = DefaultActionGroup().apply {
+                add(providerManageAction)
                 add(modelManageAction)
                 add(mcpManageAction)
                 addSeparator()
@@ -1006,19 +1191,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (text.isEmpty()) {
             return
         }
-        val apiKey = project.pluginState().agentOpenApiKey.trim()
+        val provider = resolveSelectedProvider()
+        if (provider == null) {
+            project.errorNotify("智能体", "请先在设置中配置供应方")
+            return
+        }
+        val apiKey = provider.apiKey.trim()
         if (apiKey.isBlank()) {
-            project.errorNotify("智能体", "请先在设置中配置 OpenAPI Key")
+            project.errorNotify("智能体", "请先在供应方配置中填写 API Key")
+            return
+        }
+        val providerType = AgentProviderType.fromId(provider.type)
+        if (providerType == AgentProviderType.ANTHROPIC && provider.maxTokens <= 0) {
+            project.errorNotify("智能体", "请在供应方配置中设置 Max Tokens")
             return
         }
         if (!sending.compareAndSet(false, true)) {
             return
         }
-        val baseUrl = project.pluginState().agentOpenApiBaseUrl.trim()
-        val model = session.model.trim().ifBlank {
-            project.pluginState().agentModel.trim().ifBlank { "gpt-4o-mini" }
-        }
+        val model = session.model.trim().ifBlank { resolveDefaultModel(provider) }
         updateCurrentModel(model)
+        updateCurrentProvider(provider)
         val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
         val toolTimeoutMs = project.pluginState().agentToolTimeoutMs.takeIf { it > 0 } ?: 120_000
         val requestId = requestCounter.incrementAndGet()
@@ -1026,7 +1219,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val token = AgentClient.CancelToken()
         cancelToken = token
         suppressToolMarkup = false
-        inputArea.text = ""
+        SwingUtilities.invokeLater { inputArea.text = "" }
         appendMessage("用户", text, collapsible = false, collapsedByDefault = false)
         updateSessionTitle(text)
         beginRequestUi()
@@ -1049,8 +1242,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val result = client.complete(
                 session.messages,
                 toolRegistry,
-                apiKey,
-                baseUrl,
+                provider,
                 model,
                 onDelta = { delta ->
                     streamedContent.set(true)
@@ -1309,12 +1501,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun updateStatus() {
-        val apiKey = project.pluginState().agentOpenApiKey.trim()
-        val baseUrl = project.pluginState().agentOpenApiBaseUrl.trim().ifBlank { "https://api.openai.com/v1" }
+        val provider = resolveSelectedProvider()
+        val providerType = AgentProviderType.fromId(provider?.type)
+        val apiKey = provider?.apiKey?.trim().orEmpty()
+        val baseUrl = provider?.baseUrl?.trim()
+            ?.ifBlank { AgentProviderSupport.defaultBaseUrl(providerType) }
+            .orEmpty()
         val model = currentSession?.model?.trim()
-            ?.ifBlank { project.pluginState().agentModel.trim() }
-            ?.ifBlank { "gpt-4o-mini" }
-            ?: "gpt-4o-mini"
+            ?.ifBlank { resolveDefaultModel(provider) }
+            ?: resolveDefaultModel(provider)
         val mcpServers = McpSupport.safeServers(project.pluginState().agentMcpServers)
         val enabledCount = mcpServers.count { it.enabled }
         val mcpStatus = if (project.pluginState().agentMcpEnabled) {
@@ -1322,10 +1517,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         } else {
             "MCP: 未启用"
         }
-        statusLabel.text = if (apiKey.isBlank()) {
-            "API Key 未配置 | Base URL: $baseUrl | Model: $model | $mcpStatus"
+        statusLabel.text = if (provider == null) {
+            "供应方未配置 | Model: $model | $mcpStatus"
+        } else if (apiKey.isBlank()) {
+            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $model | $mcpStatus"
         } else {
-            "OpenAPI: 已配置 | Base URL: $baseUrl | Model: $model | $mcpStatus"
+            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $model | $mcpStatus"
         }
     }
 
@@ -1393,6 +1590,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         var title: String,
         var autoTitle: Boolean,
         var model: String,
+        var providerId: String,
         val messages: MutableList<JsonObject>,
         val renders: MutableList<RenderItem>,
         val state: AgentSessionState,

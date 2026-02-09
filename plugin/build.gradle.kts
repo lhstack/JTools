@@ -9,14 +9,13 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.2.8"
+version = "1.1.2.9"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
         defaultRepositories()
     }
     mavenLocal()
-    maven("https://maven.aliyun.com/repository/public/")
     mavenCentral()
 }
 
@@ -25,6 +24,8 @@ dependencies {
     implementation("cn.hutool:hutool-core:5.8.37")
     implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
+    implementation("com.anthropic:anthropic-java:2.14.0")
+    implementation("com.openai:openai-java:4.18.0")
     implementation(project(":sdk"))
     intellijPlatform{
         intellijIdeaCommunity("2025.2")
@@ -66,7 +67,7 @@ val proguardRules = listOf(
     "-keepclassmembers class com.lhstack.tools.actions.DeveloperState\$State** { *; }",
     "-keepattributes Signature,InnerClasses,*Annotation*",
     """
-        -keepclassmember class com.lhstack.tools.actions.** {
+        -keepclassmembers class com.lhstack.tools.actions.** {
             public *;
             protected *;
         }
@@ -81,27 +82,27 @@ val proguardRules = listOf(
             *;
         }
         
-        -keepclassmember class com.lhstack.tools.plugins.** {
+        -keepclassmembers class com.lhstack.tools.plugins.** {
             public *;
             protected *;
         }
         
-        -keepclassmember class com.lhstack.tools.listener.** {
+        -keepclassmembers class com.lhstack.tools.listener.** {
             public *;
             protected *;
         }
         
-        -keepclassmember class com.lhstack.tools.ext.** {
+        -keepclassmembers class com.lhstack.tools.ext.** {
             public *;
             protected *;
         }
         
-        -keepclassmember class com.lhstack.tools.const.** {
+        -keepclassmembers class com.lhstack.tools.const.** {
             public *;
             protected *;
         }
 
-        -keepclassmember class com.lhstack.tools.agent.** {
+        -keepclassmembers class com.lhstack.tools.agent.** {
             public *;
             protected *;
         }
@@ -114,17 +115,21 @@ val proguardRules = listOf(
         -keepclassmembers class com.lhstack.tools.agent.McpServerState { *; }
         -keepclassmembers class com.lhstack.tools.agent.AgentSessionState { *; }
         -keepclassmembers class com.lhstack.tools.agent.AgentRenderState { *; }
+        -keep class com.lhstack.tools.agent.AgentProviderState { *; }
+        -keep class com.lhstack.tools.agent.AgentProxyType { *; }
+        -keep class com.lhstack.tools.agent.AgentProviderType { *; }
+        -keepclassmembers class com.lhstack.tools.agent.AgentProviderState { *; }
         -keepclassmembers class com.lhstack.tools.agent.McpToolDescriptorState { *; }
         -keepclassmembers class com.lhstack.tools.agent.McpResourceDescriptorState { *; }
         -keepclassmembers class com.lhstack.tools.agent.McpPromptArgumentState { *; }
         -keepclassmembers class com.lhstack.tools.agent.McpPromptDescriptorState { *; }
 
-        -keepclassmember class com.lhstack.tools.dev.** {
+        -keepclassmembers class com.lhstack.tools.dev.** {
             public *;
             protected *;
         }
        
-       -keepclassmember class com.intellij.util.lang.ClassPath** {
+       -keepclassmembers class com.intellij.util.lang.ClassPath** {
             public *;
             protected *;
         }
@@ -135,12 +140,12 @@ val proguardRules = listOf(
         
         -keep class com.intellij.util.lang.ClassPath
             
-        -keepclassmember class com.lhstack.tools.components.** {
+        -keepclassmembers class com.lhstack.tools.components.** {
             public *;
             protected *;
         }
         
-        -keepclassmember class com.lhstack.tools.converter.** {
+        -keepclassmembers class com.lhstack.tools.converter.** {
             public *;
             protected *;
         }

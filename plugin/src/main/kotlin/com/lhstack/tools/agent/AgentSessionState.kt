@@ -3,6 +3,7 @@ package com.lhstack.tools.agent
 class AgentSessionState {
     var id: String = ""
     var projectKey: String = ""
+    var providerId: String = ""
     var title: String = ""
     var autoTitle: Boolean = true
     var model: String = ""

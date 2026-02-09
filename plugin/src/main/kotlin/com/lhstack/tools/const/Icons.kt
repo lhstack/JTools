@@ -14,6 +14,10 @@ class Icons {
 
         fun settingIcon() = findIcon("icons/setting.svg")
 
+        fun providerConfigIcon() = findIcon("icons/provider_config.svg")
+
+        fun mcpConfigIcon() = findIcon("icons/mcp_config.svg")
+
         fun addIcon() = findIcon("icons/add.svg")
 
         fun addHoverIcon() = findIcon("icons/add_hover.svg")

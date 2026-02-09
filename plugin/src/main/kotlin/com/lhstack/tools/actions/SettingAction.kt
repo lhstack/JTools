@@ -1,7 +1,6 @@
 package com.lhstack.tools.actions
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.ui.HyperlinkLabel
@@ -10,6 +9,7 @@ import com.intellij.util.ui.JBUI
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.*
+import com.lhstack.tools.agent.AgentProviderConfigPanel
 import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
@@ -21,9 +21,10 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.*
+import com.intellij.openapi.ui.DialogWrapper
 
 
-class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : AbstractPageAction(
+class SettingAction(windowPanel: SimpleToolWindowPanel, val project: Project) : AbstractPageAction(
     { "设置" },
     Icons.settingIcon(), windowPanel
 ) {
@@ -133,19 +134,12 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         })
         panel.add(JSeparator(SwingConstants.HORIZONTAL))
 
-        // 智能体 OpenAPI 设置
+        // 智能体供应方设置
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JLabel("智能体设置: "))
-            this.add(JLabel("仅支持 OpenAPI 方式"))
+            this.add(JLabel("支持多供应方"))
         })
-        val apiKeyField = JPasswordField(this.pluginState().agentOpenApiKey).apply {
-            columns = 30
-            toolTipText = "OpenAPI Key"
-        }
-        val endpointField = ComboBox<String>().apply {
-            isEditable = true
-            toolTipText = "OpenAPI Base URL"
-        }
+        val providerManageButton = JButton("供应方管理")
         val maxIterationsField = JBTextField(this.pluginState().agentMaxToolIterations.toString()).apply {
             columns = 6
             toolTipText = "最大工具调用轮次(正整数, 默认30)"
@@ -156,30 +150,9 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
             toolTipText = "单次工具调用超时(毫秒, 默认120000)"
             isEditable = true
         }
-        val endpointPresets = linkedMapOf(
-            "OpenAI" to "https://api.openai.com/v1",
-            "DeepSeek" to "https://api.deepseek.com/v1",
-            "Groq" to "https://api.groq.com/openai/v1",
-            "Moonshot" to "https://api.moonshot.cn/v1",
-            "DashScope" to "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
-        val savedEndpoint = this.pluginState().agentOpenApiBaseUrl.trim()
-        if (savedEndpoint.isNotEmpty() && !endpointPresets.values.contains(savedEndpoint)) {
-            endpointField.addItem(savedEndpoint)
+        providerManageButton.addActionListener {
+            openProviderManager()
         }
-        endpointPresets.values.forEach { endpointField.addItem(it) }
-        endpointField.editor.item = savedEndpoint
-        (endpointField.editor.editorComponent as? JComponent)?.addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent) {
-                val editor = endpointField.editor.editorComponent as? JComponent ?: return
-                if (SwingUtilities.isLeftMouseButton(e) && !endpointField.isPopupVisible) {
-                    if (!editor.hasFocus()) {
-                        endpointField.showPopup()
-                        SwingUtilities.invokeLater { editor.requestFocusInWindow() }
-                    }
-                }
-            }
-        })
 
         val agentForm = JPanel(GridBagLayout())
         val labelInsets = JBUI.insets(2, 0, 2, 8)
@@ -193,24 +166,14 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         constraints.gridy = 0
         constraints.weightx = 0.0
         constraints.insets = labelInsets
-        agentForm.add(JLabel("  API Key: "), constraints)
+        agentForm.add(JLabel("  供应方: "), constraints)
         constraints.gridx = 1
         constraints.weightx = 1.0
         constraints.insets = fieldInsets
-        agentForm.add(apiKeyField, constraints)
+        agentForm.add(providerManageButton, constraints)
 
         constraints.gridx = 0
         constraints.gridy = 1
-        constraints.weightx = 0.0
-        constraints.insets = labelInsets
-        agentForm.add(JLabel("  Base URL: "), constraints)
-        constraints.gridx = 1
-        constraints.weightx = 1.0
-        constraints.insets = fieldInsets
-        agentForm.add(endpointField, constraints)
-
-        constraints.gridx = 0
-        constraints.gridy = 2
         constraints.weightx = 0.0
         constraints.insets = labelInsets
         agentForm.add(JLabel("  Max Tool Iterations: "), constraints)
@@ -220,7 +183,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         agentForm.add(maxIterationsField, constraints)
 
         constraints.gridx = 0
-        constraints.gridy = 3
+        constraints.gridy = 2
         constraints.weightx = 0.0
         constraints.insets = labelInsets
         agentForm.add(JLabel("  Tool Timeout (ms): "), constraints)
@@ -233,8 +196,6 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
         panel.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             this.add(JButton("应用").apply {
                 this.addActionListener {
-                    this.pluginState().agentOpenApiKey = String(apiKeyField.password).trim()
-                    this.pluginState().agentOpenApiBaseUrl = (endpointField.editor.item?.toString() ?: "").trim()
                     val maxIterations = maxIterationsField.text.trim().toIntOrNull()
                     if (maxIterations != null && maxIterations > 0) {
                         this.pluginState().agentMaxToolIterations = maxIterations
@@ -243,7 +204,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                     if (toolTimeoutMs != null && toolTimeoutMs > 0) {
                         this.pluginState().agentToolTimeoutMs = toolTimeoutMs
                     }
-                    project.infoNotify("智能体设置", "已保存 OpenAPI 配置")
+                    project.infoNotify("智能体设置", "已保存智能体配置")
                 }
             })
         })
@@ -255,6 +216,23 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, project: Project) : Abst
                 this.setHyperlinkTarget("https://github.com/orgs/jtools-plugins/repositories")
             })
         })
+    }
+
+    private fun openProviderManager() {
+        val dialog = object : DialogWrapper(project, false) {
+            private val panel = AgentProviderConfigPanel(project)
+
+            init {
+                title = "供应方配置"
+                setSize(JBUI.scale(980), JBUI.scale(520))
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent = panel.component
+
+            override fun createActions(): Array<out Action?> = arrayOf()
+        }
+        dialog.showAndGet()
     }
 
     override fun getPanel(): JComponent {

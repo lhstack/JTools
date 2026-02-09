@@ -32,6 +32,8 @@
         <li><b>📂 Customizable Storage:</b> Configure your preferred plugin installation directory with automatic isolation by JetBrains product and version.</li>
         <li><b>📋 Integrated Logging:</b> Built-in logging console with soft-wrap output for easy troubleshooting during development and runtime.</li>
         <li><b>🤖 Agent Chat:</b> Built-in agent entry with streaming output, reasoning blocks, and collapsible tool logs.</li>
+        <li><b>🧭 Provider Manager:</b> Multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy.</li>
+        <li><b>🎛️ Provider Selector:</b> Provider selector with per-provider model lists and defaults.</li>
         <li><b>🧰 Function Calling:</b> Aggregated plugin and system tools with unique identifiers to avoid name conflicts.</li>
         <li><b>📦 Plugin Ops:</b> Local/URL/batch install and uninstall tool calls for faster workflows.</li>
         <li><b>🧪 Dev Testing:</b> Developer panel can expose current plugin instance tool calls for debugging.</li>
@@ -79,6 +81,8 @@
         <li><b>📂 自定义存储：</b>可配置首选的插件安装目录，按 JetBrains 产品和版本自动隔离。</li>
         <li><b>📋 集成日志：</b>内置日志控制台，支持软换行输出，便于开发和运行时故障排查。</li>
         <li><b>🤖 智能体对话：</b>内置智能体入口，支持流式输出、推理块展示与工具调用折叠日志。</li>
+        <li><b>🧭 供应方管理：</b>多供应方配置（OpenAI/Anthropic），支持 Base URL、请求头、代理。</li>
+        <li><b>🎛️ 供应方选择：</b>对话中可选供应方，并维护供应方级别模型列表与默认模型。</li>
         <li><b>🧰 函数调用：</b>聚合插件与系统工具并增加唯一标识，避免名称冲突。</li>
         <li><b>📦 插件管理：</b>支持本地/URL/批量安装与卸载的工具调用。</li>
         <li><b>🧪 开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试。</li>
@@ -111,8 +115,18 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.8</h2>
+            <h2>📦 Version v1.1.2.9</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧭 <b>Provider Manager:</b> Added multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy</li>
+                <li>🎛️ <b>Provider Selector:</b> Provider selector and per-provider model lists in chat</li>
+                <li>🔌 <b>SDK Upgrade:</b> Switched to OpenAI/Anthropic SDKs with streaming and tool-call support</li>
+                <li>🧭 <b>供应方管理：</b>新增多供应方配置（OpenAI/Anthropic），支持 Base URL、请求头、代理</li>
+                <li>🎛️ <b>供应方选择：</b>对话支持供应方选择，并按供应方管理模型列表</li>
+                <li>🔌 <b>SDK 升级：</b>OpenAI/Anthropic 调用切换为官方 SDK，完善流式与工具调用</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.8</h2>
             <ul>
                 <li>🔌 <b>MCP Client:</b> Added external MCP server support with stdio/SSE/streamable HTTP transports</li>
                 <li>🔌 <b>MCP 客户端：</b>新增外部 MCP 服务支持，覆盖 stdio/SSE/streamable HTTP 传输</li>

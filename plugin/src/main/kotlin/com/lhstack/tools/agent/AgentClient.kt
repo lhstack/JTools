@@ -1,21 +1,53 @@
 package com.lhstack.tools.agent
 
+import com.anthropic.client.AnthropicClient
+import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.core.JsonValue as AnthropicJsonValue
+import com.anthropic.core.jsonMapper as anthropicJsonMapper
+import com.anthropic.helpers.MessageAccumulator
+import com.anthropic.models.messages.ContentBlockParam
+import com.anthropic.models.messages.Message
+import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.MessageParam
+import com.anthropic.models.messages.Model
+import com.anthropic.models.messages.TextBlockParam
+import com.anthropic.models.messages.Tool
+import com.anthropic.models.messages.ToolChoiceAuto
+import com.anthropic.models.messages.ToolResultBlockParam
+import com.anthropic.models.messages.ToolUnion
+import com.anthropic.models.messages.ToolUseBlockParam
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.util.concurrency.AppExecutorUtil
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.time.Duration
-import java.util.concurrent.CancellationException
+import com.openai.client.OpenAIClient
+import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.JsonValue as OpenAiJsonValue
+import com.openai.models.ChatModel
+import com.openai.models.FunctionDefinition
+import com.openai.models.FunctionParameters
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam
+import com.openai.models.chat.completions.ChatCompletionCreateParams
+import com.openai.models.chat.completions.ChatCompletionFunctionTool
+import com.openai.models.chat.completions.ChatCompletionMessage
+import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall
+import com.openai.models.chat.completions.ChatCompletionMessageParam
+import com.openai.models.chat.completions.ChatCompletionMessageToolCall
+import com.openai.models.chat.completions.ChatCompletionSystemMessageParam
+import com.openai.models.chat.completions.ChatCompletionTool
+import com.openai.models.chat.completions.ChatCompletionToolChoiceOption
+import com.openai.models.chat.completions.ChatCompletionToolMessageParam
+import com.openai.models.chat.completions.ChatCompletionUserMessageParam
+import java.util.Collections
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.net.InetSocketAddress
+import java.net.Proxy
 
 data class ToolCallLog(
     val name: String,
@@ -37,10 +69,11 @@ data class AgentCompletionResult(
 )
 
 class AgentClient {
-    private val httpClient: HttpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofMinutes(5))
-        .build()
     private val toolExecutor = AppExecutorUtil.getAppExecutorService()
+    private val openAiClients = mutableMapOf<String, OpenAIClient>()
+    private val anthropicClients = mutableMapOf<String, AnthropicClient>()
+    private val clientLock = Any()
+    private val anthropicMapper = anthropicJsonMapper()
 
     class CancelToken {
         private val cancelled = AtomicBoolean(false)
@@ -71,8 +104,7 @@ class AgentClient {
     fun complete(
         messages: MutableList<JsonObject>,
         toolRegistry: AgentToolRegistry,
-        apiKey: String,
-        baseUrl: String,
+        provider: AgentProviderState,
         model: String,
         onDelta: ((String) -> Unit)? = null,
         onReasoningDelta: ((String) -> Unit)? = null,
@@ -83,7 +115,7 @@ class AgentClient {
         cancelToken: CancelToken? = null,
     ): AgentCompletionResult {
         val toolCalls = mutableListOf<ToolCallLog>()
-        val endpoint = normalizeEndpoint(baseUrl)
+        val providerType = AgentProviderType.fromId(provider.type)
         var iterations = 0
         var lastToolSignature: String? = null
         var repeatedToolCalls = 0
@@ -98,20 +130,54 @@ class AgentClient {
                 )
             }
             val response = try {
-                if (onDelta == null) {
-                    requestChatCompletion(messages, toolRegistry.toolsJson(), apiKey, endpoint, model, cancelToken)
-                } else {
-                    requestChatCompletionStream(
-                        messages,
-                        toolRegistry.toolsJson(),
-                        apiKey,
-                        endpoint,
-                        model,
-                        onDelta,
-                        onReasoningDelta,
-                        onToolCall,
-                        cancelToken
-                    )
+                when (providerType) {
+                    AgentProviderType.OPENAI -> {
+                        if (onDelta == null) {
+                            requestOpenAiChatCompletion(
+                                messages,
+                                toolRegistry.toolsJson(),
+                                provider,
+                                model,
+                                cancelToken
+                            )
+                        } else {
+                            requestOpenAiChatCompletionStream(
+                                messages,
+                                toolRegistry.toolsJson(),
+                                provider,
+                                model,
+                                onDelta,
+                                onReasoningDelta,
+                                onToolCall,
+                                cancelToken
+                            )
+                        }
+                    }
+                    AgentProviderType.ANTHROPIC -> {
+                        val maxTokens = provider.maxTokens
+                        if (onDelta == null) {
+                            requestAnthropicMessage(
+                                messages,
+                                toolRegistry.toolsJson(),
+                                provider,
+                                model,
+                                maxTokens,
+                                cancelToken
+                            )
+                        } else {
+                            requestAnthropicMessageStream(
+                                messages,
+                                toolRegistry.toolsJson(),
+                                provider,
+                                model,
+                                maxTokens,
+                                onDelta,
+                                onReasoningDelta,
+                                onToolCall,
+                                cancelToken
+                            )
+                        }
+                    }
                 }
             } catch (e: Throwable) {
                 return AgentCompletionResult(
@@ -189,175 +255,111 @@ class AgentClient {
         )
     }
 
-    private fun requestChatCompletion(
+    private fun requestOpenAiChatCompletion(
         messages: List<JsonObject>,
         tools: JsonArray,
-        apiKey: String,
-        endpoint: String,
+        provider: AgentProviderState,
         model: String,
         cancelToken: CancelToken?,
     ): Pair<String?, JsonObject?> {
-        val requestBody = JsonObject().apply {
-            addProperty("model", model)
-            add("messages", JsonArray().apply { messages.forEach { add(it) } })
-            add("tools", tools)
-            addProperty("tool_choice", "auto")
-        }
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create(endpoint))
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .timeout(Duration.ofSeconds(120))
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-            .build()
-        val future = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-        cancelToken?.register(future)
-        val response = try {
-            future.get()
-        } catch (e: CancellationException) {
+        if (cancelToken?.isCancelled() == true) {
             return "已取消" to null
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            return "请求已中断" to null
-        } catch (e: ExecutionException) {
-            return (e.cause?.message ?: "请求失败") to null
         }
-        if (response.statusCode() !in 200..299) {
-            return "请求失败: ${response.statusCode()} ${response.body()}" to null
-        }
-        val root = JsonParser.parseString(response.body()).asJsonObject
-        if (root.has("error")) {
-            return root.getAsJsonObject("error")?.get("message")?.asString to null
-        }
-        val choices = root.getAsJsonArray("choices")
-            ?: return "未返回 choices" to null
-        if (choices.size() == 0) {
-            return "未返回 choices" to null
-        }
-        val message = choices[0].asJsonObject.getAsJsonObject("message")
+        val client = getOpenAiClient(provider)
+        val params = buildOpenAiParams(messages, tools, model)
+        val completion = client.chat().completions().create(params)
+        val message = completion.choices().firstOrNull()?.message()
             ?: return "未返回 message" to null
-        return null to message
+        return null to openAiMessageToJson(message)
     }
 
-    private fun requestChatCompletionStream(
+    private fun requestOpenAiChatCompletionStream(
         messages: List<JsonObject>,
         tools: JsonArray,
-        apiKey: String,
-        endpoint: String,
+        provider: AgentProviderState,
         model: String,
         onDelta: (String) -> Unit,
         onReasoningDelta: ((String) -> Unit)?,
         onToolCall: ((ToolCallStreamEvent) -> Unit)?,
         cancelToken: CancelToken?,
     ): Pair<String?, JsonObject?> {
-        val requestBody = JsonObject().apply {
-            addProperty("model", model)
-            add("messages", JsonArray().apply { messages.forEach { add(it) } })
-            add("tools", tools)
-            addProperty("tool_choice", "auto")
-            addProperty("stream", true)
-        }
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create(endpoint))
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .timeout(Duration.ofSeconds(120))
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-            .build()
-        val future = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofLines())
-        cancelToken?.register(future)
-        val response = try {
-            future.get()
-        } catch (e: CancellationException) {
+        if (cancelToken?.isCancelled() == true) {
             return "已取消" to null
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            return "请求已中断" to null
-        } catch (e: ExecutionException) {
-            return (e.cause?.message ?: "请求失败") to null
         }
-        if (response.statusCode() !in 200..299) {
-            return "请求失败: ${response.statusCode()}" to null
-        }
-
+        val client = getOpenAiClient(provider)
+        val params = buildOpenAiParams(messages, tools, model)
         val toolCalls = linkedMapOf<Int, ToolCallBuilder>()
-        val assistantContent = StringBuilder()
-        var role: String? = null
-        response.body().use { lines ->
-            val iterator = lines.iterator()
+        val toolCallIdToIndex = linkedMapOf<String, Int>()
+        val contentBuilder = StringBuilder()
+        val pendingReasoning = StringBuilder()
+        var cancelled = false
+        val response = client.chat().completions().createStreaming(params)
+        response.use { streamResponse ->
+            val iterator = streamResponse.stream().iterator()
             while (iterator.hasNext()) {
                 if (cancelToken?.isCancelled() == true) {
-                    return "已取消" to null
-                }
-                val line = iterator.next().trim()
-                if (line.isEmpty()) {
-                    continue
-                }
-                if (!line.startsWith("data:")) {
-                    continue
-                }
-                val data = line.removePrefix("data:").trim()
-                if (data == "[DONE]") {
+                    cancelled = true
                     break
                 }
-                val chunk = try {
-                    JsonParser.parseString(data).asJsonObject
-                } catch (_: Throwable) {
-                    continue
-                }
-                if (chunk.has("error")) {
-                    val message = chunk.getAsJsonObject("error")?.get("message")?.asString
-                    return message to null
-                }
-                val choices = chunk.getAsJsonArray("choices") ?: continue
-                if (choices.size() == 0) {
-                    continue
-                }
-                val choice = choices[0].asJsonObject
-                val delta = choice.getAsJsonObject("delta") ?: continue
-                val roleDelta = delta.get("role")?.asString
-                if (!roleDelta.isNullOrBlank()) {
-                    role = roleDelta
-                }
-                val reasoningDelta = delta.get("reasoning_content")?.takeIf { !it.isJsonNull }?.asString
-                    ?: delta.get("reasoning")?.takeIf { !it.isJsonNull }?.asString
-                if (!reasoningDelta.isNullOrEmpty()) {
-                    onReasoningDelta?.invoke(reasoningDelta)
-                }
-                val contentDelta = delta.get("content")?.takeIf { !it.isJsonNull }?.asString
-                if (!contentDelta.isNullOrEmpty()) {
-                    assistantContent.append(contentDelta)
-                    onDelta.invoke(contentDelta)
-                }
-                val toolCallsDelta = delta.getAsJsonArray("tool_calls")
-                if (toolCallsDelta != null) {
-                    toolCallsDelta.forEach { element ->
-                        val callDelta = element.asJsonObject
-                        val index = callDelta.get("index")?.asInt ?: 0
+                val chunk = iterator.next()
+                chunk.choices().forEach { choice ->
+                    val delta = choice.delta()
+                    val extra = delta._additionalProperties()
+                    val reasoningDelta =
+                        extra["reasoning_content"]?.asString()?.orElse(null)
+                            ?: extra["reasoning"]?.asString()?.orElse(null)
+                    if (!reasoningDelta.isNullOrBlank()) {
+                        pendingReasoning.append(reasoningDelta)
+                        onReasoningDelta?.invoke(reasoningDelta)
+                    }
+                    val contentDelta = delta.content().orElse(null)
+                    if (!contentDelta.isNullOrBlank()) {
+                        contentBuilder.append(contentDelta)
+                        onDelta.invoke(contentDelta)
+                    }
+                    val refusalDelta = delta.refusal().orElse(null)
+                    if (!refusalDelta.isNullOrBlank()) {
+                        contentBuilder.append(refusalDelta)
+                        onDelta.invoke(refusalDelta)
+                    }
+                    delta.toolCalls().orElse(emptyList()).forEach { callDelta ->
+                        val indexValue = callDelta._index().asKnown().orElse(null)
+                        val id = callDelta.id().orElse(null)
+                        val index = when {
+                            indexValue != null -> indexValue.toInt()
+                            id != null -> toolCallIdToIndex.getOrPut(id) {
+                                (toolCalls.keys.maxOrNull() ?: -1) + 1
+                            }
+                            toolCalls.size == 1 && toolCalls.values.first().id.isNullOrBlank() ->
+                                toolCalls.keys.first()
+                            else -> (toolCalls.keys.maxOrNull() ?: -1) + 1
+                        }
                         val builder = toolCalls.getOrPut(index) { ToolCallBuilder() }
-                        callDelta.get("id")?.takeIf { !it.isJsonNull }?.asString?.let { builder.id = it }
-                        val function = callDelta.getAsJsonObject("function")
-                        val nameFromFunction = function?.get("name")?.takeIf { !it.isJsonNull }?.asString
-                        val nameFromDelta = callDelta.get("name")?.takeIf { !it.isJsonNull }?.asString
-                        val resolvedName = nameFromFunction ?: nameFromDelta
-                        if (!resolvedName.isNullOrBlank()) {
-                            builder.name = resolvedName
+                        if (!id.isNullOrBlank()) {
+                            builder.id = id
+                        }
+                        val function = callDelta.function().orElse(null)
+                        val name = function?.name()?.orElse(null)
+                        if (!name.isNullOrBlank()) {
+                            builder.name = name
                             if (!builder.started) {
                                 builder.started = true
                                 onToolCall?.invoke(
-                                    ToolCallStreamEvent(index, builder.name.orEmpty(), builder.arguments.toString(), false)
+                                    ToolCallStreamEvent(index, name, builder.arguments.toString(), false)
                                 )
                             }
                         }
-                        function?.get("arguments")?.takeIf { !it.isJsonNull }?.asString?.let {
-                            builder.arguments.append(it)
+                        val arguments = function?.arguments()?.orElse(null)
+                        if (!arguments.isNullOrEmpty()) {
+                            builder.arguments.append(arguments)
                         }
                     }
                 }
             }
         }
-
+        if (cancelled) {
+            return "已取消" to null
+        }
         if (toolCalls.isNotEmpty()) {
             toolCalls.toSortedMap().forEach { (index, builder) ->
                 if (!builder.name.isNullOrBlank()) {
@@ -367,18 +369,98 @@ class AgentClient {
                 }
             }
         }
-
-        val message = JsonObject().apply {
-            addProperty("role", role ?: "assistant")
-            if (assistantContent.isNotEmpty()) {
-                addProperty("content", assistantContent.toString())
+        val toolCallsJson = JsonArray()
+        toolCalls.toSortedMap().forEach { (_, builder) ->
+            if (!builder.name.isNullOrBlank()) {
+                toolCallsJson.add(builder.toJson())
             }
-            if (toolCalls.isNotEmpty()) {
-                val toolArray = JsonArray()
-                toolCalls.toSortedMap().forEach { (_, builder) ->
-                    toolArray.add(builder.toJson())
+        }
+        val finalContent = if (contentBuilder.isNotBlank()) {
+            contentBuilder.toString()
+        } else {
+            pendingReasoning.toString().takeIf { it.isNotBlank() }?.let { stripThinkTags(it) }.orEmpty()
+        }
+        val messageJson = JsonObject().apply {
+            addProperty("role", "assistant")
+            if (finalContent.isNotBlank()) {
+                addProperty("content", finalContent)
+            }
+            if (toolCallsJson.size() > 0) {
+                add("tool_calls", toolCallsJson)
+            }
+        }
+        if (!messageJson.has("content") && toolCallsJson.size() == 0) {
+            return "未返回内容" to null
+        }
+        return null to messageJson
+    }
+
+    private fun requestAnthropicMessage(
+        messages: List<JsonObject>,
+        tools: JsonArray,
+        provider: AgentProviderState,
+        model: String,
+        maxTokens: Int,
+        cancelToken: CancelToken?,
+    ): Pair<String?, JsonObject?> {
+        if (cancelToken?.isCancelled() == true) {
+            return "已取消" to null
+        }
+        val client = getAnthropicClient(provider)
+        val params = buildAnthropicParams(messages, tools, model, maxTokens)
+        val response = client.messages().create(params)
+        val message = anthropicMessageToOpenAi(response) ?: return "未返回内容" to null
+        return null to message
+    }
+
+    private fun requestAnthropicMessageStream(
+        messages: List<JsonObject>,
+        tools: JsonArray,
+        provider: AgentProviderState,
+        model: String,
+        maxTokens: Int,
+        onDelta: (String) -> Unit,
+        onReasoningDelta: ((String) -> Unit)?,
+        onToolCall: ((ToolCallStreamEvent) -> Unit)?,
+        cancelToken: CancelToken?,
+    ): Pair<String?, JsonObject?> {
+        if (cancelToken?.isCancelled() == true) {
+            return "已取消" to null
+        }
+        val client = getAnthropicClient(provider)
+        val params = buildAnthropicParams(messages, tools, model, maxTokens)
+        val accumulator = MessageAccumulator.create()
+        var cancelled = false
+        val response = client.messages().createStreaming(params)
+        response.use { streamResponse ->
+            val iterator = streamResponse.stream().iterator()
+            while (iterator.hasNext()) {
+                if (cancelToken?.isCancelled() == true) {
+                    cancelled = true
+                    break
                 }
-                add("tool_calls", toolArray)
+                val event = iterator.next()
+                accumulator.accumulate(event)
+                val deltaEvent = event.contentBlockDelta().orElse(null)
+                if (deltaEvent != null) {
+                    val delta = deltaEvent.delta()
+                    delta.text().ifPresent { onDelta(it.text()) }
+                    delta.thinking().ifPresent { onReasoningDelta?.invoke(it.thinking()) }
+                }
+            }
+        }
+        if (cancelled) {
+            return "已取消" to null
+        }
+        val message = anthropicMessageToOpenAi(accumulator.message()) ?: return "未返回内容" to null
+        val toolCallsArray = message.getAsJsonArray("tool_calls")
+        if (toolCallsArray != null && toolCallsArray.size() > 0) {
+            toolCallsArray.forEachIndexed { index, element ->
+                val call = element.asJsonObject
+                val function = call.getAsJsonObject("function")
+                val name = function?.get("name")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                val arguments = function?.get("arguments")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                onToolCall?.invoke(ToolCallStreamEvent(index, name, arguments, true))
             }
         }
         return null to message
@@ -450,13 +532,446 @@ class AgentClient {
         }
     }
 
-    private fun normalizeEndpoint(baseUrl: String): String {
+    private fun getOpenAiClient(provider: AgentProviderState): OpenAIClient {
+        val apiKey = provider.apiKey.trim()
+        val baseUrl = normalizeOpenAiBaseUrl(provider.baseUrl)
+        val proxyKey = buildProxyKey(provider)
+        val headersKey = AgentProviderSupport.normalizeHeaderKey(provider.customHeaders)
+        val key = "openai|$baseUrl|$apiKey|$proxyKey|$headersKey"
+        synchronized(clientLock) {
+            openAiClients[key]?.let { return it }
+            val builder = OpenAIOkHttpClient.builder()
+                .apiKey(apiKey)
+                .baseUrl(baseUrl)
+            val headerResult = AgentProviderSupport.parseCustomHeaders(provider.customHeaders)
+            if (headerResult.headers.isNotEmpty()) {
+                builder.putAllHeaders(headerResult.headers)
+            }
+            buildProxy(provider)?.let { builder.proxy(it) }
+            val client = builder.build()
+            openAiClients[key] = client
+            return client
+        }
+    }
+
+    private fun getAnthropicClient(provider: AgentProviderState): AnthropicClient {
+        val apiKey = provider.apiKey.trim()
+        val baseUrl = normalizeAnthropicBaseUrl(provider.baseUrl)
+        val proxyKey = buildProxyKey(provider)
+        val headersKey = AgentProviderSupport.normalizeHeaderKey(provider.customHeaders)
+        val key = "anthropic|$baseUrl|$apiKey|$proxyKey|$headersKey"
+        synchronized(clientLock) {
+            anthropicClients[key]?.let { return it }
+            val builder = AnthropicOkHttpClient.builder()
+                .apiKey(apiKey)
+                .baseUrl(baseUrl)
+            val headerResult = AgentProviderSupport.parseCustomHeaders(provider.customHeaders)
+            if (headerResult.headers.isNotEmpty()) {
+                builder.putAllHeaders(headerResult.headers)
+            }
+            buildProxy(provider)?.let { builder.proxy(it) }
+            val client = builder.build()
+            anthropicClients[key] = client
+            return client
+        }
+    }
+
+    private fun buildProxyKey(provider: AgentProviderState): String {
+        if (!provider.proxyEnabled) {
+            return "proxy=none"
+        }
+        val type = AgentProxyType.fromId(provider.proxyType).id
+        val host = provider.proxyHost.trim()
+        val port = provider.proxyPort
+        return "proxy=$type:$host:$port"
+    }
+
+    private fun buildProxy(provider: AgentProviderState): Proxy? {
+        if (!provider.proxyEnabled) {
+            return null
+        }
+        val host = provider.proxyHost.trim()
+        val port = provider.proxyPort
+        if (host.isBlank() || port !in 1..65535) {
+            return null
+        }
+        val type = AgentProxyType.fromId(provider.proxyType).javaType
+        return Proxy(type, InetSocketAddress(host, port))
+    }
+
+    private fun normalizeOpenAiBaseUrl(baseUrl: String): String {
         val trimmed = baseUrl.trim().ifBlank { "https://api.openai.com/v1" }
         val normalized = trimmed.trimEnd('/')
-        return if (normalized.endsWith("/chat/completions")) {
-            normalized
+        val withoutChat = if (normalized.endsWith("/chat/completions")) {
+            normalized.removeSuffix("/chat/completions")
         } else {
-            "$normalized/chat/completions"
+            normalized
+        }
+        return if (withoutChat.contains("/v1")) {
+            withoutChat
+        } else {
+            "$withoutChat/v1"
+        }
+    }
+
+    private fun normalizeAnthropicBaseUrl(baseUrl: String): String {
+        val trimmed = baseUrl.trim().ifBlank { "https://api.anthropic.com" }
+        val normalized = trimmed.trimEnd('/')
+        return when {
+            normalized.endsWith("/v1/messages") -> normalized.removeSuffix("/v1/messages")
+            normalized.endsWith("/v1") -> normalized.removeSuffix("/v1")
+            else -> normalized
+        }
+    }
+
+    private fun extractSystemPrompt(messages: List<JsonObject>): String? {
+        val prompts = messages.mapNotNull { message ->
+            val role = message.get("role")?.asString ?: return@mapNotNull null
+            if (role != "system") return@mapNotNull null
+            message.get("content")?.takeIf { !it.isJsonNull }?.asString
+        }
+        return prompts.joinToString("\n").takeIf { it.isNotBlank() }
+    }
+
+    private fun buildOpenAiParams(
+        messages: List<JsonObject>,
+        tools: JsonArray,
+        model: String,
+    ): ChatCompletionCreateParams {
+        val builder = ChatCompletionCreateParams.builder()
+            .model(ChatModel.of(model))
+            .messages(toOpenAiMessages(messages))
+        val openAiTools = toOpenAiTools(tools)
+        if (openAiTools.isNotEmpty()) {
+            builder.tools(openAiTools)
+            builder.toolChoice(ChatCompletionToolChoiceOption.Auto.AUTO)
+        }
+        return builder.build()
+    }
+
+    private fun buildAnthropicParams(
+        messages: List<JsonObject>,
+        tools: JsonArray,
+        model: String,
+        maxTokens: Int,
+    ): MessageCreateParams {
+        val builder = MessageCreateParams.builder()
+            .model(Model.of(model))
+            .maxTokens(maxTokens.toLong())
+            .messages(toAnthropicMessages(messages))
+        val systemPrompt = extractSystemPrompt(messages)
+        if (!systemPrompt.isNullOrBlank()) {
+            builder.system(systemPrompt)
+        }
+        val anthropicTools = toAnthropicTools(tools)
+        if (anthropicTools.isNotEmpty()) {
+            builder.tools(anthropicTools)
+            builder.toolChoice(ToolChoiceAuto.builder().build())
+        }
+        return builder.build()
+    }
+
+    private fun toOpenAiMessages(messages: List<JsonObject>): List<ChatCompletionMessageParam> {
+        val result = mutableListOf<ChatCompletionMessageParam>()
+        messages.forEach { message ->
+            val role = message.get("role")?.asString ?: return@forEach
+            val content = message.get("content")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+            when (role) {
+                "system" -> {
+                    result.add(
+                        ChatCompletionMessageParam.ofSystem(
+                            ChatCompletionSystemMessageParam.builder().content(content).build()
+                        )
+                    )
+                }
+                "user" -> {
+                    result.add(
+                        ChatCompletionMessageParam.ofUser(
+                            ChatCompletionUserMessageParam.builder().content(content).build()
+                        )
+                    )
+                }
+                "assistant" -> {
+                    val builder = ChatCompletionAssistantMessageParam.builder()
+                    if (content.isNotBlank()) {
+                        builder.content(content)
+                    }
+                    val toolCallsArray = message.getAsJsonArray("tool_calls")
+                    if (toolCallsArray != null) {
+                        val toolCalls = toOpenAiToolCalls(toolCallsArray)
+                        if (toolCalls.isNotEmpty()) {
+                            builder.toolCalls(toolCalls)
+                        }
+                    }
+                    result.add(ChatCompletionMessageParam.ofAssistant(builder.build()))
+                }
+                "tool" -> {
+                    val toolCallId = message.get("tool_call_id")?.asString.orEmpty()
+                    result.add(
+                        ChatCompletionMessageParam.ofTool(
+                            ChatCompletionToolMessageParam.builder()
+                                .toolCallId(toolCallId)
+                                .content(content)
+                                .build()
+                        )
+                    )
+                }
+            }
+        }
+        return result
+    }
+
+    private fun toOpenAiTools(tools: JsonArray): List<ChatCompletionTool> {
+        val result = mutableListOf<ChatCompletionTool>()
+        tools.forEach { element ->
+            val tool = element.asJsonObject
+            val function = tool.getAsJsonObject("function") ?: return@forEach
+            val name = function.get("name")?.takeIf { !it.isJsonNull }?.asString ?: return@forEach
+            val description = function.get("description")?.takeIf { !it.isJsonNull }?.asString
+            val desc = description
+            val parameters = function.getAsJsonObject("parameters")
+            val paramsValue = toOpenAiJsonValue(parameters ?: JsonObject())
+            val paramsMap = paramsValue.asObject().orElse(emptyMap())
+            val params = FunctionParameters.builder().putAllAdditionalProperties(paramsMap).build()
+            val definition = FunctionDefinition.builder()
+                .name(name)
+                .apply { if (!desc.isNullOrBlank()) description(desc) }
+                .parameters(params)
+                .build()
+            val toolDefinition = ChatCompletionFunctionTool.builder().function(definition).build()
+            result.add(ChatCompletionTool.ofFunction(toolDefinition))
+        }
+        return result
+    }
+
+    private fun toOpenAiToolCalls(toolCalls: JsonArray): List<ChatCompletionMessageToolCall> {
+        val result = mutableListOf<ChatCompletionMessageToolCall>()
+        toolCalls.forEach { element ->
+            val call = element.asJsonObject
+            val id = call.get("id")?.takeIf { !it.isJsonNull }?.asString ?: return@forEach
+            val function = call.getAsJsonObject("function") ?: return@forEach
+            val name = function.get("name")?.takeIf { !it.isJsonNull }?.asString ?: return@forEach
+            val arguments = function.get("arguments")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+            val functionCall = ChatCompletionMessageFunctionToolCall.Function.builder()
+                .name(name)
+                .arguments(arguments)
+                .build()
+            val toolCall = ChatCompletionMessageFunctionToolCall.builder()
+                .id(id)
+                .function(functionCall)
+                .build()
+            result.add(ChatCompletionMessageToolCall.ofFunction(toolCall))
+        }
+        return result
+    }
+
+    private fun openAiMessageToJson(message: ChatCompletionMessage): JsonObject {
+        val toolCalls = JsonArray()
+        message.toolCalls().orElse(emptyList()).forEach { call ->
+            if (!call.isFunction()) {
+                return@forEach
+            }
+            val functionCall = call.asFunction()
+            val function = functionCall.function()
+            toolCalls.add(JsonObject().apply {
+                addProperty("id", functionCall.id())
+                addProperty("type", "function")
+                add("function", JsonObject().apply {
+                    addProperty("name", function.name())
+                    addProperty("arguments", function.arguments())
+                })
+            })
+        }
+        val content = message.content().orElse(null)?.takeIf { it.isNotBlank() }
+            ?: message.refusal().orElse(null)?.takeIf { it.isNotBlank() }
+        return JsonObject().apply {
+            addProperty("role", "assistant")
+            content?.let { addProperty("content", it) }
+            if (toolCalls.size() > 0) {
+                add("tool_calls", toolCalls)
+            }
+        }
+    }
+
+    private fun toAnthropicMessages(messages: List<JsonObject>): List<MessageParam> {
+        val result = mutableListOf<MessageParam>()
+        messages.forEach { message ->
+            val role = message.get("role")?.asString ?: return@forEach
+            if (role == "system") {
+                return@forEach
+            }
+            if (role == "tool") {
+                val toolId = message.get("tool_call_id")?.asString.orEmpty()
+                val content = message.get("content")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                val toolResult = ToolResultBlockParam.builder()
+                    .toolUseId(toolId)
+                    .content(content)
+                    .build()
+                val contentBlocks = listOf(ContentBlockParam.ofToolResult(toolResult))
+                result.add(
+                    MessageParam.builder()
+                        .role(MessageParam.Role.USER)
+                        .contentOfBlockParams(contentBlocks)
+                        .build()
+                )
+                return@forEach
+            }
+            val contentBlocks = mutableListOf<ContentBlockParam>()
+            val text = message.get("content")?.takeIf { !it.isJsonNull }?.asString
+            if (!text.isNullOrBlank()) {
+                val textBlock = TextBlockParam.builder().text(text).build()
+                contentBlocks.add(ContentBlockParam.ofText(textBlock))
+            }
+            val toolCalls = message.getAsJsonArray("tool_calls")
+            if (toolCalls != null) {
+                toolCalls.forEach { element ->
+                    val call = element.asJsonObject
+                    val id = call.get("id")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                    val function = call.getAsJsonObject("function")
+                    val name = function?.get("name")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                    val arguments = function?.get("arguments")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                    val input = parseArgsJson(arguments)
+                    val inputValue = toAnthropicJsonValue(input)
+                    val inputMap = inputValue.asObject().orElse(emptyMap())
+                    val toolUseInput = ToolUseBlockParam.Input.builder()
+                        .additionalProperties(inputMap)
+                        .build()
+                    val toolUseBlock = ToolUseBlockParam.builder()
+                        .id(id)
+                        .name(name)
+                        .input(toolUseInput)
+                        .build()
+                    contentBlocks.add(ContentBlockParam.ofToolUse(toolUseBlock))
+                }
+            }
+            if (contentBlocks.isNotEmpty()) {
+                val roleParam = if (role == "assistant") MessageParam.Role.ASSISTANT else MessageParam.Role.USER
+                result.add(
+                    MessageParam.builder()
+                        .role(roleParam)
+                        .contentOfBlockParams(contentBlocks)
+                        .build()
+                )
+            }
+        }
+        return result
+    }
+
+    private fun toAnthropicTools(tools: JsonArray): List<ToolUnion> {
+        val result = mutableListOf<ToolUnion>()
+        tools.forEach { element ->
+            val tool = element.asJsonObject
+            val function = tool.getAsJsonObject("function") ?: return@forEach
+            val name = function.get("name")?.takeIf { !it.isJsonNull }?.asString ?: return@forEach
+            val description = function.get("description")?.takeIf { !it.isJsonNull }?.asString
+            val desc = description
+            val inputSchemaJson = function.getAsJsonObject("parameters") ?: JsonObject()
+            val schemaValue = toAnthropicJsonValue(inputSchemaJson)
+            val schemaMap = schemaValue.asObject().orElse(emptyMap())
+            val schemaBuilder = Tool.InputSchema.builder()
+            schemaMap["type"]?.let { schemaBuilder.type(it) }
+            schemaMap["properties"]?.asObject()?.orElse(emptyMap<String, AnthropicJsonValue>())?.let { props ->
+                val propsValue = Tool.InputSchema.Properties.builder()
+                    .additionalProperties(props)
+                    .build()
+                schemaBuilder.properties(propsValue)
+            }
+            schemaMap["required"]?.asArray()?.let { requiredArray ->
+                val required = requiredArray.orElse(Collections.emptyList()).mapNotNull { it.asString().orElse(null) }
+                if (required.isNotEmpty()) {
+                    schemaBuilder.required(required)
+                }
+            }
+            val extra = schemaMap.filterKeys { it != "type" && it != "properties" && it != "required" }
+            if (extra.isNotEmpty()) {
+                schemaBuilder.additionalProperties(extra)
+            }
+            val toolDefinition = Tool.builder()
+                .name(name)
+                .inputSchema(schemaBuilder.build())
+                .apply { if (!desc.isNullOrBlank()) description(desc) }
+                .build()
+            result.add(ToolUnion.ofTool(toolDefinition))
+        }
+        return result
+    }
+
+    private fun anthropicMessageToOpenAi(message: Message): JsonObject? {
+        val textBuilder = StringBuilder()
+        val toolCalls = JsonArray()
+        message.content().forEach { block ->
+            when {
+                block.isText() -> textBuilder.append(block.asText().text())
+                block.isToolUse() -> {
+                    val toolUse = block.asToolUse()
+                    toolCalls.add(JsonObject().apply {
+                        addProperty("id", toolUse.id())
+                        addProperty("type", "function")
+                        add("function", JsonObject().apply {
+                            addProperty("name", toolUse.name())
+                            addProperty("arguments", anthropicJsonValueToString(toolUse._input()))
+                        })
+                    })
+                }
+            }
+        }
+        return JsonObject().apply {
+            addProperty("role", "assistant")
+            if (textBuilder.isNotEmpty()) {
+                addProperty("content", textBuilder.toString())
+            }
+            if (toolCalls.size() > 0) {
+                add("tool_calls", toolCalls)
+            }
+        }
+    }
+
+    private fun stripThinkTags(text: String): String {
+        return text.replace("<think>", "").replace("</think>", "").trim()
+    }
+
+    private fun anthropicJsonValueToString(value: AnthropicJsonValue): String {
+        return try {
+            anthropicMapper.writeValueAsString(value)
+        } catch (_: Throwable) {
+            value.toString()
+        }
+    }
+
+    private fun gsonToAny(element: JsonElement): Any? {
+        return when {
+            element.isJsonNull -> null
+            element.isJsonPrimitive -> {
+                val primitive = element.asJsonPrimitive
+                when {
+                    primitive.isBoolean -> primitive.asBoolean
+                    primitive.isNumber -> primitive.asNumber
+                    primitive.isString -> primitive.asString
+                    else -> primitive.asString
+                }
+            }
+            element.isJsonArray -> element.asJsonArray.map { gsonToAny(it) }
+            element.isJsonObject -> element.asJsonObject.entrySet().associate { it.key to gsonToAny(it.value) }
+            else -> null
+        }
+    }
+
+    private fun toOpenAiJsonValue(element: JsonElement): OpenAiJsonValue {
+        return OpenAiJsonValue.from(gsonToAny(element))
+    }
+
+    private fun toAnthropicJsonValue(element: JsonElement): AnthropicJsonValue {
+        return AnthropicJsonValue.from(gsonToAny(element))
+    }
+
+    private fun parseArgsJson(raw: String): JsonObject {
+        if (raw.isBlank()) {
+            return JsonObject()
+        }
+        return try {
+            JsonParser.parseString(raw).asJsonObject
+        } catch (_: Throwable) {
+            JsonObject()
         }
     }
 

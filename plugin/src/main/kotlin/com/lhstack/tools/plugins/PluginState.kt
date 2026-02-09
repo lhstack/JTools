@@ -27,6 +27,8 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentOpenApiBaseUrl: String = ""
         var agentModel: String = "gpt-4o-mini"
         var agentModels: MutableList<String> = mutableListOf("gpt-4o-mini")
+        var agentProviders: MutableList<com.lhstack.tools.agent.AgentProviderState> = mutableListOf()
+        var agentActiveProviderId: String = ""
         var agentSessions: MutableList<AgentSessionState> = mutableListOf()
         var agentActiveSessionId: String = ""
         var agentActiveSessionIdByProject: MutableMap<String, String> = mutableMapOf()
@@ -50,6 +52,39 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         com.lhstack.tools.agent.McpSupport.cleanServers(rawServers)
         state.agentMcpServers = rawServers
         state.agentSessions = state.agentSessions.filterIsInstance<AgentSessionState>().toMutableList()
+        val providers = state.agentProviders.filterIsInstance<com.lhstack.tools.agent.AgentProviderState>().toMutableList()
+        if (providers.isEmpty()) {
+            val legacyKey = state.agentOpenApiKey.trim()
+            val legacyBaseUrl = state.agentOpenApiBaseUrl.trim()
+            val provider = com.lhstack.tools.agent.AgentProviderState().apply {
+                name = "OpenAI"
+                type = com.lhstack.tools.agent.AgentProviderType.OPENAI.id
+                apiKey = legacyKey
+                baseUrl = if (legacyBaseUrl.isBlank()) {
+                    com.lhstack.tools.agent.AgentProviderSupport.defaultBaseUrl(
+                        com.lhstack.tools.agent.AgentProviderType.OPENAI
+                    )
+                } else {
+                    legacyBaseUrl
+                }
+            }
+            providers.add(provider)
+        }
+        val legacyModels = state.agentModels.filter { it.isNotBlank() }
+        val legacyActiveModel = state.agentModel.trim()
+        val legacyTargetId = state.agentActiveProviderId.ifBlank { providers.firstOrNull()?.id.orEmpty() }
+        val legacyTarget = providers.firstOrNull { it.id == legacyTargetId } ?: providers.firstOrNull()
+        if (legacyTarget != null && legacyTarget.models.isEmpty() && legacyModels.isNotEmpty()) {
+            legacyTarget.models.addAll(legacyModels)
+        }
+        if (legacyTarget != null && legacyTarget.activeModel.isBlank() && legacyActiveModel.isNotBlank()) {
+            legacyTarget.activeModel = legacyActiveModel
+        }
+        providers.forEach { com.lhstack.tools.agent.AgentProviderSupport.normalizeProvider(it) }
+        state.agentProviders = providers
+        if (state.agentActiveProviderId.isBlank() && providers.isNotEmpty()) {
+            state.agentActiveProviderId = providers.first().id
+        }
         this.state = state
     }
 }
