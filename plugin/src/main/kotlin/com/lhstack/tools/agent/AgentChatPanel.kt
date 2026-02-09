@@ -10,14 +10,17 @@ import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.jetbrains.rd.generator.nova.array
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.plugins.pluginState
@@ -34,6 +37,7 @@ import java.awt.event.KeyEvent
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.Action
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.DefaultComboBoxModel
@@ -663,23 +667,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openMcpManager() {
-        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "MCP 配置", Dialog.ModalityType.MODELESS)
-        dialog.defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
-        val panel = McpConfigPanel(project) { text ->
-            if (text.isNotBlank()) {
-                inputArea.append(if (inputArea.text.isBlank()) text else "\n$text")
-                inputArea.requestFocusInWindow()
+        val dialog = object: DialogWrapper(project,false){
+            val panel = McpConfigPanel(project) { text ->
+                if (text.isNotBlank()) {
+                    inputArea.append(if (inputArea.text.isBlank()) text else "\n$text")
+                    inputArea.requestFocusInWindow()
+                }
+            }
+            init {
+                this.title = "MCP 配置"
+                this.setSize(720,520)
+                Disposer.register(this.disposable){
+                    panel.dispose()
+                }
+                this.init()
+            }
+            override fun createCenterPanel(): JComponent = panel.component
+            override fun createActions(): Array<out Action?> {
+                return arrayOf()
             }
         }
-        dialog.addWindowListener(object : java.awt.event.WindowAdapter() {
-            override fun windowClosed(e: java.awt.event.WindowEvent?) {
-                panel.dispose()
-            }
-        })
-        dialog.contentPane = panel.component
-        dialog.setSize(720, 520)
-        dialog.setLocationRelativeTo(null)
-        dialog.isVisible = true
+        dialog.showAndGet()
     }
 
     private fun updateSessionsModelName(oldName: String, newName: String) {
@@ -733,7 +741,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun buildTopBar(): JComponent {
-        val sessionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+        val sessionPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
             isOpaque = false
             add(JLabel("会话: "))
             add(sessionSelector)
@@ -777,11 +785,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             isOpaque = false
             add(inputHintLabel, BorderLayout.WEST)
         }
-        val actionPanel = JPanel().apply {
+        val actionPanel = JPanel(BorderLayout()).apply {
             isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(modelPanel)
-            add(Box.createVerticalStrut(6))
+            add(modelPanel, BorderLayout.NORTH)
             val sendGroup = DefaultActionGroup().apply {
                 add(modelManageAction)
                 add(mcpManageAction)
@@ -790,13 +796,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 add(stopAction)
             }
             val sendToolbar = createToolbar("AgentSendToolbar", sendGroup, true, this)
-            val sendToolbarPanel = JPanel().apply {
-                isOpaque = false
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
-                add(Box.createHorizontalGlue())
-                add(sendToolbar)
-            }
-            add(sendToolbarPanel)
+            add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                this.add(sendToolbar)
+            }, BorderLayout.SOUTH)
         }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)

@@ -47,7 +47,7 @@ public class PluginImpl implements IPlugin {
 
     @Override
     public Support support(Integer jToolsVersion, IdeInfo ideInfo) {
-        return Support.NOT_SUPPORT;
+        return Support.SUPPORT;
     }
 
     @Override

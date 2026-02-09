@@ -66,7 +66,7 @@ class McpConfigPanel(
     private val authTypeCombo = ComboBox(
         arrayOf(McpAuthType.NONE.id, McpAuthType.HEADER.id, McpAuthType.BASIC.id, McpAuthType.QUERY.id)
     )
-    private val authHeaderNameField = JBTextField()
+    private val authHeaderNameField = JBTextField("Authorization")
     private val authHeaderValueField = JBTextField()
     private val authUsernameField = JBTextField()
     private val authPasswordField = JBTextField()
