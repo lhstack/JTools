@@ -2,8 +2,10 @@ package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
@@ -11,6 +13,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
+import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -19,6 +22,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
@@ -27,6 +31,9 @@ import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
+import javax.swing.event.DocumentEvent
+import javax.swing.event.PopupMenuEvent
+import javax.swing.event.PopupMenuListener
 
 class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
     private val messageContainer = JPanel(VerticalLayout(8))
@@ -73,6 +80,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var assistantBlock: MessageBlock? = null
     private var reasoningBlock: MessageBlock? = null
     private var suppressToolMarkup = false
+    private val modelCache = mutableMapOf<String, ModelCacheEntry>()
+    private val modelLoadInFlight = mutableSetOf<String>()
+    private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
+
+    private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
 
     init {
         setupChatContainer()
@@ -153,6 +165,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun setupModelSelector() {
         modelSelector.isEditable = true
         configureComboBox(modelSelector, comboFixedWidth, { it?.toString().orEmpty() }, ellipsizeEditor = true)
+        modelSelector.addPopupMenuListener(object : PopupMenuListener {
+            override fun popupMenuWillBecomeVisible(e: PopupMenuEvent?) {
+                refreshModelSelector(resolveSelectedModel())
+            }
+
+            override fun popupMenuWillBecomeInvisible(e: PopupMenuEvent?) {}
+
+            override fun popupMenuCanceled(e: PopupMenuEvent?) {}
+        })
         refreshModelSelector(resolveDefaultModel(resolveSelectedProvider()))
         modelSelector.addItemListener { event ->
             if (updatingModelSelection || event.stateChange != ItemEvent.SELECTED) {
@@ -378,10 +399,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun createSession(): ChatSession {
         val modelName = modelSelector.editor.item?.toString()?.trim().orEmpty()
         val resolvedProvider = resolveSelectedProvider()
-        val resolvedModel = modelName.ifBlank {
-            resolveDefaultModel(resolvedProvider)
-        }
-        if (resolvedProvider != null) {
+        val resolvedModel = modelName.ifBlank { resolveDefaultModel(resolvedProvider) }
+        if (resolvedProvider != null && resolvedModel.isNotBlank()) {
             resolvedProvider.activeModel = resolvedModel
             ensureModelExists(resolvedProvider, resolvedModel)
         }
@@ -410,7 +429,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val resolvedProvider = resolveProviderForSession(state)
         val resolvedModel = state.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
         state.model = resolvedModel
-        resolvedProvider?.let { ensureModelExists(it, resolvedModel) }
+        if (resolvedProvider != null && resolvedModel.isNotBlank()) {
+            resolvedProvider.activeModel = resolvedModel
+            ensureModelExists(resolvedProvider, resolvedModel)
+        }
         val messages = mutableListOf<JsonObject>()
         state.messages.forEach { raw ->
             try {
@@ -452,7 +474,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val resolvedModel = session.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
         session.model = resolvedModel
         session.state.model = resolvedModel
-        resolvedProvider?.let { ensureModelExists(it, resolvedModel) }
+        if (resolvedProvider != null && resolvedModel.isNotBlank()) {
+            resolvedProvider.activeModel = resolvedModel
+            ensureModelExists(resolvedProvider, resolvedModel)
+        }
         refreshModelSelector(resolvedModel)
         renderSession(session)
         updateStatus()
@@ -507,12 +532,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun updateCurrentModel(model: String) {
         val session = currentSession ?: return
         val provider = resolveSelectedProvider()
-        val resolved = model.trim().ifBlank { resolveDefaultModel(provider) }
+        val resolved = model.trim()
+        if (resolved.isBlank()) {
+            refreshModelSelector(session.model)
+            return
+        }
         session.model = resolved
         session.state.model = resolved
         if (provider != null) {
-            ensureModelExists(provider, resolved)
             provider.activeModel = resolved
+            ensureModelExists(provider, resolved)
         }
         refreshModelSelector(resolved)
         updateStatus()
@@ -523,8 +552,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         session.providerId = provider.id
         session.state.providerId = provider.id
         project.pluginState().agentActiveProviderId = provider.id
-        val resolvedModel = resolveDefaultModel(provider)
-        provider.activeModel = resolvedModel
+        val resolvedModel = provider.activeModel.trim().ifBlank { resolveDefaultModel(provider) }
+        if (resolvedModel.isNotBlank()) {
+            provider.activeModel = resolvedModel
+            ensureModelExists(provider, resolvedModel)
+        }
         session.model = resolvedModel
         session.state.model = resolvedModel
         refreshModelSelector(resolvedModel)
@@ -535,20 +567,86 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updatingModelSelection = true
         modelSelector.removeAllItems()
         val provider = resolveSelectedProvider()
-        val models = ensureModelList(provider)
         val candidate = selected?.trim().orEmpty()
-        if (candidate.isNotEmpty() && !models.contains(candidate)) {
-            models.add(candidate)
+        if (provider == null) {
+            if (candidate.isNotBlank()) {
+                modelSelector.addItem(candidate)
+                modelSelector.selectedItem = candidate
+                modelSelector.editor.item = candidate
+            } else {
+                modelSelector.selectedItem = ""
+                modelSelector.editor.item = ""
+            }
+            updatingModelSelection = false
+            return
+        }
+        val models = ensureModelList(provider)
+        val active = provider.activeModel.trim()
+        if (active.isNotBlank() && !models.contains(active)) {
+            models.add(0, active)
+        }
+        if (candidate.isNotBlank() && !models.contains(candidate)) {
+            models.add(0, candidate)
+        }
+        val resolved = when {
+            candidate.isNotBlank() -> candidate
+            active.isNotBlank() -> active
+            currentSession?.model?.trim()?.isNotBlank() == true -> currentSession?.model?.trim().orEmpty()
+            models.isNotEmpty() -> models.first()
+            else -> ""
         }
         models.forEach { modelSelector.addItem(it) }
-        val resolved = candidate.ifBlank {
-            provider?.activeModel?.trim().orEmpty().ifBlank {
-                currentSession?.model?.trim().orEmpty().ifBlank { models.first() }
-            }
-        }
         modelSelector.selectedItem = resolved
         modelSelector.editor.item = resolved
         updatingModelSelection = false
+
+    }
+
+    private fun requestModelList(
+        provider: AgentProviderState,
+        showError: Boolean,
+        onLoaded: ((List<String>) -> Unit)? = null
+    ) {
+        val providerId = provider.id
+        if (onLoaded != null) {
+            val listeners = modelLoadListeners.getOrPut(providerId) { mutableListOf() }
+            listeners.add(onLoaded)
+        }
+        if (!modelLoadInFlight.add(providerId)) {
+            return
+        }
+        val apiKey = provider.apiKey.trim()
+        if (apiKey.isBlank()) {
+            modelLoadInFlight.remove(providerId)
+            if (showError) {
+                project.errorNotify("模型列表", "请先在供应方配置中填写 API Key")
+            }
+            drainModelLoadListeners(providerId, modelCache[providerId]?.models.orEmpty())
+            return
+        }
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val result = client.listModels(provider)
+            ApplicationManager.getApplication().invokeLater({
+                modelLoadInFlight.remove(providerId)
+                if (showError && result.errorMessage != null) {
+                    project.errorNotify("模型列表", result.errorMessage)
+                }
+                val existing = modelCache[providerId]
+                if (result.models.isNotEmpty() || existing == null) {
+                    modelCache[providerId] = ModelCacheEntry(result.models, System.currentTimeMillis())
+                }
+                drainModelLoadListeners(providerId, modelCache[providerId]?.models.orEmpty())
+                if (resolveSelectedProvider()?.id == providerId) {
+                    refreshModelSelector(currentSession?.model)
+                    updateStatus()
+                }
+            }, ModalityState.any())
+        }
+    }
+
+    private fun drainModelLoadListeners(providerId: String, models: List<String>) {
+        val listeners = modelLoadListeners.remove(providerId) ?: return
+        listeners.forEach { it(models) }
     }
 
     private fun refreshProviderSelector(selectedProviderId: String?) {
@@ -566,9 +664,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun ensureModelList(provider: AgentProviderState?): MutableList<String> {
         if (provider == null) {
-            return mutableListOf("gpt-4o-mini")
+            return mutableListOf()
         }
         AgentProviderSupport.normalizeProvider(provider)
+        provider.models = provider.models.filter { it.isNotBlank() }.toMutableList()
         return provider.models
     }
 
@@ -587,7 +686,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             return active
         }
         val models = provider?.models?.filter { it.isNotBlank() }.orEmpty()
-        return models.firstOrNull() ?: "gpt-4o-mini"
+        return models.firstOrNull().orEmpty()
     }
 
     private fun ensureProviderList(): MutableList<AgentProviderState> {
@@ -817,51 +916,127 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         object:DialogWrapper(project,false){
             init {
                 this.title = "模型管理"
-                this.setSize(360,300)
+                this.setSize(760,360)
                 this.init()
             }
 
             override fun createActions(): Array<out Action?> {
                 return arrayOf()
             }
+
             override fun createCenterPanel(): JComponent {
-                val listModel = DefaultListModel<String>()
-                val list = JBList(listModel).apply {
+                val currentListModel = DefaultListModel<String>()
+                val sdkListModel = DefaultListModel<String>()
+                val sdkAllModels = mutableListOf<String>()
+                val currentList = JBList(currentListModel).apply {
                     selectionMode = ListSelectionModel.SINGLE_SELECTION
                 }
-                val addButton = JButton("新增")
-                val renameButton = JButton("改名")
-                val deleteButton = JButton("删除")
-                val refreshList = {
-                    listModel.clear()
-                    ensureModelList(provider).forEach { listModel.addElement(it) }
-                    currentSession?.model?.let { list.setSelectedValue(it, true) }
+                val sdkList = JBList(sdkListModel).apply {
+                    selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
                 }
-                refreshList()
+                val sdkSearchField = JBTextField().apply {
+                    columns = 18
+                    emptyText.text = "搜索模型 ID"
+                    toolTipText = "通过模型 ID 进行模糊匹配"
+                }
+                val emptyHint = JLabel("当前模型列表为空，请从右侧选择并添加").apply {
+                    foreground = JBColor.GRAY
+                }
+                fun toolbarAction(text: String, icon: javax.swing.Icon, action: () -> Unit): AnAction {
+                    return object : AnAction({ text }, icon) {
+                        override fun actionPerformed(e: AnActionEvent) {
+                            action()
+                        }
+                    }
+                }
 
-                addButton.addActionListener {
-                    val input = Messages.showInputDialog(project, "请输入模型名称", "新增模型", null) ?: return@addActionListener
+                fun currentModelSet(): Set<String> {
+                    val result = LinkedHashSet<String>()
+                    for (i in 0 until currentListModel.size()) {
+                        result.add(currentListModel.getElementAt(i))
+                    }
+                    return result
+                }
+
+                fun applySdkFilter() {
+                    val query = sdkSearchField.text.trim()
+                    val hidden = currentModelSet()
+                    val filtered = if (query.isBlank()) {
+                        sdkAllModels.filter { !hidden.contains(it) }
+                    } else {
+                        sdkAllModels.filter { it.contains(query, ignoreCase = true) && !hidden.contains(it) }
+                    }
+                    sdkListModel.clear()
+                    filtered.forEach { sdkListModel.addElement(it) }
+                }
+
+                fun createToolbar(id: String, group: DefaultActionGroup, target: JComponent): JComponent {
+                    val toolbar = ActionManager.getInstance().createActionToolbar(id, group, true)
+                    toolbar.targetComponent = target
+                    return toolbar.component
+                }
+                fun refreshCurrentList() {
+                    currentListModel.clear()
+                    ensureModelList(provider).forEach { currentListModel.addElement(it) }
+                    emptyHint.isVisible = currentListModel.isEmpty
+                    applySdkFilter()
+                }
+
+
+                fun refreshSdkList(showError: Boolean) {
+                    val cached = modelCache[providerId]?.models.orEmpty()
+                    sdkAllModels.clear()
+                    sdkAllModels.addAll(cached)
+                    applySdkFilter()
+                    requestModelList(provider, showError) { models ->
+                        sdkAllModels.clear()
+                        sdkAllModels.addAll(models)
+                        applySdkFilter()
+                    }
+                }
+
+                refreshCurrentList()
+                refreshSdkList(false)
+
+                sdkSearchField.document.addDocumentListener(object : DocumentAdapter() {
+                    override fun textChanged(e: DocumentEvent) {
+                        applySdkFilter()
+                    }
+                })
+
+                val addAction = toolbarAction("新增", AllIcons.General.Add) {
+                    val input = Messages.showInputDialog(project, "请输入模型名称", "新增模型", null) ?: return@toolbarAction
                     val name = input.trim()
                     if (name.isEmpty()) {
-                        return@addActionListener
+                        return@toolbarAction
                     }
                     ensureModelExists(provider, name)
-                    updateCurrentModel(name)
-                    refreshList()
-                    list.setSelectedValue(name, true)
+                    refreshCurrentList()
+                    if (provider.activeModel.isBlank()) {
+                        provider.activeModel = name
+                    }
+                    if (currentSession?.providerId == providerId && currentSession?.model?.isBlank() == true) {
+                        updateCurrentModel(name)
+                    } else {
+                        refreshModelSelector(currentSession?.model)
+                        updateStatus()
+                    }
+                    currentList.setSelectedValue(name, true)
                 }
-                renameButton.addActionListener {
-                    val current = list.selectedValue ?: return@addActionListener
+
+                val renameAction = toolbarAction("改名", Icons.mcpSaveIcon()) {
+                    val current = currentList.selectedValue ?: return@toolbarAction
                     val input = Messages.showInputDialog(project, "请输入新的模型名称", "修改模型", null, current, null)
-                        ?: return@addActionListener
+                        ?: return@toolbarAction
                     val name = input.trim()
                     if (name.isEmpty() || name == current) {
-                        return@addActionListener
+                        return@toolbarAction
                     }
                     val models = ensureModelList(provider)
-                    models.remove(current)
-                    if (!models.contains(name)) {
-                        models.add(name)
+                    val index = models.indexOf(current)
+                    if (index >= 0) {
+                        models.removeAt(index)
+                        models.add(index, name)
                     }
                     if (provider.activeModel == current) {
                         provider.activeModel = name
@@ -873,43 +1048,111 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                         refreshModelSelector(currentSession?.model)
                         updateStatus()
                     }
-                    refreshList()
-                    list.setSelectedValue(name, true)
+                    refreshCurrentList()
+                    currentList.setSelectedValue(name, true)
                 }
-                deleteButton.addActionListener {
-                    val current = list.selectedValue ?: return@addActionListener
+
+                val deleteAction = toolbarAction("删除", Icons.mcpDeleteIcon()) {
+                    val current = currentList.selectedValue ?: return@toolbarAction
                     val confirmed = Messages.showYesNoDialog(project, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
                     if (confirmed != Messages.YES) {
-                        return@addActionListener
+                        return@toolbarAction
                     }
                     val models = ensureModelList(provider)
                     models.remove(current)
-                    if (models.isEmpty()) {
-                        models.add("gpt-4o-mini")
-                    }
-                    val fallback = models.first()
+                    val fallback = models.firstOrNull().orEmpty()
                     if (provider.activeModel == current) {
                         provider.activeModel = fallback
                     }
-                    updateSessionsModelName(providerId, current, fallback)
-                    if (currentSession?.model == current) {
-                        updateCurrentModel(fallback)
+                    if (fallback.isBlank()) {
+                        updateSessionsModelName(providerId, current, "")
+                        if (currentSession?.model == current) {
+                            currentSession?.model = ""
+                            currentSession?.state?.model = ""
+                        }
+                        refreshModelSelector("")
+                        updateStatus()
+                    } else {
+                        updateSessionsModelName(providerId, current, fallback)
+                        if (currentSession?.model == current) {
+                            updateCurrentModel(fallback)
+                        } else {
+                            refreshModelSelector(currentSession?.model)
+                            updateStatus()
+                        }
+                    }
+                    refreshCurrentList()
+                }
+
+                val refreshSdkAction = toolbarAction("刷新", Icons.mcpRefreshIcon()) {
+                    refreshSdkList(true)
+                }
+
+                val addFromSdkAction = toolbarAction("添加到当前列表", Icons.moveright()) {
+                    val selected = sdkList.selectedValuesList.map { it.trim() }.filter { it.isNotBlank() }
+                    if (selected.isEmpty()) {
+                        project.infoNotify("模型管理", "请先选择右侧模型")
+                        return@toolbarAction
+                    }
+                    val models = ensureModelList(provider)
+                    var changed = false
+                    selected.forEach { model ->
+                        if (!models.contains(model)) {
+                            models.add(model)
+                            changed = true
+                        }
+                    }
+                    if (!changed) {
+                        return@toolbarAction
+                    }
+                    refreshCurrentList()
+                    val firstAdded = selected.first()
+                    if (provider.activeModel.isBlank()) {
+                        provider.activeModel = firstAdded
+                    }
+                    if (currentSession?.providerId == providerId && currentSession?.model?.isBlank() == true) {
+                        updateCurrentModel(provider.activeModel)
                     } else {
                         refreshModelSelector(currentSession?.model)
                         updateStatus()
                     }
-                    refreshList()
-                    list.setSelectedValue(fallback, true)
                 }
-                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
-                    add(addButton)
-                    add(renameButton)
-                    add(deleteButton)
+
+                val leftHeader = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    add(JLabel("当前模型列表"))
+                    add(emptyHint)
                 }
-                return JPanel(BorderLayout()).apply {
+                val leftToolbarGroup = DefaultActionGroup().apply {
+                    add(addAction)
+                    add(renameAction)
+                    add(deleteAction)
+                }
+                val leftToolbar = createToolbar("AgentModelManagerLeftToolbar", leftToolbarGroup, currentList)
+                val leftPanel = JPanel(BorderLayout()).apply {
+                    add(leftHeader, BorderLayout.NORTH)
+                    add(JBScrollPane(currentList), BorderLayout.CENTER)
+                    add(leftToolbar, BorderLayout.SOUTH)
+                }
+                val rightHeader = JLabel("SDK 模型列表")
+                val rightHeaderPanel = JPanel(BorderLayout(6, 0)).apply {
+                    add(rightHeader, BorderLayout.WEST)
+                    add(sdkSearchField, BorderLayout.CENTER)
+                }
+                val rightToolbarGroup = DefaultActionGroup().apply {
+                    add(refreshSdkAction)
+                    add(addFromSdkAction)
+                }
+                val rightToolbar = createToolbar("AgentModelManagerRightToolbar", rightToolbarGroup, sdkList)
+                val rightPanel = JPanel(BorderLayout()).apply {
+                    add(rightHeaderPanel, BorderLayout.NORTH)
+                    add(JBScrollPane(sdkList), BorderLayout.CENTER)
+                    add(rightToolbar, BorderLayout.SOUTH)
+                }
+                return JPanel(GridLayout(1, 2, 12, 0)).apply {
                     border = JBUI.Borders.empty(8)
-                    add(JBScrollPane(list), BorderLayout.CENTER)
-                    add(buttonPanel, BorderLayout.SOUTH)
+                    add(leftPanel)
+                    add(rightPanel)
                 }
             }
         }.showAndGet()
@@ -1180,10 +1423,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             project.errorNotify("智能体", "请在供应方配置中设置 Max Tokens")
             return
         }
+        val model = session.model.trim().ifBlank { resolveDefaultModel(provider) }
+        if (model.isBlank()) {
+            openModelManager()
+            refreshModelSelector("")
+            return
+        }
         if (!sending.compareAndSet(false, true)) {
             return
         }
-        val model = session.model.trim().ifBlank { resolveDefaultModel(provider) }
         updateCurrentModel(model)
         updateCurrentProvider(provider)
         val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
@@ -1484,6 +1732,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val model = currentSession?.model?.trim()
             ?.ifBlank { resolveDefaultModel(provider) }
             ?: resolveDefaultModel(provider)
+        val modelText = if (model.isBlank()) "未选择" else model
         val mcpServers = McpSupport.safeServers(project.pluginState().agentMcpServers)
         val enabledCount = mcpServers.count { it.enabled }
         val mcpStatus = if (project.pluginState().agentMcpEnabled) {
@@ -1492,11 +1741,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "MCP: 未启用"
         }
         statusLabel.text = if (provider == null) {
-            "供应方未配置 | Model: $model | $mcpStatus"
+            "供应方未配置 | Model: $modelText | $mcpStatus"
         } else if (apiKey.isBlank()) {
-            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $model | $mcpStatus"
+            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $modelText | $mcpStatus"
         } else {
-            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $model | $mcpStatus"
+            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $modelText | $mcpStatus"
         }
     }
 

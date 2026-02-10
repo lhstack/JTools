@@ -68,6 +68,11 @@ data class AgentCompletionResult(
     val errorMessage: String? = null,
 )
 
+data class ModelListResult(
+    val models: List<String>,
+    val errorMessage: String? = null,
+)
+
 class AgentClient {
     private val toolExecutor = AppExecutorUtil.getAppExecutorService()
     private val openAiClients = mutableMapOf<String, OpenAIClient>()
@@ -254,6 +259,34 @@ class AgentClient {
             errorMessage = "函数调用次数过多(上限: $maxIterations)"
         )
     }
+
+    fun listModels(provider: AgentProviderState): ModelListResult {
+        val providerType = AgentProviderType.fromId(provider.type)
+        return try {
+            val rawModels = when (providerType) {
+                AgentProviderType.OPENAI -> listOpenAiModels(provider)
+                AgentProviderType.ANTHROPIC -> listAnthropicModels(provider)
+            }
+            if (rawModels.isEmpty()) {
+                ModelListResult(rawModels, "未获取到可用模型")
+            } else {
+                ModelListResult(rawModels)
+            }
+        } catch (e: Throwable) {
+            ModelListResult(emptyList(), e.message ?: "模型列表获取失败")
+        }
+    }
+
+    private fun listOpenAiModels(provider: AgentProviderState): List<String> {
+        val page = getOpenAiClient(provider).models().list()
+        return page.data().map { it.id() }.filter { it.isNotBlank() }.toMutableList()
+    }
+
+    private fun listAnthropicModels(provider: AgentProviderState): List<String> {
+        val page = getAnthropicClient(provider).models().list()
+        return page.data().map { it.id() }.filter { it.isNotBlank() }.toMutableList()
+    }
+
 
     private fun requestOpenAiChatCompletion(
         messages: List<JsonObject>,

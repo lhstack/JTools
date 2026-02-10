@@ -25,8 +25,8 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         // 智能体 OpenAPI 配置
         var agentOpenApiKey: String = ""
         var agentOpenApiBaseUrl: String = ""
-        var agentModel: String = "gpt-4o-mini"
-        var agentModels: MutableList<String> = mutableListOf("gpt-4o-mini")
+        var agentModel: String = ""
+        var agentModels: MutableList<String> = mutableListOf()
         var agentProviders: MutableList<com.lhstack.tools.agent.AgentProviderState> = mutableListOf()
         var agentActiveProviderId: String = ""
         var agentSessions: MutableList<AgentSessionState> = mutableListOf()
@@ -70,13 +70,9 @@ class PluginState : PersistentStateComponent<PluginState.State> {
             }
             providers.add(provider)
         }
-        val legacyModels = state.agentModels.filter { it.isNotBlank() }
         val legacyActiveModel = state.agentModel.trim()
         val legacyTargetId = state.agentActiveProviderId.ifBlank { providers.firstOrNull()?.id.orEmpty() }
         val legacyTarget = providers.firstOrNull { it.id == legacyTargetId } ?: providers.firstOrNull()
-        if (legacyTarget != null && legacyTarget.models.isEmpty() && legacyModels.isNotEmpty()) {
-            legacyTarget.models.addAll(legacyModels)
-        }
         if (legacyTarget != null && legacyTarget.activeModel.isBlank() && legacyActiveModel.isNotBlank()) {
             legacyTarget.activeModel = legacyActiveModel
         }

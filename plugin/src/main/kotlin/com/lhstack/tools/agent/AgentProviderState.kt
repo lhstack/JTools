@@ -46,10 +46,6 @@ class AgentProviderState {
 }
 
 object AgentProviderSupport {
-    private fun defaultModel(type: AgentProviderType): String {
-        return "gpt-4o-mini"
-    }
-
     fun defaultBaseUrl(type: AgentProviderType): String {
         return when (type) {
             AgentProviderType.OPENAI -> "https://api.openai.com/v1"
@@ -74,18 +70,7 @@ object AgentProviderSupport {
         }
         provider.proxyType = AgentProxyType.fromId(provider.proxyType).id
         provider.models = provider.models.filter { it.isNotBlank() }.toMutableList()
-        val activeTrimmed = provider.activeModel.trim()
-        if (activeTrimmed.isNotBlank() && !provider.models.contains(activeTrimmed)) {
-            provider.models.add(0, activeTrimmed)
-        }
-        if (provider.models.isEmpty()) {
-            provider.models.add(defaultModel(resolvedType))
-        }
-        if (provider.activeModel.isBlank()) {
-            provider.activeModel = provider.models.first()
-        } else if (!provider.models.contains(provider.activeModel)) {
-            provider.activeModel = provider.models.first()
-        }
+        provider.activeModel = provider.activeModel.trim()
     }
 
     data class HeaderParseResult(

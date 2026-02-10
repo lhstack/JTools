@@ -33,7 +33,7 @@
         <li><b>📋 Integrated Logging:</b> Built-in logging console with soft-wrap output for easy troubleshooting during development and runtime.</li>
         <li><b>🤖 Agent Chat:</b> Built-in agent entry with streaming output, reasoning blocks, and collapsible tool logs.</li>
         <li><b>🧭 Provider Manager:</b> Multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy.</li>
-        <li><b>🎛️ Provider Selector:</b> Provider selector with per-provider model lists and defaults.</li>
+        <li><b>🎛️ Provider Selector:</b> Provider selector with model lists fetched from each provider.</li>
         <li><b>🧰 Function Calling:</b> Aggregated plugin and system tools with unique identifiers to avoid name conflicts.</li>
         <li><b>📦 Plugin Ops:</b> Local/URL/batch install and uninstall tool calls for faster workflows.</li>
         <li><b>🧪 Dev Testing:</b> Developer panel can expose current plugin instance tool calls for debugging.</li>
@@ -119,7 +119,7 @@
             <p><i>Latest Release / 最新版本</i></p>
             <ul>
                 <li>🧭 <b>Provider Manager:</b> Added multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy</li>
-                <li>🎛️ <b>Provider Selector:</b> Provider selector and per-provider model lists in chat</li>
+                <li>🎛️ <b>Provider Selector:</b> Provider selector and provider-synced model lists in chat</li>
                 <li>🔌 <b>SDK Upgrade:</b> Switched to OpenAI/Anthropic SDKs with streaming and tool-call support</li>
                 <li>🧭 <b>供应方管理：</b>新增多供应方配置（OpenAI/Anthropic），支持 Base URL、请求头、代理</li>
                 <li>🎛️ <b>供应方选择：</b>对话支持供应方选择，并按供应方管理模型列表</li>
