@@ -115,8 +115,16 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.2.9</h2>
+            <h2>📦 Version v1.1.3.0</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🎛️ <b>Model Params:</b> Added model parameter panel for fine-grained controls</li>
+                <li>🧾 <b>Formatted Output:</b> Optimized response formatting for cleaner rendering</li>
+                <li>🎛️ <b>模型参数面板：</b>新增模型参数面板，支持更细粒度控制</li>
+                <li>🧾 <b>格式化输出：</b>优化响应格式输出，展示更清晰</li>
+            </ul>
+
+            <h2>📦 Version v1.1.2.9</h2>
             <ul>
                 <li>🧭 <b>Provider Manager:</b> Added multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy</li>
                 <li>🎛️ <b>Provider Selector:</b> Provider selector and provider-synced model lists in chat</li>

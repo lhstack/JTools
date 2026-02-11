@@ -39,10 +39,45 @@ class AgentProviderState {
     var maxTokens: Int = 1024
     var models: MutableList<String> = mutableListOf()
     var activeModel: String = ""
+    var modelSettings: MutableList<AgentModelSettings> = mutableListOf()
     var proxyEnabled: Boolean = false
     var proxyType: String = AgentProxyType.HTTP.id
     var proxyHost: String = ""
     var proxyPort: Int = 0
+}
+
+class AgentModelSettings {
+    var model: String = ""
+    var openAiReasoningEffort: String = ""
+    var openAiTemperature: String = ""
+    var openAiTopP: String = ""
+    var openAiMaxTokens: String = ""
+    var openAiMaxCompletionTokens: String = ""
+    var openAiPresencePenalty: String = ""
+    var openAiFrequencyPenalty: String = ""
+    var openAiSeed: String = ""
+    var openAiStopSequences: String = ""
+    var openAiResponseFormat: String = ""
+    var openAiResponseFormatSchemaName: String = ""
+    var openAiResponseFormatSchemaDescription: String = ""
+    var openAiResponseFormatSchemaStrict: Boolean = false
+    var openAiResponseFormatSchemaJson: String = ""
+    var openAiLogprobs: String = ""
+    var openAiTopLogprobs: String = ""
+    var openAiToolChoice: String = ""
+    var openAiParallelToolCalls: String = ""
+    var anthropicThinkingMode: String = ""
+    var anthropicThinkingBudgetTokens: Int = 0
+    var anthropicMaxTokens: String = ""
+    var anthropicTemperature: String = ""
+    var anthropicTopP: String = ""
+    var anthropicTopK: String = ""
+    var anthropicStopSequences: String = ""
+    var anthropicServiceTier: String = ""
+    var anthropicInferenceGeo: String = ""
+    var anthropicMetadataUserId: String = ""
+    var anthropicOutputEffort: String = ""
+    var anthropicOutputSchemaJson: String = ""
 }
 
 object AgentProviderSupport {
@@ -71,6 +106,95 @@ object AgentProviderSupport {
         provider.proxyType = AgentProxyType.fromId(provider.proxyType).id
         provider.models = provider.models.filter { it.isNotBlank() }.toMutableList()
         provider.activeModel = provider.activeModel.trim()
+        normalizeModelSettings(provider)
+    }
+
+    fun findModelSettings(provider: AgentProviderState, model: String): AgentModelSettings? {
+        val trimmed = model.trim()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        return provider.modelSettings.firstOrNull { it.model == trimmed }
+    }
+
+    fun getOrCreateModelSettings(provider: AgentProviderState, model: String): AgentModelSettings {
+        val trimmed = model.trim()
+        val existing = findModelSettings(provider, trimmed)
+        if (existing != null) {
+            return existing
+        }
+        val created = AgentModelSettings().apply { this.model = trimmed }
+        provider.modelSettings.add(created)
+        return created
+    }
+
+    fun renameModelSettings(provider: AgentProviderState, oldName: String, newName: String) {
+        val oldTrimmed = oldName.trim()
+        val newTrimmed = newName.trim()
+        if (oldTrimmed.isBlank()) {
+            return
+        }
+        if (newTrimmed.isBlank()) {
+            removeModelSettings(provider, oldTrimmed)
+            return
+        }
+        val entry = provider.modelSettings.firstOrNull { it.model == oldTrimmed } ?: return
+        if (provider.modelSettings.any { it.model == newTrimmed }) {
+            provider.modelSettings.remove(entry)
+            return
+        }
+        entry.model = newTrimmed
+    }
+
+    fun removeModelSettings(provider: AgentProviderState, model: String) {
+        val trimmed = model.trim()
+        if (trimmed.isBlank()) {
+            return
+        }
+        provider.modelSettings.removeAll { it.model == trimmed }
+    }
+
+    private fun normalizeModelSettings(provider: AgentProviderState) {
+        val normalized = provider.modelSettings.mapNotNull { entry ->
+            val model = entry.model.trim()
+            if (model.isBlank()) {
+                return@mapNotNull null
+            }
+            entry.model = model
+            entry.openAiReasoningEffort = entry.openAiReasoningEffort.trim().lowercase()
+            entry.openAiTemperature = entry.openAiTemperature.trim()
+            entry.openAiTopP = entry.openAiTopP.trim()
+            entry.openAiMaxTokens = entry.openAiMaxTokens.trim()
+            entry.openAiMaxCompletionTokens = entry.openAiMaxCompletionTokens.trim()
+            entry.openAiPresencePenalty = entry.openAiPresencePenalty.trim()
+            entry.openAiFrequencyPenalty = entry.openAiFrequencyPenalty.trim()
+            entry.openAiSeed = entry.openAiSeed.trim()
+            entry.openAiStopSequences = entry.openAiStopSequences.trim()
+            entry.openAiResponseFormat = entry.openAiResponseFormat.trim().lowercase()
+            entry.openAiResponseFormatSchemaName = entry.openAiResponseFormatSchemaName.trim()
+            entry.openAiResponseFormatSchemaDescription = entry.openAiResponseFormatSchemaDescription.trim()
+            entry.openAiResponseFormatSchemaJson = entry.openAiResponseFormatSchemaJson.trim()
+            entry.openAiLogprobs = entry.openAiLogprobs.trim().lowercase()
+            entry.openAiTopLogprobs = entry.openAiTopLogprobs.trim()
+            entry.openAiToolChoice = entry.openAiToolChoice.trim().lowercase()
+            entry.openAiParallelToolCalls = entry.openAiParallelToolCalls.trim().lowercase()
+            entry.anthropicThinkingMode = entry.anthropicThinkingMode.trim().lowercase()
+            if (entry.anthropicThinkingBudgetTokens < 0) {
+                entry.anthropicThinkingBudgetTokens = 0
+            }
+            entry.anthropicMaxTokens = entry.anthropicMaxTokens.trim()
+            entry.anthropicTemperature = entry.anthropicTemperature.trim()
+            entry.anthropicTopP = entry.anthropicTopP.trim()
+            entry.anthropicTopK = entry.anthropicTopK.trim()
+            entry.anthropicStopSequences = entry.anthropicStopSequences.trim()
+            entry.anthropicServiceTier = entry.anthropicServiceTier.trim().lowercase()
+            entry.anthropicInferenceGeo = entry.anthropicInferenceGeo.trim()
+            entry.anthropicMetadataUserId = entry.anthropicMetadataUserId.trim()
+            entry.anthropicOutputEffort = entry.anthropicOutputEffort.trim().lowercase()
+            entry.anthropicOutputSchemaJson = entry.anthropicOutputSchemaJson.trim()
+            entry
+        }.distinctBy { it.model }.toMutableList()
+        provider.modelSettings = normalized
     }
 
     data class HeaderParseResult(

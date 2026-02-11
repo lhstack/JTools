@@ -9,8 +9,15 @@ import com.anthropic.models.messages.ContentBlockParam
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
+import com.anthropic.models.messages.Metadata
 import com.anthropic.models.messages.Model
+import com.anthropic.models.messages.OutputConfig
+import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.TextBlockParam
+import com.anthropic.models.messages.ThinkingConfigAdaptive
+import com.anthropic.models.messages.ThinkingConfigDisabled
+import com.anthropic.models.messages.ThinkingConfigEnabled
+import com.anthropic.models.messages.ThinkingConfigParam
 import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolChoiceAuto
 import com.anthropic.models.messages.ToolResultBlockParam
@@ -27,6 +34,10 @@ import com.openai.core.JsonValue as OpenAiJsonValue
 import com.openai.models.ChatModel
 import com.openai.models.FunctionDefinition
 import com.openai.models.FunctionParameters
+import com.openai.models.ReasoningEffort
+import com.openai.models.ResponseFormatJsonObject
+import com.openai.models.ResponseFormatJsonSchema
+import com.openai.models.ResponseFormatText
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import com.openai.models.chat.completions.ChatCompletionFunctionTool
@@ -299,7 +310,7 @@ class AgentClient {
             return "已取消" to null
         }
         val client = getOpenAiClient(provider)
-        val params = buildOpenAiParams(messages, tools, model)
+        val params = buildOpenAiParams(messages, tools, provider, model)
         val completion = client.chat().completions().create(params)
         val message = completion.choices().firstOrNull()?.message()
             ?: return "未返回 message" to null
@@ -320,7 +331,7 @@ class AgentClient {
             return "已取消" to null
         }
         val client = getOpenAiClient(provider)
-        val params = buildOpenAiParams(messages, tools, model)
+        val params = buildOpenAiParams(messages, tools, provider, model)
         val toolCalls = linkedMapOf<Int, ToolCallBuilder>()
         val toolCallIdToIndex = linkedMapOf<String, Int>()
         val contentBuilder = StringBuilder()
@@ -341,17 +352,17 @@ class AgentClient {
                     val reasoningDelta =
                         extra["reasoning_content"]?.asString()?.orElse(null)
                             ?: extra["reasoning"]?.asString()?.orElse(null)
-                    if (!reasoningDelta.isNullOrBlank()) {
+                    if (!reasoningDelta.isNullOrEmpty()) {
                         pendingReasoning.append(reasoningDelta)
                         onReasoningDelta?.invoke(reasoningDelta)
                     }
                     val contentDelta = delta.content().orElse(null)
-                    if (!contentDelta.isNullOrBlank()) {
+                    if (!contentDelta.isNullOrEmpty()) {
                         contentBuilder.append(contentDelta)
                         onDelta.invoke(contentDelta)
                     }
                     val refusalDelta = delta.refusal().orElse(null)
-                    if (!refusalDelta.isNullOrBlank()) {
+                    if (!refusalDelta.isNullOrEmpty()) {
                         contentBuilder.append(refusalDelta)
                         onDelta.invoke(refusalDelta)
                     }
@@ -440,7 +451,7 @@ class AgentClient {
             return "已取消" to null
         }
         val client = getAnthropicClient(provider)
-        val params = buildAnthropicParams(messages, tools, model, maxTokens)
+        val params = buildAnthropicParams(messages, tools, provider, model, maxTokens)
         val response = client.messages().create(params)
         val message = anthropicMessageToOpenAi(response) ?: return "未返回内容" to null
         return null to message
@@ -461,7 +472,7 @@ class AgentClient {
             return "已取消" to null
         }
         val client = getAnthropicClient(provider)
-        val params = buildAnthropicParams(messages, tools, model, maxTokens)
+        val params = buildAnthropicParams(messages, tools, provider, model, maxTokens)
         val accumulator = MessageAccumulator.create()
         var cancelled = false
         val response = client.messages().createStreaming(params)
@@ -669,6 +680,7 @@ class AgentClient {
     private fun buildOpenAiParams(
         messages: List<JsonObject>,
         tools: JsonArray,
+        provider: AgentProviderState,
         model: String,
     ): ChatCompletionCreateParams {
         val builder = ChatCompletionCreateParams.builder()
@@ -677,14 +689,78 @@ class AgentClient {
         val openAiTools = toOpenAiTools(tools)
         if (openAiTools.isNotEmpty()) {
             builder.tools(openAiTools)
+        }
+        val settings = AgentProviderSupport.findModelSettings(provider, model)
+        val effort = settings?.openAiReasoningEffort?.trim().orEmpty()
+        if (effort.isNotBlank()) {
+            builder.reasoningEffort(ReasoningEffort.of(effort))
+        }
+        parseOptionalDouble(settings?.openAiTemperature)?.let { builder.temperature(it) }
+        parseOptionalDouble(settings?.openAiTopP)?.let { builder.topP(it) }
+        parseOptionalLong(settings?.openAiMaxTokens)?.let {
+            builder.putAdditionalBodyProperty("max_tokens", OpenAiJsonValue.from(it))
+        }
+        parseOptionalLong(settings?.openAiMaxCompletionTokens)?.let { builder.maxCompletionTokens(it) }
+        parseOptionalDouble(settings?.openAiPresencePenalty)?.let { builder.presencePenalty(it) }
+        parseOptionalDouble(settings?.openAiFrequencyPenalty)?.let { builder.frequencyPenalty(it) }
+        parseOptionalLong(settings?.openAiSeed)?.let { builder.seed(it) }
+        val stopSequences = parseStopSequences(settings?.openAiStopSequences)
+        if (stopSequences.isNotEmpty()) {
+            if (stopSequences.size == 1) {
+                builder.stop(stopSequences.first())
+            } else {
+                builder.stopOfStrings(stopSequences)
+            }
+        }
+        val responseFormat = settings?.openAiResponseFormat?.trim().orEmpty()
+        when (responseFormat) {
+            "text" -> builder.responseFormat(ResponseFormatText.builder().build())
+            "json_object" -> builder.responseFormat(ResponseFormatJsonObject.builder().build())
+            "json_schema" -> {
+                val schemaMap = parseOpenAiSchemaMap(settings?.openAiResponseFormatSchemaJson)
+                if (schemaMap != null) {
+                    val schema = ResponseFormatJsonSchema.JsonSchema.Schema.builder()
+                        .additionalProperties(schemaMap)
+                        .build()
+                    val schemaBuilder = ResponseFormatJsonSchema.JsonSchema.builder()
+                        .name(settings?.openAiResponseFormatSchemaName?.ifBlank { "response" } ?: "response")
+                        .schema(schema)
+                    val description = settings?.openAiResponseFormatSchemaDescription?.trim().orEmpty()
+                    if (description.isNotBlank()) {
+                        schemaBuilder.description(description)
+                    }
+                    if (settings?.openAiResponseFormatSchemaStrict == true) {
+                        schemaBuilder.strict(true)
+                    }
+                    builder.responseFormat(
+                        ResponseFormatJsonSchema.builder()
+                            .jsonSchema(schemaBuilder.build())
+                            .build()
+                    )
+                }
+            }
+        }
+        val logprobsValue = parseOptionalBoolean(settings?.openAiLogprobs)
+        if (logprobsValue != null) {
+            builder.logprobs(logprobsValue)
+            if (logprobsValue) {
+                parseOptionalLong(settings?.openAiTopLogprobs)?.let { builder.topLogprobs(it) }
+            }
+        }
+        val toolChoice = settings?.openAiToolChoice?.trim().orEmpty()
+        if (toolChoice.isNotBlank()) {
+            builder.toolChoice(ChatCompletionToolChoiceOption.Auto.of(toolChoice))
+        } else if (openAiTools.isNotEmpty()) {
             builder.toolChoice(ChatCompletionToolChoiceOption.Auto.AUTO)
         }
+        parseOptionalBoolean(settings?.openAiParallelToolCalls)?.let { builder.parallelToolCalls(it) }
         return builder.build()
     }
 
     private fun buildAnthropicParams(
         messages: List<JsonObject>,
         tools: JsonArray,
+        provider: AgentProviderState,
         model: String,
         maxTokens: Int,
     ): MessageCreateParams {
@@ -692,6 +768,8 @@ class AgentClient {
             .model(Model.of(model))
             .maxTokens(maxTokens.toLong())
             .messages(toAnthropicMessages(messages))
+        val settings = AgentProviderSupport.findModelSettings(provider, model)
+        parseOptionalLong(settings?.anthropicMaxTokens)?.let { builder.maxTokens(it) }
         val systemPrompt = extractSystemPrompt(messages)
         if (!systemPrompt.isNullOrBlank()) {
             builder.system(systemPrompt)
@@ -701,7 +779,141 @@ class AgentClient {
             builder.tools(anthropicTools)
             builder.toolChoice(ToolChoiceAuto.builder().build())
         }
+        val mode = settings?.anthropicThinkingMode?.trim().orEmpty()
+        when (mode) {
+            "enabled" -> {
+                val budget = settings?.anthropicThinkingBudgetTokens ?: 0
+                if (budget > 0) {
+                    builder.thinking(
+                        ThinkingConfigParam.ofEnabled(
+                            ThinkingConfigEnabled.builder().budgetTokens(budget.toLong()).build()
+                        )
+                    )
+                }
+            }
+            "adaptive" -> {
+                builder.thinking(
+                    ThinkingConfigParam.ofAdaptive(
+                        ThinkingConfigAdaptive.builder().build()
+                    )
+                )
+            }
+            "disabled" -> {
+                builder.thinking(
+                    ThinkingConfigParam.ofDisabled(
+                        ThinkingConfigDisabled.builder().build()
+                    )
+                )
+            }
+        }
+        parseOptionalDouble(settings?.anthropicTemperature)?.let { builder.temperature(it) }
+        parseOptionalDouble(settings?.anthropicTopP)?.let { builder.topP(it) }
+        parseOptionalLong(settings?.anthropicTopK)?.let { builder.topK(it) }
+        val stopSequences = parseStopSequences(settings?.anthropicStopSequences)
+        if (stopSequences.isNotEmpty()) {
+            builder.stopSequences(stopSequences)
+        }
+        val serviceTier = settings?.anthropicServiceTier?.trim().orEmpty()
+        if (serviceTier.isNotBlank()) {
+            builder.serviceTier(MessageCreateParams.ServiceTier.of(serviceTier))
+        }
+        val inferenceGeo = settings?.anthropicInferenceGeo?.trim().orEmpty()
+        if (inferenceGeo.isNotBlank()) {
+            builder.inferenceGeo(inferenceGeo)
+        }
+        val metadataUserId = settings?.anthropicMetadataUserId?.trim().orEmpty()
+        if (metadataUserId.isNotBlank()) {
+            builder.metadata(Metadata.builder().userId(metadataUserId).build())
+        }
+        val outputEffort = settings?.anthropicOutputEffort?.trim().orEmpty()
+        val outputSchemaMap = parseAnthropicSchemaMap(settings?.anthropicOutputSchemaJson)
+        if (outputEffort.isNotBlank() || outputSchemaMap != null) {
+            val outputBuilder = OutputConfig.builder()
+            if (outputEffort.isNotBlank()) {
+                outputBuilder.effort(OutputConfig.Effort.of(outputEffort))
+            }
+            if (outputSchemaMap != null) {
+                val schema = JsonOutputFormat.Schema.builder()
+                    .additionalProperties(outputSchemaMap)
+                    .build()
+                outputBuilder.format(
+                    JsonOutputFormat.builder()
+                        .schema(schema)
+                        .build()
+                )
+            }
+            builder.outputConfig(outputBuilder.build())
+        }
         return builder.build()
+    }
+
+    private fun parseOptionalLong(raw: String?): Long? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        return trimmed.toLongOrNull()
+    }
+
+    private fun parseOptionalDouble(raw: String?): Double? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        return trimmed.toDoubleOrNull()
+    }
+
+    private fun parseOptionalBoolean(raw: String?): Boolean? {
+        val trimmed = raw?.trim()?.lowercase().orEmpty()
+        return when (trimmed) {
+            "true" -> true
+            "false" -> false
+            else -> null
+        }
+    }
+
+    private fun parseStopSequences(raw: String?): List<String> {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            return emptyList()
+        }
+        return trimmed.replace(",", "\n")
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+    }
+
+    private fun parseOpenAiSchemaMap(raw: String?): Map<String, OpenAiJsonValue>? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        val element = try {
+            JsonParser.parseString(trimmed)
+        } catch (_: Throwable) {
+            return null
+        }
+        if (!element.isJsonObject) {
+            return null
+        }
+        return element.asJsonObject.entrySet().associate { it.key to toOpenAiJsonValue(it.value) }
+    }
+
+    private fun parseAnthropicSchemaMap(raw: String?): Map<String, AnthropicJsonValue>? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        val element = try {
+            JsonParser.parseString(trimmed)
+        } catch (_: Throwable) {
+            return null
+        }
+        if (!element.isJsonObject) {
+            return null
+        }
+        return element.asJsonObject.entrySet().associate { it.key to toAnthropicJsonValue(it.value) }
     }
 
     private fun toOpenAiMessages(messages: List<JsonObject>): List<ChatCompletionMessageParam> {

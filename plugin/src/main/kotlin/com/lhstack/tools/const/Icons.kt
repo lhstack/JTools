@@ -14,6 +14,8 @@ class Icons {
 
         fun settingIcon() = findIcon("icons/setting.svg")
 
+        fun modelTuningIcon() = findIcon("icons/model_tuning.svg")
+
         fun providerConfigIcon() = findIcon("icons/provider_config.svg")
 
         fun mcpConfigIcon() = findIcon("icons/mcp_config.svg")

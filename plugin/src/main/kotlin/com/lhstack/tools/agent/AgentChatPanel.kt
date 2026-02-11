@@ -46,6 +46,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
     private val sessionManageAction = createAction("会话管理", Icons.libraryIcon()) { openSessionManager() }
     private val modelManageAction = createAction("模型管理", Icons.toolIcon()) { openModelManager() }
+    private val modelSettingsAction = createAction("模型扩展设置", Icons.modelTuningIcon()) { openModelSettingsDialog() }
     private val providerManageAction = createAction("供应方管理", Icons.providerConfigIcon()) { openProviderManager() }
     private val mcpManageAction = createAction("MCP 配置", Icons.mcpConfigIcon()) { openMcpManager() }
     private val sendAction = createAction(
@@ -189,6 +190,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+
     private fun configureComboBox(
         comboBox: ComboBox<*>,
         fixedWidth: Int,
@@ -238,6 +240,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 ) as JLabel
                 label.toolTipText = fullText.takeIf { it.isNotBlank() }
                 return label
+            }
+        }
+    }
+
+    private fun createOptionRenderer(labelProvider: (Any?) -> String): DefaultListCellRenderer {
+        return object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?,
+                value: Any?,
+                index: Int,
+                isSelected: Boolean,
+                cellHasFocus: Boolean
+            ): Component {
+                val label = labelProvider(value)
+                return super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus)
             }
         }
     }
@@ -376,6 +393,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             return selected
         }
         return modelSelector.editor.item?.toString()?.trim().orEmpty()
+    }
+
+    private fun resolveModelForSettings(provider: AgentProviderState?): String {
+        val selected = resolveSelectedModel().trim()
+        if (selected.isNotBlank()) {
+            return selected
+        }
+        val active = provider?.activeModel?.trim().orEmpty()
+        if (active.isNotBlank()) {
+            return active
+        }
+        return currentSession?.model?.trim().orEmpty()
     }
 
     private fun initSessions() {
@@ -545,6 +574,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         refreshModelSelector(resolved)
         updateStatus()
+        updateModelSettingsAction()
     }
 
     private fun updateCurrentProvider(provider: AgentProviderState) {
@@ -561,6 +591,410 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         session.state.model = resolvedModel
         refreshModelSelector(resolvedModel)
         updateStatus()
+        updateModelSettingsAction()
+    }
+
+    private fun updateModelSettingsAction() {
+        val provider = resolveSelectedProvider()
+        val model = resolveModelForSettings(provider)
+        setActionEnabled(modelSettingsAction, !sending.get() && provider != null && model.isNotBlank())
+        updateToolbars()
+    }
+
+    private fun openModelSettingsDialog() {
+        val provider = resolveSelectedProvider()
+        if (provider == null) {
+            project.errorNotify("模型扩展设置", "请先选择供应方")
+            return
+        }
+        val model = resolveModelForSettings(provider)
+        if (model.isBlank()) {
+            project.errorNotify("模型扩展设置", "请先选择模型")
+            return
+        }
+        when (AgentProviderType.fromId(provider.type)) {
+            AgentProviderType.OPENAI -> openOpenAiModelSettingsDialog(provider, model)
+            AgentProviderType.ANTHROPIC -> openAnthropicModelSettingsDialog(provider, model)
+        }
+    }
+
+    private fun openOpenAiModelSettingsDialog(provider: AgentProviderState, model: String) {
+        val settings = AgentProviderSupport.findModelSettings(provider, model)
+        val effortOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("NONE", "none"),
+            ModelSettingOption("MINIMAL", "minimal"),
+            ModelSettingOption("LOW", "low"),
+            ModelSettingOption("MEDIUM", "medium"),
+            ModelSettingOption("HIGH", "high"),
+            ModelSettingOption("XHIGH", "xhigh"),
+        )
+        val responseFormatOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("TEXT", "text"),
+            ModelSettingOption("JSON_OBJECT", "json_object"),
+            ModelSettingOption("JSON_SCHEMA", "json_schema"),
+        )
+        val logprobsOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("启用", "true"),
+            ModelSettingOption("关闭", "false"),
+        )
+        val toolChoiceOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("AUTO", "auto"),
+            ModelSettingOption("NONE", "none"),
+            ModelSettingOption("REQUIRED", "required"),
+        )
+        val boolOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("启用", "true"),
+            ModelSettingOption("关闭", "false"),
+        )
+        val effortCombo = ComboBox(effortOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = effortOptions.firstOrNull {
+                it.value.equals(settings?.openAiReasoningEffort, ignoreCase = true)
+            } ?: effortOptions.first()
+        }
+        val temperatureField = JBTextField(settings?.openAiTemperature.orEmpty())
+        val topPField = JBTextField(settings?.openAiTopP.orEmpty())
+        val maxTokensField = JBTextField(settings?.openAiMaxTokens.orEmpty())
+        val maxCompletionTokensField = JBTextField(settings?.openAiMaxCompletionTokens.orEmpty())
+        val presencePenaltyField = JBTextField(settings?.openAiPresencePenalty.orEmpty())
+        val frequencyPenaltyField = JBTextField(settings?.openAiFrequencyPenalty.orEmpty())
+        val seedField = JBTextField(settings?.openAiSeed.orEmpty())
+        val stopArea = JBTextArea(3, 28).apply {
+            text = settings?.openAiStopSequences.orEmpty()
+            lineWrap = true
+            wrapStyleWord = true
+        }
+        val responseFormatCombo = ComboBox(responseFormatOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = responseFormatOptions.firstOrNull {
+                it.value.equals(settings?.openAiResponseFormat, ignoreCase = true)
+            } ?: responseFormatOptions.first()
+        }
+        val schemaNameField = JBTextField(settings?.openAiResponseFormatSchemaName.orEmpty())
+        val schemaDescField = JBTextField(settings?.openAiResponseFormatSchemaDescription.orEmpty())
+        val schemaStrictCheck = JCheckBox("Strict").apply { isSelected = settings?.openAiResponseFormatSchemaStrict == true }
+        val schemaArea = JBTextArea(6, 28).apply {
+            text = settings?.openAiResponseFormatSchemaJson.orEmpty()
+            lineWrap = true
+            wrapStyleWord = true
+        }
+        val logprobsCombo = ComboBox(logprobsOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = logprobsOptions.firstOrNull {
+                it.value.equals(settings?.openAiLogprobs, ignoreCase = true)
+            } ?: logprobsOptions.first()
+        }
+        val topLogprobsField = JBTextField(settings?.openAiTopLogprobs.orEmpty())
+        val toolChoiceCombo = ComboBox(toolChoiceOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = toolChoiceOptions.firstOrNull {
+                it.value.equals(settings?.openAiToolChoice, ignoreCase = true)
+            } ?: toolChoiceOptions.first()
+        }
+        val parallelToolCallsCombo = ComboBox(boolOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = boolOptions.firstOrNull {
+                it.value.equals(settings?.openAiParallelToolCalls, ignoreCase = true)
+            } ?: boolOptions.first()
+        }
+
+        fun updateSchemaState() {
+            val mode = (responseFormatCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+            val enabled = mode == "json_schema"
+            schemaNameField.isEnabled = enabled
+            schemaDescField.isEnabled = enabled
+            schemaStrictCheck.isEnabled = enabled
+            schemaArea.isEnabled = enabled
+        }
+        fun updateLogprobsState() {
+            val enabled = (logprobsCombo.selectedItem as? ModelSettingOption)?.value == "true"
+            topLogprobsField.isEnabled = enabled
+        }
+        responseFormatCombo.addItemListener { updateSchemaState() }
+        logprobsCombo.addItemListener { updateLogprobsState() }
+        updateSchemaState()
+        updateLogprobsState()
+
+        val panel = JPanel(GridBagLayout())
+        val c = GridBagConstraints().apply {
+            anchor = GridBagConstraints.WEST
+            insets = JBUI.insets(4)
+            fill = GridBagConstraints.HORIZONTAL
+        }
+        var row = 0
+        fun addRow(label: String, component: JComponent) {
+            c.gridx = 0
+            c.gridy = row
+            c.weightx = 0.0
+            c.gridwidth = 1
+            panel.add(JLabel(label), c)
+            c.gridx = 1
+            c.weightx = 1.0
+            panel.add(component, c)
+            row++
+        }
+
+        addRow("模型:", JLabel(model))
+        addRow("思考强度:", effortCombo)
+        addRow("Temperature:", temperatureField)
+        addRow("Top P:", topPField)
+        addRow("Max Tokens:", maxTokensField)
+        addRow("Max Completion Tokens:", maxCompletionTokensField)
+        addRow("Presence Penalty:", presencePenaltyField)
+        addRow("Frequency Penalty:", frequencyPenaltyField)
+        addRow("Seed:", seedField)
+        addRow("Stop Sequences:", JBScrollPane(stopArea))
+        addRow("Response Format:", responseFormatCombo)
+        addRow("Schema Name:", schemaNameField)
+        addRow("Schema Desc:", schemaDescField)
+        addRow("Schema Strict:", schemaStrictCheck)
+        addRow("Schema JSON:", JBScrollPane(schemaArea))
+        addRow("Logprobs:", logprobsCombo)
+        addRow("Top Logprobs:", topLogprobsField)
+        addRow("Tool Choice:", toolChoiceCombo)
+        addRow("Parallel Tool Calls:", parallelToolCallsCombo)
+
+        val dialog = object : DialogWrapper(project, false) {
+            init {
+                title = "模型扩展设置 - OpenAI"
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent {
+                val scroll = JBScrollPane(panel)
+                scroll.preferredSize = Dimension(JBUI.scale(520), JBUI.scale(520))
+                return scroll
+            }
+
+            override fun doOKAction() {
+                fun requireNumber(field: JBTextField, label: String, integerOnly: Boolean = false): Boolean {
+                    val text = field.text.trim()
+                    if (text.isBlank()) {
+                        return true
+                    }
+                    val valid = if (integerOnly) text.toLongOrNull() != null else text.toDoubleOrNull() != null
+                    if (!valid) {
+                        Messages.showErrorDialog(project, "$label 必须是数字", "参数无效")
+                    }
+                    return valid
+                }
+                if (!requireNumber(temperatureField, "Temperature")) return
+                if (!requireNumber(topPField, "Top P")) return
+                if (!requireNumber(maxTokensField, "Max Tokens", integerOnly = true)) return
+                if (!requireNumber(maxCompletionTokensField, "Max Completion Tokens", integerOnly = true)) return
+                if (!requireNumber(presencePenaltyField, "Presence Penalty")) return
+                if (!requireNumber(frequencyPenaltyField, "Frequency Penalty")) return
+                if (!requireNumber(seedField, "Seed", integerOnly = true)) return
+                val responseMode = (responseFormatCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                val logprobsValue = (logprobsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                if (logprobsValue == "true" && !requireNumber(topLogprobsField, "Top Logprobs", integerOnly = true)) return
+                if (responseMode == "json_schema") {
+                    if (schemaArea.text.trim().isEmpty()) {
+                        Messages.showErrorDialog(project, "Schema JSON 不能为空", "参数无效")
+                        return
+                    }
+                    try {
+                        JsonParser.parseString(schemaArea.text.trim()).asJsonObject
+                    } catch (_: Throwable) {
+                        Messages.showErrorDialog(project, "Schema JSON 必须是有效的 JSON 对象", "参数无效")
+                        return
+                    }
+                }
+
+                val target = AgentProviderSupport.getOrCreateModelSettings(provider, model)
+                target.openAiReasoningEffort = (effortCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                target.openAiTemperature = temperatureField.text.trim()
+                target.openAiTopP = topPField.text.trim()
+                target.openAiMaxTokens = maxTokensField.text.trim()
+                target.openAiMaxCompletionTokens = maxCompletionTokensField.text.trim()
+                target.openAiPresencePenalty = presencePenaltyField.text.trim()
+                target.openAiFrequencyPenalty = frequencyPenaltyField.text.trim()
+                target.openAiSeed = seedField.text.trim()
+                target.openAiStopSequences = stopArea.text.trim()
+                target.openAiResponseFormat = responseMode
+                target.openAiResponseFormatSchemaName = schemaNameField.text.trim()
+                target.openAiResponseFormatSchemaDescription = schemaDescField.text.trim()
+                target.openAiResponseFormatSchemaStrict = schemaStrictCheck.isSelected
+                target.openAiResponseFormatSchemaJson = schemaArea.text.trim()
+                target.openAiLogprobs = logprobsValue
+                target.openAiTopLogprobs = topLogprobsField.text.trim()
+                target.openAiToolChoice = (toolChoiceCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                target.openAiParallelToolCalls = (parallelToolCallsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                super.doOKAction()
+            }
+        }
+        dialog.showAndGet()
+    }
+
+    private fun openAnthropicModelSettingsDialog(provider: AgentProviderState, model: String) {
+        val settings = AgentProviderSupport.findModelSettings(provider, model)
+        val thinkingOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("启用", "enabled"),
+            ModelSettingOption("自适应", "adaptive"),
+            ModelSettingOption("禁用", "disabled"),
+        )
+        val serviceTierOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("AUTO", "auto"),
+            ModelSettingOption("STANDARD_ONLY", "standard_only"),
+        )
+        val outputEffortOptions = listOf(
+            ModelSettingOption("默认 (不设置)", ""),
+            ModelSettingOption("LOW", "low"),
+            ModelSettingOption("MEDIUM", "medium"),
+            ModelSettingOption("HIGH", "high"),
+            ModelSettingOption("MAX", "max"),
+        )
+        val thinkingCombo = ComboBox(thinkingOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = thinkingOptions.firstOrNull {
+                it.value.equals(settings?.anthropicThinkingMode, ignoreCase = true)
+            } ?: thinkingOptions.first()
+        }
+        val budgetField = JBTextField(settings?.anthropicThinkingBudgetTokens?.takeIf { it > 0 }?.toString().orEmpty())
+        val maxTokensField = JBTextField(settings?.anthropicMaxTokens.orEmpty())
+        val temperatureField = JBTextField(settings?.anthropicTemperature.orEmpty())
+        val topPField = JBTextField(settings?.anthropicTopP.orEmpty())
+        val topKField = JBTextField(settings?.anthropicTopK.orEmpty())
+        val stopArea = JBTextArea(3, 28).apply {
+            text = settings?.anthropicStopSequences.orEmpty()
+            lineWrap = true
+            wrapStyleWord = true
+        }
+        val serviceTierCombo = ComboBox(serviceTierOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = serviceTierOptions.firstOrNull {
+                it.value.equals(settings?.anthropicServiceTier, ignoreCase = true)
+            } ?: serviceTierOptions.first()
+        }
+        val inferenceGeoField = JBTextField(settings?.anthropicInferenceGeo.orEmpty())
+        val metadataUserIdField = JBTextField(settings?.anthropicMetadataUserId.orEmpty())
+        val outputEffortCombo = ComboBox(outputEffortOptions.toTypedArray()).apply {
+            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
+            selectedItem = outputEffortOptions.firstOrNull {
+                it.value.equals(settings?.anthropicOutputEffort, ignoreCase = true)
+            } ?: outputEffortOptions.first()
+        }
+        val outputSchemaArea = JBTextArea(6, 28).apply {
+            text = settings?.anthropicOutputSchemaJson.orEmpty()
+            lineWrap = true
+            wrapStyleWord = true
+        }
+
+        fun updateBudgetState() {
+            val enabled = (thinkingCombo.selectedItem as? ModelSettingOption)?.value == "enabled"
+            budgetField.isEnabled = enabled
+        }
+        thinkingCombo.addItemListener { updateBudgetState() }
+        updateBudgetState()
+
+        val panel = JPanel(GridBagLayout())
+        val c = GridBagConstraints().apply {
+            anchor = GridBagConstraints.WEST
+            insets = JBUI.insets(4)
+            fill = GridBagConstraints.HORIZONTAL
+        }
+        var row = 0
+        fun addRow(label: String, component: JComponent) {
+            c.gridx = 0
+            c.gridy = row
+            c.weightx = 0.0
+            c.gridwidth = 1
+            panel.add(JLabel(label), c)
+            c.gridx = 1
+            c.weightx = 1.0
+            panel.add(component, c)
+            row++
+        }
+
+        addRow("模型:", JLabel(model))
+        addRow("思考模式:", thinkingCombo)
+        addRow("预算 Tokens:", budgetField)
+        addRow("Max Tokens:", maxTokensField)
+        addRow("Temperature:", temperatureField)
+        addRow("Top P:", topPField)
+        addRow("Top K:", topKField)
+        addRow("Stop Sequences:", JBScrollPane(stopArea))
+        addRow("Service Tier:", serviceTierCombo)
+        addRow("Inference Geo:", inferenceGeoField)
+        addRow("Metadata User ID:", metadataUserIdField)
+        addRow("Output Effort:", outputEffortCombo)
+        addRow("Output Schema JSON:", JBScrollPane(outputSchemaArea))
+
+        val dialog = object : DialogWrapper(project, false) {
+            init {
+                title = "模型扩展设置 - Anthropic"
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent {
+                val scroll = JBScrollPane(panel)
+                scroll.preferredSize = Dimension(JBUI.scale(520), JBUI.scale(520))
+                return scroll
+            }
+
+            override fun doOKAction() {
+                fun requireNumber(field: JBTextField, label: String, integerOnly: Boolean = false): Boolean {
+                    val text = field.text.trim()
+                    if (text.isBlank()) {
+                        return true
+                    }
+                    val valid = if (integerOnly) text.toLongOrNull() != null else text.toDoubleOrNull() != null
+                    if (!valid) {
+                        Messages.showErrorDialog(project, "$label 必须是数字", "参数无效")
+                    }
+                    return valid
+                }
+                if (!requireNumber(maxTokensField, "Max Tokens", integerOnly = true)) return
+                if (!requireNumber(temperatureField, "Temperature")) return
+                if (!requireNumber(topPField, "Top P")) return
+                if (!requireNumber(topKField, "Top K", integerOnly = true)) return
+                val schemaText = outputSchemaArea.text.trim()
+                if (schemaText.isNotEmpty()) {
+                    try {
+                        JsonParser.parseString(schemaText).asJsonObject
+                    } catch (_: Throwable) {
+                        Messages.showErrorDialog(project, "Output Schema JSON 必须是有效的 JSON 对象", "参数无效")
+                        return
+                    }
+                }
+                val thinkingMode = (thinkingCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                val budgetText = budgetField.text.trim()
+                val budgetParsed = budgetText.toIntOrNull()
+                if (budgetText.isNotBlank() && budgetParsed == null) {
+                    Messages.showErrorDialog(project, "预算 Tokens 必须是数字", "参数无效")
+                    return
+                }
+                val budgetValue = budgetParsed ?: 0
+                if (thinkingMode == "enabled") {
+                    if (budgetValue <= 0) {
+                        Messages.showErrorDialog(project, "预算 Tokens 必须大于 0", "参数无效")
+                        return
+                    }
+                }
+                val target = AgentProviderSupport.getOrCreateModelSettings(provider, model)
+                target.anthropicThinkingMode = thinkingMode
+                target.anthropicThinkingBudgetTokens = if (thinkingMode == "enabled") budgetValue else 0
+                target.anthropicMaxTokens = maxTokensField.text.trim()
+                target.anthropicTemperature = temperatureField.text.trim()
+                target.anthropicTopP = topPField.text.trim()
+                target.anthropicTopK = topKField.text.trim()
+                target.anthropicStopSequences = stopArea.text.trim()
+                target.anthropicServiceTier = (serviceTierCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                target.anthropicInferenceGeo = inferenceGeoField.text.trim()
+                target.anthropicMetadataUserId = metadataUserIdField.text.trim()
+                target.anthropicOutputEffort = (outputEffortCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                target.anthropicOutputSchemaJson = outputSchemaArea.text.trim()
+                super.doOKAction()
+            }
+        }
+        dialog.showAndGet()
     }
 
     private fun refreshModelSelector(selected: String?) {
@@ -578,6 +1012,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 modelSelector.editor.item = ""
             }
             updatingModelSelection = false
+            updateModelSettingsAction()
             return
         }
         val models = ensureModelList(provider)
@@ -599,6 +1034,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         modelSelector.selectedItem = resolved
         modelSelector.editor.item = resolved
         updatingModelSelection = false
+        updateModelSettingsAction()
 
     }
 
@@ -1041,6 +1477,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     if (provider.activeModel == current) {
                         provider.activeModel = name
                     }
+                    AgentProviderSupport.renameModelSettings(provider, current, name)
                     updateSessionsModelName(providerId, current, name)
                     if (currentSession?.model == current) {
                         updateCurrentModel(name)
@@ -1064,6 +1501,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     if (provider.activeModel == current) {
                         provider.activeModel = fallback
                     }
+                    AgentProviderSupport.removeModelSettings(provider, current)
                     if (fallback.isBlank()) {
                         updateSessionsModelName(providerId, current, "")
                         if (currentSession?.model == current) {
@@ -1237,6 +1675,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         modelSelector.isEnabled = false
         setActionEnabled(providerManageAction, false)
         setActionEnabled(modelManageAction, false)
+        setActionEnabled(modelSettingsAction, false)
         setActionEnabled(mcpManageAction, false)
         setInputEnabled(false)
         updateToolbars()
@@ -1250,10 +1689,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         modelSelector.isEnabled = true
         setActionEnabled(providerManageAction, true)
         setActionEnabled(modelManageAction, true)
+        setActionEnabled(modelSettingsAction, true)
         setActionEnabled(mcpManageAction, true)
         setInputEnabled(true)
         cancelToken = null
         sending.set(false)
+        updateModelSettingsAction()
         updateToolbars()
     }
 
@@ -1381,6 +1822,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val sendGroup = DefaultActionGroup().apply {
                 add(providerManageAction)
                 add(modelManageAction)
+                add(modelSettingsAction)
                 add(mcpManageAction)
                 addSeparator()
                 add(sendAction)
@@ -1476,7 +1918,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             closeReasoningBlock()
                         }
                         val filtered = filterAssistantDelta(delta)
-                        if (filtered.isBlank()) {
+                        if (filtered.isEmpty()) {
                             return@invokeLater
                         }
                         if (assistantStarted.compareAndSet(false, true)) {
@@ -1807,6 +2249,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val collapsedByDefault: Boolean,
         var state: AgentRenderState? = null,
     )
+
+    private data class ModelSettingOption(val label: String, val value: String)
 
     private class ChatSession(
         val id: String,
