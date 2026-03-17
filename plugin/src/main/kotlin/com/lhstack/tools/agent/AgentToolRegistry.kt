@@ -83,7 +83,7 @@ class AgentToolRegistry private constructor(
         private const val SYSTEM_PLUGIN_PATH = "<internal>"
         private const val SYSTEM_PLUGIN_TYPE = "system"
 
-        fun build(project: Project): AgentToolRegistry {
+        fun build(project: Project, selectedSkills: List<AgentSkillState> = emptyList()): AgentToolRegistry {
             val tools = mutableListOf<AgentTool>()
             val toolByName = linkedMapOf<String, AgentTool>()
             val pluginTools = linkedMapOf<String, MutableList<AgentTool>>()
@@ -164,10 +164,286 @@ class AgentToolRegistry private constructor(
                 pluginInfosByName = pluginInfosByName,
             )
 
+            registerSkillResourceTools(project, selectedSkills, systemPluginInfo, ::registerTool)
             registerJtoolsFunctions(project, registry, systemPluginInfo, ::registerTool)
+            registerSkillManagementTools(project, systemPluginInfo, ::registerTool)
+            registerMcpManagementTools(project, systemPluginInfo, ::registerTool)
             registerMcpTools(project, ::registerTool)
 
             return registry
+        }
+
+        private fun registerSkillResourceTools(
+            project: Project,
+            selectedSkills: List<AgentSkillState>,
+            systemPluginInfo: PluginInfo,
+            registerTool: (AgentTool) -> Unit,
+        ) {
+            if (selectedSkills.isEmpty()) {
+                return
+            }
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_list_resources",
+                    description = "列出当前会话已启用 skills 的资源列表",
+                    parametersJson = emptyParameters(),
+                    call = {
+                        success(project, AgentSkillResourceSupport.listResources(selectedSkills))
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_read_resource",
+                    description = "读取当前会话已启用 skill 的资源内容，可按 skillName 和 path 读取",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "skillName": { "type": "string", "description": "技能名称，可选" },
+                            "path": { "type": "string", "description": "资源路径，支持完整路径或文件名" }
+                          },
+                          "required": ["path"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.asString?.trim().orEmpty()
+                        val skillName = payload.get("skillName")?.asString?.trim()
+                        val result = AgentSkillResourceSupport.readResource(selectedSkills, skillName, path)
+                        if (result.error != null) {
+                            return@AgentTool error(
+                                project,
+                                buildString {
+                                    append(result.error)
+                                    if (result.suggestions.isNotEmpty()) {
+                                        append("，可选资源: ")
+                                        append(result.suggestions.joinToString(", "))
+                                    }
+                                }
+                            )
+                        }
+                        success(
+                            project,
+                            mapOf(
+                                "skillId" to result.skillId,
+                                "skillName" to result.skillName,
+                                "path" to result.path,
+                                "content" to result.content
+                            )
+                        )
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+        }
+
+        private fun registerSkillManagementTools(
+            project: Project,
+            systemPluginInfo: PluginInfo,
+            registerTool: (AgentTool) -> Unit,
+        ) {
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_list",
+                    description = "列出当前已保存的 skills 定义",
+                    parametersJson = emptyParameters(),
+                    call = {
+                        success(project, AgentSkillFunctionTools.listSkills(project.pluginState()))
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_add",
+                    description = "新增一个手动 skill 定义",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": { "type": "string", "description": "技能名称" },
+                            "description": { "type": "string", "description": "技能描述" },
+                            "skillContent": { "type": "string", "description": "Skill 正文内容" },
+                            "enabledByDefault": { "type": "boolean", "description": "是否默认启用" },
+                            "resources": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "path": { "type": "string" },
+                                  "content": { "type": "string" }
+                                },
+                                "required": ["path", "content"]
+                              }
+                            }
+                          },
+                          "required": ["name", "description", "skillContent"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val result = AgentSkillFunctionTools.addSkill(
+                            project.pluginState(),
+                            AgentSkillAddInput(
+                                name = payload.get("name")?.asString?.trim().orEmpty(),
+                                description = payload.get("description")?.asString?.trim().orEmpty(),
+                                skillContent = payload.get("skillContent")?.asString.orEmpty(),
+                                enabledByDefault = payload.get("enabledByDefault")?.takeIf { !it.isJsonNull }?.asBoolean ?: false,
+                                resources = parseSkillResources(payload.get("resources"))
+                            )
+                        )
+                        functionResult(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_update",
+                    description = "按 patch 语义更新 skill 定义",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "skillId": { "type": "string", "description": "技能 ID" },
+                            "name": { "type": "string", "description": "技能名称；未提供 skillId 时用于定位" },
+                            "description": { "type": "string", "description": "新的技能描述" },
+                            "skillContent": { "type": "string", "description": "新的 Skill 正文内容" },
+                            "enabledByDefault": { "type": "boolean", "description": "是否默认启用" },
+                            "resources": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "path": { "type": "string" },
+                                  "content": { "type": "string" }
+                                },
+                                "required": ["path", "content"]
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val result = AgentSkillFunctionTools.updateSkill(
+                            project.pluginState(),
+                            AgentSkillUpdateInput(
+                                skillId = payload.get("skillId")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                                name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                                description = payload.get("description")?.takeIf { !it.isJsonNull }?.asString,
+                                skillContent = payload.get("skillContent")?.takeIf { !it.isJsonNull }?.asString,
+                                enabledByDefault = payload.get("enabledByDefault")?.takeIf { !it.isJsonNull }?.asBoolean,
+                                resources = payload.get("resources")?.let(::parseSkillResources)
+                            )
+                        )
+                        functionResult(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_delete",
+                    description = "删除一个 skill，并自动从会话中移除",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "skillId": { "type": "string", "description": "技能 ID" },
+                            "name": { "type": "string", "description": "技能名称" }
+                          }
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val identifier = payload.get("skillId")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                            ?: payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (identifier.isBlank()) {
+                            return@AgentTool error(project, "skillId 或 name 不能为空")
+                        }
+                        functionResult(project, AgentSkillFunctionTools.deleteSkill(project.pluginState(), identifier))
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_set_enabled",
+                    description = "启用或禁用 skill，可作用于默认状态或当前项目会话",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "skillId": { "type": "string", "description": "技能 ID" },
+                            "name": { "type": "string", "description": "技能名称" },
+                            "scope": { "type": "string", "enum": ["default", "session"], "description": "作用范围" },
+                            "enabled": { "type": "boolean", "description": "是否启用" },
+                            "sessionId": { "type": "string", "description": "可选会话 ID" }
+                          },
+                          "required": ["enabled"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val scope = AgentSkillEnableScope.fromId(payload.get("scope")?.takeIf { !it.isJsonNull }?.asString)
+                        val enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean
+                            ?: return@AgentTool error(project, "enabled 不能为空")
+                        val result = AgentSkillFunctionTools.setEnabled(
+                            state = project.pluginState(),
+                            scope = scope,
+                            skillId = payload.get("skillId")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                            name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                            enabled = enabled,
+                            projectKey = resolveProjectKey(project),
+                            sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                        )
+                        functionResult(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_skill_import_from_path",
+                    description = "从本地路径导入 skills，支持单个 SKILL.md、skill 根目录和多 skills 子目录扫描",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "本地路径" }
+                          },
+                          "required": ["path"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.asString?.trim().orEmpty()
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        val importResult = runCatching {
+                            AgentSkillImportSupport.importFromPath(path, project.pluginState().agentSkills)
+                        }.getOrElse { throwable ->
+                            return@AgentTool error(project, throwable.message ?: "导入失败")
+                        }
+                        project.pluginState().agentSkills.addAll(importResult.importedSkills)
+                        success(
+                            project,
+                            mapOf(
+                                "importedSkills" to importResult.importedSkills.map { skill ->
+                                    mapOf("id" to skill.id, "name" to skill.name, "resourceCount" to skill.resources.size)
+                                },
+                                "skippedSkills" to importResult.skippedSkills,
+                                "warnings" to importResult.warnings
+                            )
+                        )
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
         }
 
         private fun registerJtoolsFunctions(
@@ -756,6 +1032,225 @@ class AgentToolRegistry private constructor(
             }
         }
 
+        private fun registerMcpManagementTools(
+            project: Project,
+            systemPluginInfo: PluginInfo,
+            registerTool: (AgentTool) -> Unit,
+        ) {
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_add_server",
+                    description = "新增 MCP 服务器配置",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": { "type": "string", "description": "服务器名称" },
+                            "enabled": { "type": "boolean", "description": "是否启用" },
+                            "transport": { "type": "string", "enum": ["stdio", "sse", "streamable-http"], "description": "传输方式" },
+                            "stdioCommand": { "type": "string", "description": "stdio 命令" },
+                            "stdioArgs": { "type": "array", "items": { "type": "string" } },
+                            "stdioEnv": { "type": "object", "additionalProperties": { "type": "string" } },
+                            "url": { "type": "string", "description": "HTTP/SSE 地址" },
+                            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+                            "authType": { "type": "string", "enum": ["none", "header", "basic", "query"] },
+                            "authHeaderName": { "type": "string" },
+                            "authHeaderValue": { "type": "string" },
+                            "authUsername": { "type": "string" },
+                            "authPassword": { "type": "string" },
+                            "authQueryParam": { "type": "string" },
+                            "authQueryValue": { "type": "string" },
+                            "disabledTools": { "type": "array", "items": { "type": "string" } }
+                          },
+                          "required": ["name", "transport"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val result = AgentMcpFunctionTools.addServer(
+                            state = project.pluginState(),
+                            input = AgentMcpAddServerInput(
+                                name = payload.get("name")?.asString?.trim().orEmpty(),
+                                enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean ?: true,
+                                transport = payload.get("transport")?.asString?.trim().orEmpty(),
+                                stdioCommand = payload.get("stdioCommand")?.takeIf { !it.isJsonNull }?.asString,
+                                stdioArgs = parseStringArray(payload.get("stdioArgs")),
+                                stdioEnv = parseStringMap(payload.get("stdioEnv")),
+                                url = payload.get("url")?.takeIf { !it.isJsonNull }?.asString,
+                                headers = parseStringMap(payload.get("headers")),
+                                authType = payload.get("authType")?.takeIf { !it.isJsonNull }?.asString,
+                                authHeaderName = payload.get("authHeaderName")?.takeIf { !it.isJsonNull }?.asString,
+                                authHeaderValue = payload.get("authHeaderValue")?.takeIf { !it.isJsonNull }?.asString,
+                                authUsername = payload.get("authUsername")?.takeIf { !it.isJsonNull }?.asString,
+                                authPassword = payload.get("authPassword")?.takeIf { !it.isJsonNull }?.asString,
+                                authQueryParam = payload.get("authQueryParam")?.takeIf { !it.isJsonNull }?.asString,
+                                authQueryValue = payload.get("authQueryValue")?.takeIf { !it.isJsonNull }?.asString,
+                                disabledTools = parseStringArray(payload.get("disabledTools"))
+                            )
+                        )
+                        functionResult(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_update_server",
+                    description = "按 patch 语义更新 MCP 服务器配置",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string", "description": "服务器 ID" },
+                            "name": { "type": "string", "description": "服务器名称；未提供 serverId 时用于定位" },
+                            "enabled": { "type": "boolean" },
+                            "transport": { "type": "string", "enum": ["stdio", "sse", "streamable-http"] },
+                            "stdioCommand": { "type": "string" },
+                            "stdioArgs": { "type": "array", "items": { "type": "string" } },
+                            "stdioEnv": { "type": "object", "additionalProperties": { "type": "string" } },
+                            "url": { "type": "string" },
+                            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+                            "authType": { "type": "string", "enum": ["none", "header", "basic", "query"] },
+                            "authHeaderName": { "type": "string" },
+                            "authHeaderValue": { "type": "string" },
+                            "authUsername": { "type": "string" },
+                            "authPassword": { "type": "string" },
+                            "authQueryParam": { "type": "string" },
+                            "authQueryValue": { "type": "string" },
+                            "disabledTools": { "type": "array", "items": { "type": "string" } }
+                          }
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val result = AgentMcpFunctionTools.updateServer(
+                            state = project.pluginState(),
+                            input = AgentMcpUpdateServerInput(
+                                serverId = payload.get("serverId")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                                name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                                enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean,
+                                transport = payload.get("transport")?.takeIf { !it.isJsonNull }?.asString?.trim(),
+                                stdioCommand = payload.get("stdioCommand")?.takeIf { !it.isJsonNull }?.asString,
+                                stdioArgs = payload.get("stdioArgs")?.let(::parseStringArray),
+                                stdioEnv = payload.get("stdioEnv")?.let(::parseStringMap),
+                                url = payload.get("url")?.takeIf { !it.isJsonNull }?.asString,
+                                headers = payload.get("headers")?.let(::parseStringMap),
+                                authType = payload.get("authType")?.takeIf { !it.isJsonNull }?.asString,
+                                authHeaderName = payload.get("authHeaderName")?.takeIf { !it.isJsonNull }?.asString,
+                                authHeaderValue = payload.get("authHeaderValue")?.takeIf { !it.isJsonNull }?.asString,
+                                authUsername = payload.get("authUsername")?.takeIf { !it.isJsonNull }?.asString,
+                                authPassword = payload.get("authPassword")?.takeIf { !it.isJsonNull }?.asString,
+                                authQueryParam = payload.get("authQueryParam")?.takeIf { !it.isJsonNull }?.asString,
+                                authQueryValue = payload.get("authQueryValue")?.takeIf { !it.isJsonNull }?.asString,
+                                disabledTools = payload.get("disabledTools")?.let(::parseStringArray)
+                            ),
+                            onInvalidate = { McpClientManager.invalidate(it) }
+                        )
+                        functionResult(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_delete_server",
+                    description = "删除 MCP 服务器配置",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string" },
+                            "name": { "type": "string" }
+                          }
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val identifier = payload.get("serverId")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                            ?: payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (identifier.isBlank()) {
+                            return@AgentTool error(project, "serverId 或 name 不能为空")
+                        }
+                        functionResult(
+                            project,
+                            AgentMcpFunctionTools.deleteServer(project.pluginState(), identifier) {
+                                McpClientManager.invalidate(it)
+                            }
+                        )
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_set_enabled",
+                    description = "启用或禁用 MCP 服务器",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string" },
+                            "name": { "type": "string" },
+                            "enabled": { "type": "boolean" }
+                          },
+                          "required": ["enabled"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val identifier = payload.get("serverId")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                            ?: payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (identifier.isBlank()) {
+                            return@AgentTool error(project, "serverId 或 name 不能为空")
+                        }
+                        val enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean
+                            ?: return@AgentTool error(project, "enabled 不能为空")
+                        functionResult(
+                            project,
+                            AgentMcpFunctionTools.setEnabled(project.pluginState(), identifier, enabled) {
+                                McpClientManager.invalidate(it)
+                            }
+                        )
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+            registerTool(
+                AgentTool(
+                    name = "jtools_mcp_test_server",
+                    description = "测试 MCP 服务器连通性",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "serverId": { "type": "string" },
+                            "name": { "type": "string" }
+                          }
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val identifier = payload.get("serverId")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                            ?: payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (identifier.isBlank()) {
+                            return@AgentTool error(project, "serverId 或 name 不能为空")
+                        }
+                        val result = AgentMcpFunctionTools.testServer(project.pluginState(), identifier) { server ->
+                            McpClientManager.getClient(server).ping()
+                            mapOf(
+                                "reachable" to true,
+                                "id" to server.id,
+                                "name" to server.name,
+                                "transport" to server.transport
+                            )
+                        }
+                        functionResult(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+        }
+
         private fun buildMcpToolName(serverId: String, toolName: String): String {
             val safeName = sanitizeName(toolName).ifBlank { "tool" }
             val serverHash = DigestUtils.md5Hex(serverId).substring(0, 6)
@@ -1183,6 +1678,48 @@ class AgentToolRegistry private constructor(
             }
         }
 
+        private fun resolveProjectKey(project: Project): String {
+            val basePath = project.basePath?.replace("\\", "/")?.trim().orEmpty()
+            return if (basePath.isNotEmpty()) basePath else project.name
+        }
+
+        private fun parseStringArray(element: com.google.gson.JsonElement?): List<String> {
+            if (element == null || element.isJsonNull || !element.isJsonArray) {
+                return emptyList()
+            }
+            return element.asJsonArray.mapNotNull { item ->
+                item.takeIf { it.isJsonPrimitive }?.asString?.trim()?.takeIf { it.isNotEmpty() }
+            }
+        }
+
+        private fun parseStringMap(element: com.google.gson.JsonElement?): Map<String, String> {
+            if (element == null || element.isJsonNull || !element.isJsonObject) {
+                return emptyMap()
+            }
+            return element.asJsonObject.entrySet().mapNotNull { (key, value) ->
+                key.trim().takeIf { it.isNotEmpty() }?.let { trimmedKey ->
+                    trimmedKey to value.takeIf { !it.isJsonNull }?.asString.orEmpty().trim()
+                }
+            }.toMap()
+        }
+
+        private fun parseSkillResources(element: com.google.gson.JsonElement?): List<AgentSkillResourceDraft> {
+            if (element == null || element.isJsonNull || !element.isJsonArray) {
+                return emptyList()
+            }
+            return element.asJsonArray.mapNotNull { item ->
+                val obj = item.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val path = obj.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                if (path.isBlank()) {
+                    return@mapNotNull null
+                }
+                AgentSkillResourceDraft(
+                    path = path,
+                    content = obj.get("content")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                )
+            }
+        }
+
         private fun parseArgs(arguments: String): JsonObject? {
             if (arguments.isBlank()) {
                 return JsonObject()
@@ -1197,6 +1734,14 @@ class AgentToolRegistry private constructor(
 
         private fun success(project: Project, data: Any): String {
             return project.gson.toJson(mapOf("ok" to true, "data" to data))
+        }
+
+        private fun functionResult(project: Project, result: AgentFunctionResult<*>): String {
+            return if (result.ok) {
+                success(project, result.data ?: emptyMap<String, Any?>())
+            } else {
+                error(project, result.error ?: "操作失败")
+            }
         }
 
         private fun error(project: Project, message: String): String {

@@ -6,12 +6,16 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBList
@@ -26,10 +30,15 @@ import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.Transferable
 import java.awt.event.*
+import java.awt.image.BufferedImage
+import java.io.File
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import javax.imageio.ImageIO
 import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.PopupMenuEvent
@@ -39,6 +48,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val messageContainer = JPanel(VerticalLayout(8))
     private val chatScroll = JBScrollPane(messageContainer)
     private val inputArea = JBTextArea(3, 0)
+    private val attachmentDraftPanel = JPanel().apply {
+        isOpaque = false
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
+    }
+    private val attachmentDraftScroll = AgentAttachmentChipUi.createHorizontalStrip(attachmentDraftPanel)
     private val actionToolbars = mutableListOf<ActionToolbar>()
     private val actionEnabledState = mutableMapOf<AnAction, Boolean>()
     private val quickClearAction = createAction("清空当前会话", Icons.closeAllIcon()) {
@@ -48,7 +62,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val modelManageAction = createAction("模型管理", Icons.toolIcon()) { openModelManager() }
     private val modelSettingsAction = createAction("模型扩展设置", Icons.modelTuningIcon()) { openModelSettingsDialog() }
     private val providerManageAction = createAction("供应方管理", Icons.providerConfigIcon()) { openProviderManager() }
+    private val skillSelectAction = createAction("会话 Skills", Icons.sessionSkillsIcon()) { openSkillSelector() }
+    private val skillManageAction = createAction("Skills 管理", Icons.skillsManageIcon()) { openSkillManager() }
     private val mcpManageAction = createAction("MCP 配置", Icons.mcpConfigIcon()) { openMcpManager() }
+    private val attachmentAction = object : AnAction({ "附件" }, Icons.attachmentIcon()) {
+        override fun actionPerformed(e: AnActionEvent) {
+            chooseAttachments()
+        }
+
+        override fun update(e: AnActionEvent) {
+            val visible = AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())
+            e.presentation.isVisible = visible
+            e.presentation.isEnabled = visible && !sending.get() && inputArea.isEnabled
+        }
+    }
     private val sendAction = createAction(
         "发送",
         Icons.runIcon(),
@@ -60,12 +87,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         enabledProvider = { sending.get() }
     ) { cancelCurrentRequest() }
     private val statusLabel = JLabel()
-    private val inputHintLabel = JLabel("Shift+Enter 发送, Enter 换行")
+    private val inputHintLabel = JLabel(AgentInputShortcutSupport.inputHint())
     private val sessionModel = DefaultComboBoxModel<ChatSession>()
     private val providerModel = DefaultComboBoxModel<AgentProviderState>()
     private val sessionSelector = ComboBox<ChatSession>()
     private val providerSelector = ComboBox<AgentProviderState>()
     private val modelSelector = ComboBox<String>()
+    private val conversationModeSelector = ComboBox<AgentConversationMode>()
     private val comboFixedWidth = JBUI.scale(180)
     private val projectKey = resolveProjectKey()
     private val client = AgentClient()
@@ -77,6 +105,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var updatingSessionSelection = false
     private var updatingProviderSelection = false
     private var updatingModelSelection = false
+    private var updatingConversationModeSelection = false
 
     private var assistantBlock: MessageBlock? = null
     private var reasoningBlock: MessageBlock? = null
@@ -93,6 +122,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupSessionSelector()
         setupProviderSelector()
         setupModelSelector()
+        setupConversationModeSelector()
         setActionEnabled(stopAction, false)
         val root = JPanel(BorderLayout())
         root.add(buildTopBar(), BorderLayout.NORTH)
@@ -120,7 +150,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         inputArea.background = UIUtil.getTextFieldBackground()
         inputArea.isOpaque = true
         inputArea.inputMap.put(
-            KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK),
+            AgentInputShortcutSupport.sendKeyStroke(),
             "sendMessage"
         )
         inputArea.actionMap.put("sendMessage", object : javax.swing.AbstractAction() {
@@ -128,6 +158,35 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 sendMessage()
             }
         })
+        inputArea.inputMap.put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx),
+            "pasteAttachmentOrText"
+        )
+        inputArea.inputMap.put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, InputEvent.SHIFT_DOWN_MASK),
+            "pasteAttachmentOrText"
+        )
+        inputArea.actionMap.put("pasteAttachmentOrText", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) {
+                if (!pasteAttachmentsFromClipboard()) {
+                    inputArea.paste()
+                }
+            }
+        })
+        inputArea.transferHandler = object : TransferHandler() {
+            override fun canImport(support: TransferSupport): Boolean {
+                return AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
+                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ||
+                        support.isDataFlavorSupported(DataFlavor.imageFlavor))
+            }
+
+            override fun importData(support: TransferSupport): Boolean {
+                if (!canImport(support)) {
+                    return false
+                }
+                return addAttachmentsFromTransferable(support.transferable)
+            }
+        }
     }
 
     private fun setupSessionSelector() {
@@ -187,6 +246,23 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 return@addActionListener
             }
             updateCurrentModel(resolveSelectedModel())
+        }
+    }
+
+    private fun setupConversationModeSelector() {
+        conversationModeSelector.maximumRowCount = 4
+        conversationModeSelector.isEditable = false
+        conversationModeSelector.isVisible = AgentConversationModeSupport.selectorVisible()
+        configureComboBox(conversationModeSelector, comboFixedWidth, {
+            (it as? AgentConversationMode)?.displayName ?: it?.toString().orEmpty()
+        })
+        refreshConversationModeSelector(AgentConversationMode.CHAT.id)
+        conversationModeSelector.addActionListener {
+            if (updatingConversationModeSelection || sending.get()) {
+                return@addActionListener
+            }
+            val selected = conversationModeSelector.selectedItem as? AgentConversationMode ?: return@addActionListener
+            updateConversationMode(selected)
         }
     }
 
@@ -356,7 +432,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         enabledProvider: (() -> Boolean)? = null,
         action: () -> Unit
     ): AnAction {
-        return object : AnAction({ description }, icon) {
+        return object : AnAction({ description }, AgentToolbarIconSupport.normalize(icon)) {
             override fun actionPerformed(e: AnActionEvent) {
                 action()
             }
@@ -383,6 +459,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun createToolbar(id: String, group: DefaultActionGroup, horizontal: Boolean, target: JComponent): JComponent {
         val toolbar = ActionManager.getInstance().createActionToolbar(id, group, horizontal)
         toolbar.targetComponent = target
+        toolbar.setMinimumButtonSize(AgentToolbarIconSupport.minimumButtonSize)
         actionToolbars.add(toolbar)
         return toolbar.component
     }
@@ -440,6 +517,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             title = "新会话"
             autoTitle = true
             model = resolvedModel
+            conversationMode = AgentConversationMode.CHAT.id
+            enabledSkillIds = project.pluginState().agentSkills
+                .filter { it.enabledByDefault }
+                .map { it.id }
+                .toMutableList()
         }
         val session = toSession(state)
         resetMessages(session)
@@ -455,6 +537,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (state.projectKey.isBlank()) {
             state.projectKey = projectKey
         }
+        val availableSkillIds = project.pluginState().agentSkills.map { it.id }.toSet()
+        state.enabledSkillIds = state.enabledSkillIds
+            .filter { it in availableSkillIds }
+            .distinct()
+            .toMutableList()
         val resolvedProvider = resolveProviderForSession(state)
         val resolvedModel = state.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
         state.model = resolvedModel
@@ -476,6 +563,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 content = renderState.content,
                 collapsible = renderState.collapsible,
                 collapsedByDefault = renderState.collapsedByDefault,
+                attachments = renderState.attachments.toMutableList(),
                 state = renderState
             )
         }.toMutableList()
@@ -508,7 +596,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ensureModelExists(resolvedProvider, resolvedModel)
         }
         refreshModelSelector(resolvedModel)
+        refreshConversationModeSelector(session.state.conversationMode)
         renderSession(session)
+        refreshAttachmentDrafts()
         updateStatus()
     }
 
@@ -538,7 +628,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             content = item.content
             collapsible = item.collapsible
             collapsedByDefault = item.collapsedByDefault
+            attachments = item.attachments.toMutableList()
         }.also { item.state = it }
+        stateItem.attachments = item.attachments.toMutableList()
         if (before != null) {
             val index = session.renders.indexOf(before)
             if (index >= 0) {
@@ -573,6 +665,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ensureModelExists(provider, resolved)
         }
         refreshModelSelector(resolved)
+        refreshConversationModeSelector(session.state.conversationMode)
+        refreshAttachmentDrafts()
         updateStatus()
         updateModelSettingsAction()
     }
@@ -590,8 +684,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         session.model = resolvedModel
         session.state.model = resolvedModel
         refreshModelSelector(resolvedModel)
+        refreshConversationModeSelector(session.state.conversationMode)
+        refreshAttachmentDrafts()
         updateStatus()
         updateModelSettingsAction()
+    }
+
+    private fun updateConversationMode(mode: AgentConversationMode) {
+        val session = currentSession ?: return
+        session.state.conversationMode = mode.id
+        refreshConversationModeSelector(mode.id)
+        updateStatus()
     }
 
     private fun updateModelSettingsAction() {
@@ -620,6 +723,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun openOpenAiModelSettingsDialog(provider: AgentProviderState, model: String) {
         val settings = AgentProviderSupport.findModelSettings(provider, model)
+        val streamingCheck = JCheckBox("启用流式输出").apply { isSelected = settings?.streamingEnabled != false }
+        val capabilitySelection = createCapabilitySelection(
+            settings?.modelCapabilities.orEmpty(),
+            AgentModelCapabilityCatalog.multimodalOptions(),
+        )
+        val toolCallingCheck = JCheckBox("支持工具调用").apply {
+            isOpaque = false
+            isSelected = settings?.modelCapabilities?.contains("tool_calling") == true
+        }
         val effortOptions = listOf(
             ModelSettingOption("默认 (不设置)", ""),
             ModelSettingOption("NONE", "none"),
@@ -720,44 +832,59 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updateSchemaState()
         updateLogprobsState()
 
-        val panel = JPanel(GridBagLayout())
-        val c = GridBagConstraints().apply {
-            anchor = GridBagConstraints.WEST
-            insets = JBUI.insets(4)
-            fill = GridBagConstraints.HORIZONTAL
-        }
-        var row = 0
-        fun addRow(label: String, component: JComponent) {
-            c.gridx = 0
-            c.gridy = row
-            c.weightx = 0.0
-            c.gridwidth = 1
-            panel.add(JLabel(label), c)
-            c.gridx = 1
-            c.weightx = 1.0
-            panel.add(component, c)
-            row++
-        }
-
-        addRow("模型:", JLabel(model))
-        addRow("思考强度:", effortCombo)
-        addRow("Temperature:", temperatureField)
-        addRow("Top P:", topPField)
-        addRow("Max Tokens:", maxTokensField)
-        addRow("Max Completion Tokens:", maxCompletionTokensField)
-        addRow("Presence Penalty:", presencePenaltyField)
-        addRow("Frequency Penalty:", frequencyPenaltyField)
-        addRow("Seed:", seedField)
-        addRow("Stop Sequences:", JBScrollPane(stopArea))
-        addRow("Response Format:", responseFormatCombo)
-        addRow("Schema Name:", schemaNameField)
-        addRow("Schema Desc:", schemaDescField)
-        addRow("Schema Strict:", schemaStrictCheck)
-        addRow("Schema JSON:", JBScrollPane(schemaArea))
-        addRow("Logprobs:", logprobsCombo)
-        addRow("Top Logprobs:", topLogprobsField)
-        addRow("Tool Choice:", toolChoiceCombo)
-        addRow("Parallel Tool Calls:", parallelToolCallsCombo)
+        val capabilityCard = AgentFormUi.sectionCard(
+            "模型能力",
+            "这里配置附件能力、工具能力和流式输出。",
+            AgentFormUi.verticalStack(
+                AgentFormUi.twoColumnGrid(
+                    AgentFormUi.fieldTile("模型", JLabel(model), "当前正在配置的模型名称。"),
+                    AgentFormUi.fieldTile("流式输出", streamingCheck, "决定该模型是否支持流式返回内容。"),
+                ),
+                AgentFormUi.fieldTile("多模态能力", capabilitySelection.panel, "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"),
+                AgentFormUi.fieldTile("工具调用", toolCallingCheck, "勾选后表示该模型支持工具调用。"),
+            )
+        )
+        val samplingCard = AgentFormUi.sectionCard(
+            "采样与输出",
+            "控制回答风格、长度和随机性。",
+            AgentFormUi.verticalStack(
+                AgentFormUi.twoColumnGrid(
+                    AgentFormUi.fieldTile("思考强度", effortCombo, "控制模型在推理阶段投入的计算强度。"),
+                    AgentFormUi.fieldTile("温度", temperatureField, "控制输出随机性，值越高越发散。"),
+                    AgentFormUi.fieldTile("Top P", topPField, "控制核采样范围。"),
+                    AgentFormUi.fieldTile("最大输出 Tokens", maxTokensField, "限制模型本次回答的最大输出长度。"),
+                    AgentFormUi.fieldTile("最大完成 Tokens", maxCompletionTokensField, "限制 completion 阶段的 token 上限。"),
+                    AgentFormUi.fieldTile("随机种子", seedField, "在支持的模型上固定随机种子，便于复现。"),
+                    AgentFormUi.fieldTile("存在惩罚", presencePenaltyField, "降低重复主题出现的概率。"),
+                    AgentFormUi.fieldTile("频率惩罚", frequencyPenaltyField, "降低重复措辞出现的概率。"),
+                ),
+                AgentFormUi.fieldTile("停止序列", JBScrollPane(stopArea), "配置一个或多个停止输出的序列。"),
+            )
+        )
+        val structureCard = AgentFormUi.sectionCard(
+            "结构化输出",
+            "控制文本输出、JSON 对象和 Schema 输出。",
+            AgentFormUi.verticalStack(
+                AgentFormUi.twoColumnGrid(
+                    AgentFormUi.fieldTile("响应格式", responseFormatCombo, "控制模型输出文本或结构化 JSON。"),
+                    AgentFormUi.fieldTile("严格模式", schemaStrictCheck, "决定是否严格遵守 Schema。"),
+                    AgentFormUi.fieldTile("Schema 名称", schemaNameField, "JSON Schema 的名称。"),
+                    AgentFormUi.fieldTile("Schema 描述", schemaDescField, "JSON Schema 的中文说明。"),
+                ),
+                AgentFormUi.fieldTile("Schema JSON", JBScrollPane(schemaArea), "完整的 JSON Schema 对象。"),
+            )
+        )
+        val toolCard = AgentFormUi.sectionCard(
+            "工具与调试",
+            "控制工具调用策略和调试信息输出。",
+            AgentFormUi.twoColumnGrid(
+                AgentFormUi.fieldTile("工具调用策略", toolChoiceCombo, "控制模型自动、禁止或强制调用工具。"),
+                AgentFormUi.fieldTile("并行工具调用", parallelToolCallsCombo, "是否允许一次并行触发多个工具调用。"),
+                AgentFormUi.fieldTile("Logprobs", logprobsCombo, "是否返回输出 token 的概率信息。"),
+                AgentFormUi.fieldTile("Top Logprobs", topLogprobsField, "每个 token 返回的最高概率候选数量。"),
+            )
+        )
+        val panel = AgentFormUi.verticalStack(capabilityCard, samplingCard, structureCard, toolCard)
 
         val dialog = object : DialogWrapper(project, false) {
             init {
@@ -767,7 +894,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
             override fun createCenterPanel(): JComponent {
                 val scroll = JBScrollPane(panel)
-                scroll.preferredSize = Dimension(JBUI.scale(520), JBUI.scale(520))
+                scroll.preferredSize = Dimension(JBUI.scale(760), JBUI.scale(680))
                 return scroll
             }
 
@@ -807,6 +934,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 }
 
                 val target = AgentProviderSupport.getOrCreateModelSettings(provider, model)
+                target.streamingEnabled = streamingCheck.isSelected
+                target.chatModeEnabled = true
+                target.responsesModeEnabled = false
+                target.modelCapabilities = selectedCapabilityIds(capabilitySelection).apply {
+                    if (toolCallingCheck.isSelected) add("tool_calling")
+                }
                 target.openAiReasoningEffort = (effortCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
                 target.openAiTemperature = temperatureField.text.trim()
                 target.openAiTopP = topPField.text.trim()
@@ -828,11 +961,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 super.doOKAction()
             }
         }
-        dialog.showAndGet()
+        if (dialog.showAndGet()) {
+            refreshConversationModeSelector(currentSession?.state?.conversationMode)
+            refreshAttachmentDrafts()
+            updateStatus()
+            updateToolbars()
+        }
     }
 
     private fun openAnthropicModelSettingsDialog(provider: AgentProviderState, model: String) {
         val settings = AgentProviderSupport.findModelSettings(provider, model)
+        val streamingCheck = JCheckBox("启用流式输出").apply { isSelected = settings?.streamingEnabled != false }
+        val capabilitySelection = createCapabilitySelection(
+            settings?.modelCapabilities.orEmpty(),
+            AgentModelCapabilityCatalog.multimodalOptions(),
+        )
+        val toolCallingCheck = JCheckBox("支持工具调用").apply {
+            isOpaque = false
+            isSelected = settings?.modelCapabilities?.contains("tool_calling") == true
+        }
         val thinkingOptions = listOf(
             ModelSettingOption("默认 (不设置)", ""),
             ModelSettingOption("启用", "enabled"),
@@ -894,38 +1041,47 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         thinkingCombo.addItemListener { updateBudgetState() }
         updateBudgetState()
 
-        val panel = JPanel(GridBagLayout())
-        val c = GridBagConstraints().apply {
-            anchor = GridBagConstraints.WEST
-            insets = JBUI.insets(4)
-            fill = GridBagConstraints.HORIZONTAL
-        }
-        var row = 0
-        fun addRow(label: String, component: JComponent) {
-            c.gridx = 0
-            c.gridy = row
-            c.weightx = 0.0
-            c.gridwidth = 1
-            panel.add(JLabel(label), c)
-            c.gridx = 1
-            c.weightx = 1.0
-            panel.add(component, c)
-            row++
-        }
-
-        addRow("模型:", JLabel(model))
-        addRow("思考模式:", thinkingCombo)
-        addRow("预算 Tokens:", budgetField)
-        addRow("Max Tokens:", maxTokensField)
-        addRow("Temperature:", temperatureField)
-        addRow("Top P:", topPField)
-        addRow("Top K:", topKField)
-        addRow("Stop Sequences:", JBScrollPane(stopArea))
-        addRow("Service Tier:", serviceTierCombo)
-        addRow("Inference Geo:", inferenceGeoField)
-        addRow("Metadata User ID:", metadataUserIdField)
-        addRow("Output Effort:", outputEffortCombo)
-        addRow("Output Schema JSON:", JBScrollPane(outputSchemaArea))
+        val capabilityCard = AgentFormUi.sectionCard(
+            "模型能力",
+            "这里配置附件能力、工具能力和流式输出。",
+            AgentFormUi.verticalStack(
+                AgentFormUi.twoColumnGrid(
+                    AgentFormUi.fieldTile("模型", JLabel(model), "当前正在配置的模型名称。"),
+                    AgentFormUi.fieldTile("流式输出", streamingCheck, "决定该模型是否支持流式返回内容。"),
+                ),
+                AgentFormUi.fieldTile("多模态能力", capabilitySelection.panel, "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"),
+                AgentFormUi.fieldTile("工具调用", toolCallingCheck, "勾选后表示该模型支持工具调用。"),
+            )
+        )
+        val samplingCard = AgentFormUi.sectionCard(
+            "Thinking 与采样",
+            "控制 Anthropic 的 thinking 模式和采样参数。",
+            AgentFormUi.verticalStack(
+                AgentFormUi.twoColumnGrid(
+                    AgentFormUi.fieldTile("思考模式", thinkingCombo, "控制 Anthropic 模型的 thinking 行为。"),
+                    AgentFormUi.fieldTile("预算 Tokens", budgetField, "Thinking 模式启用时可消耗的 token 预算。"),
+                    AgentFormUi.fieldTile("最大输出 Tokens", maxTokensField, "限制模型本次回答的最大输出长度。"),
+                    AgentFormUi.fieldTile("温度", temperatureField, "控制输出随机性，值越高越发散。"),
+                    AgentFormUi.fieldTile("Top P", topPField, "控制核采样范围。"),
+                    AgentFormUi.fieldTile("Top K", topKField, "限制每步采样候选 token 数量。"),
+                    AgentFormUi.fieldTile("服务层级", serviceTierCombo, "控制 Anthropic 服务层级策略。"),
+                    AgentFormUi.fieldTile("输出强度", outputEffortCombo, "控制结构化输出阶段的努力级别。"),
+                ),
+                AgentFormUi.fieldTile("停止序列", JBScrollPane(stopArea), "配置一个或多个停止输出的序列。"),
+            )
+        )
+        val metadataCard = AgentFormUi.sectionCard(
+            "地域与结构化输出",
+            "配置地域、用户标识以及结构化输出。",
+            AgentFormUi.verticalStack(
+                AgentFormUi.twoColumnGrid(
+                    AgentFormUi.fieldTile("推理地域", inferenceGeoField, "指定推理地域或可用区域。"),
+                    AgentFormUi.fieldTile("用户标识", metadataUserIdField, "请求中附带的用户标识。"),
+                ),
+                AgentFormUi.fieldTile("输出 Schema JSON", JBScrollPane(outputSchemaArea), "结构化输出使用的 JSON Schema 对象。"),
+            )
+        )
+        val panel = AgentFormUi.verticalStack(capabilityCard, samplingCard, metadataCard)
 
         val dialog = object : DialogWrapper(project, false) {
             init {
@@ -935,7 +1091,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
             override fun createCenterPanel(): JComponent {
                 val scroll = JBScrollPane(panel)
-                scroll.preferredSize = Dimension(JBUI.scale(520), JBUI.scale(520))
+                scroll.preferredSize = Dimension(JBUI.scale(760), JBUI.scale(680))
                 return scroll
             }
 
@@ -979,6 +1135,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     }
                 }
                 val target = AgentProviderSupport.getOrCreateModelSettings(provider, model)
+                target.streamingEnabled = streamingCheck.isSelected
+                target.chatModeEnabled = true
+                target.responsesModeEnabled = false
+                target.modelCapabilities = selectedCapabilityIds(capabilitySelection).apply {
+                    if (toolCallingCheck.isSelected) add("tool_calling")
+                }
                 target.anthropicThinkingMode = thinkingMode
                 target.anthropicThinkingBudgetTokens = if (thinkingMode == "enabled") budgetValue else 0
                 target.anthropicMaxTokens = maxTokensField.text.trim()
@@ -994,7 +1156,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 super.doOKAction()
             }
         }
-        dialog.showAndGet()
+        if (dialog.showAndGet()) {
+            refreshConversationModeSelector(currentSession?.state?.conversationMode)
+            refreshAttachmentDrafts()
+            updateStatus()
+            updateToolbars()
+        }
     }
 
     private fun refreshModelSelector(selected: String?) {
@@ -1036,6 +1203,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updatingModelSelection = false
         updateModelSettingsAction()
 
+    }
+
+    private fun refreshConversationModeSelector(selected: String?) {
+        updatingConversationModeSelection = true
+        conversationModeSelector.removeAllItems()
+        val provider = resolveSelectedProvider()
+        val model = currentSession?.model?.trim().orEmpty().ifBlank { resolveDefaultModel(provider) }
+        val settings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(provider, model) else null
+        val availableModes = AgentConversationModeSupport.availableModes(settings?.responsesModeEnabled == true)
+        availableModes.forEach { conversationModeSelector.addItem(it) }
+        val requested = AgentConversationMode.fromId(selected)
+        val resolved = availableModes.firstOrNull { it == requested } ?: availableModes.first()
+        conversationModeSelector.selectedItem = resolved
+        currentSession?.state?.conversationMode = resolved.id
+        updatingConversationModeSelection = false
     }
 
     private fun requestModelList(
@@ -1250,10 +1432,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (sending.get() && session == currentSession) {
             cancelCurrentRequest()
         }
+        client.clearSession(session.id)
         session.renders.clear()
         session.state.renders.clear()
+        session.state.draftAttachments.clear()
         resetMessages(session)
         if (session == currentSession) {
+            inputArea.text = ""
+            refreshAttachmentDrafts()
             renderSession(session)
         }
     }
@@ -1262,7 +1448,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         object:DialogWrapper(project,false) {
             init {
                 this.title = "会话管理"
-                this.setSize(420,320)
+                this.setSize(760,520)
                 this.init()
             }
 
@@ -1328,15 +1514,24 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 newButton.isEnabled = !sending.get()
                 updateDeleteState()
 
-                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
+                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+                    isOpaque = false
                     add(newButton)
                     add(renameButton)
                     add(deleteButton)
                 }
+                val content = AgentFormUi.sectionCard(
+                    "会话列表",
+                    "集中管理当前项目中的历史会话。",
+                    JPanel(BorderLayout(0, 12)).apply {
+                        isOpaque = false
+                        add(buttonPanel, BorderLayout.NORTH)
+                        add(JBScrollPane(list), BorderLayout.CENTER)
+                    }
+                )
                 return JPanel(BorderLayout()).apply {
-                    border = JBUI.Borders.empty(8)
-                    add(JBScrollPane(list), BorderLayout.CENTER)
-                    add(buttonPanel, BorderLayout.SOUTH)
+                    border = JBUI.Borders.empty(12)
+                    add(content, BorderLayout.CENTER)
                 }
             }
         }.showAndGet()
@@ -1567,13 +1762,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     add(deleteAction)
                 }
                 val leftToolbar = createToolbar("AgentModelManagerLeftToolbar", leftToolbarGroup, currentList)
-                val leftPanel = JPanel(BorderLayout()).apply {
-                    add(leftHeader, BorderLayout.NORTH)
-                    add(JBScrollPane(currentList), BorderLayout.CENTER)
-                    add(leftToolbar, BorderLayout.SOUTH)
-                }
+                val leftPanel = AgentFormUi.sectionCard(
+                    "当前模型列表",
+                    "这里显示当前供应方已启用的模型。",
+                    JPanel(BorderLayout(0, 10)).apply {
+                        isOpaque = false
+                        add(leftHeader, BorderLayout.NORTH)
+                        add(JBScrollPane(currentList), BorderLayout.CENTER)
+                        add(leftToolbar, BorderLayout.SOUTH)
+                    }
+                )
                 val rightHeader = JLabel("SDK 模型列表")
                 val rightHeaderPanel = JPanel(BorderLayout(6, 0)).apply {
+                    isOpaque = false
                     add(rightHeader, BorderLayout.WEST)
                     add(sdkSearchField, BorderLayout.CENTER)
                 }
@@ -1582,15 +1783,24 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     add(addFromSdkAction)
                 }
                 val rightToolbar = createToolbar("AgentModelManagerRightToolbar", rightToolbarGroup, sdkList)
-                val rightPanel = JPanel(BorderLayout()).apply {
-                    add(rightHeaderPanel, BorderLayout.NORTH)
-                    add(JBScrollPane(sdkList), BorderLayout.CENTER)
-                    add(rightToolbar, BorderLayout.SOUTH)
-                }
-                return JPanel(GridLayout(1, 2, 12, 0)).apply {
-                    border = JBUI.Borders.empty(8)
+                val rightPanel = AgentFormUi.sectionCard(
+                    "SDK 模型列表",
+                    "从 SDK 拉取并筛选可添加到当前供应方的模型。",
+                    JPanel(BorderLayout(0, 10)).apply {
+                        isOpaque = false
+                        add(rightHeaderPanel, BorderLayout.NORTH)
+                        add(JBScrollPane(sdkList), BorderLayout.CENTER)
+                        add(rightToolbar, BorderLayout.SOUTH)
+                    }
+                )
+                val content = JPanel(GridLayout(1, 2, 12, 0)).apply {
+                    isOpaque = false
                     add(leftPanel)
                     add(rightPanel)
+                }
+                return JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(12)
+                    add(content, BorderLayout.CENTER)
                 }
             }
         }.showAndGet()
@@ -1619,6 +1829,105 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         refreshProvidersAfterChange()
     }
 
+    private fun openSkillManager() {
+        val dialog = object : DialogWrapper(project, false) {
+            private val panel = AgentSkillConfigPanel(project) { refreshSkillsAfterChange() }
+
+            init {
+                title = "Skills 管理"
+                setSize(JBUI.scale(1100), JBUI.scale(720))
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent = panel.component
+
+            override fun createActions(): Array<out Action?> = arrayOf()
+
+            override fun dispose() {
+                panel.dispose()
+                super.dispose()
+            }
+        }
+        dialog.showAndGet()
+        refreshSkillsAfterChange()
+    }
+
+    private fun openSkillSelector() {
+        val allSkills = AgentSkillSupport.normalizeSkills(project.pluginState().agentSkills)
+        if (allSkills.isEmpty()) {
+            project.infoNotify("Skills", "当前还没有可用技能，请先导入目录或手动新增。")
+            return
+        }
+        val session = currentSession ?: return
+        val dialog = object : DialogWrapper(project, false) {
+            private val checkBoxes = linkedMapOf<String, JCheckBox>()
+
+            init {
+                title = "当前会话 Skills"
+                setSize(JBUI.scale(620), JBUI.scale(480))
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent {
+                val listPanel = JPanel().apply {
+                    isOpaque = false
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    allSkills.forEachIndexed { index, skill ->
+                        if (index > 0) {
+                            add(Box.createVerticalStrut(JBUI.scale(6)))
+                        }
+                        val checkBox = JCheckBox(skill.name, session.state.enabledSkillIds.contains(skill.id)).apply {
+                            isOpaque = false
+                            toolTipText = skill.description
+                        }
+                        checkBoxes[skill.id] = checkBox
+                        add(createSessionSkillRow(skill, checkBox))
+                    }
+                }
+                val scrollPane = JBScrollPane(listPanel).apply {
+                    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                    preferredSize = Dimension(JBUI.scale(560), JBUI.scale(300))
+                    minimumSize = Dimension(JBUI.scale(420), JBUI.scale(220))
+                }
+                return JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(12)
+                    add(scrollPane, BorderLayout.CENTER)
+                }
+            }
+
+            override fun doOKAction() {
+                session.state.enabledSkillIds = checkBoxes
+                    .filterValues { it.isSelected }
+                    .keys
+                    .toMutableList()
+                updateStatus()
+                super.doOKAction()
+            }
+        }
+        dialog.showAndGet()
+    }
+
+    private fun createSessionSkillRow(skill: AgentSkillState, checkBox: JCheckBox): JComponent {
+        val sourceLabel = JLabel(AgentSkillSourceType.fromId(skill.sourceType).displayName).apply {
+            foreground = JBColor.GRAY
+            toolTipText = skill.description
+        }
+        return JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+            isOpaque = true
+            background = UIUtil.getPanelBackground().brighter()
+            border = JBUI.Borders.compound(
+                JBUI.Borders.customLine(JBColor.border(), 1, 1, 1, 1),
+                JBUI.Borders.empty(0, 8)
+            )
+            toolTipText = skill.description
+            minimumSize = Dimension(0, JBUI.scale(28))
+            preferredSize = Dimension(0, JBUI.scale(28))
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(28))
+            add(checkBox, BorderLayout.WEST)
+            add(sourceLabel, BorderLayout.EAST)
+        }
+    }
+
     private fun openMcpManager() {
         val dialog = object: DialogWrapper(project,false){
             val panel = McpConfigPanel(project) { text ->
@@ -1631,8 +1940,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             init {
                 this.title = "MCP 配置"
-                this.setSize(JBUI.scale(920), JBUI.scale(520))
-                this.setResizable(false)
+                this.setSize(JBUI.scale(980), JBUI.scale(660))
+                this.setResizable(true)
                 Disposer.register(this.disposable){
                     panel.dispose()
                 }
@@ -1657,6 +1966,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private fun refreshSkillsAfterChange() {
+        val normalized = AgentSkillSupport.normalizeSkills(project.pluginState().agentSkills)
+        project.pluginState().agentSkills.clear()
+        project.pluginState().agentSkills.addAll(normalized)
+        val validIds = normalized.map { it.id }.toSet()
+        project.pluginState().agentSessions.forEach { state ->
+            state.enabledSkillIds = state.enabledSkillIds.filter { it in validIds }.distinct().toMutableList()
+        }
+        updateStatus()
+        updateToolbars()
+    }
+
     private fun updateSessionsModelName(providerId: String, oldName: String, newName: String) {
         for (i in 0 until sessionModel.size) {
             val session = sessionModel.getElementAt(i)
@@ -1673,9 +1994,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         sessionSelector.isEnabled = false
         providerSelector.isEnabled = false
         modelSelector.isEnabled = false
+        conversationModeSelector.isEnabled = false
         setActionEnabled(providerManageAction, false)
         setActionEnabled(modelManageAction, false)
         setActionEnabled(modelSettingsAction, false)
+        setActionEnabled(skillSelectAction, false)
+        setActionEnabled(skillManageAction, false)
         setActionEnabled(mcpManageAction, false)
         setInputEnabled(false)
         updateToolbars()
@@ -1687,9 +2011,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         sessionSelector.isEnabled = true
         providerSelector.isEnabled = true
         modelSelector.isEnabled = true
+        conversationModeSelector.isEnabled = true
         setActionEnabled(providerManageAction, true)
         setActionEnabled(modelManageAction, true)
         setActionEnabled(modelSettingsAction, true)
+        setActionEnabled(skillSelectAction, true)
+        setActionEnabled(skillManageAction, true)
         setActionEnabled(mcpManageAction, true)
         setInputEnabled(true)
         cancelToken = null
@@ -1764,6 +2091,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val group = DefaultActionGroup().apply {
                 add(quickClearAction)
                 add(sessionManageAction)
+                add(skillSelectAction)
             }
             add(createToolbar("AgentSessionToolbar", group, true, this))
         }
@@ -1817,14 +2145,28 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 add(providerPanel)
                 add(Box.createVerticalStrut(4))
                 add(modelPanel)
+                if (AgentConversationModeSupport.selectorVisible()) {
+                    val modePanel = JPanel().apply {
+                        isOpaque = false
+                        layout = BoxLayout(this, BoxLayout.X_AXIS)
+                        add(Box.createHorizontalGlue())
+                        add(JLabel("对话模式: "))
+                        add(Box.createHorizontalStrut(6))
+                        add(conversationModeSelector)
+                    }
+                    add(Box.createVerticalStrut(4))
+                    add(modePanel)
+                }
             }
             add(selectorPanel, BorderLayout.NORTH)
             val sendGroup = DefaultActionGroup().apply {
                 add(providerManageAction)
                 add(modelManageAction)
                 add(modelSettingsAction)
+                add(skillManageAction)
                 add(mcpManageAction)
                 addSeparator()
+                add(attachmentAction)
                 add(sendAction)
                 add(stopAction)
             }
@@ -1833,10 +2175,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 this.add(sendToolbar)
             }, BorderLayout.SOUTH)
         }
+        val inputCenter = JPanel(BorderLayout(0, 6)).apply {
+            isOpaque = false
+            add(attachmentDraftScroll, BorderLayout.NORTH)
+            add(inputScroll, BorderLayout.CENTER)
+        }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)
             add(header, BorderLayout.NORTH)
-            add(inputScroll, BorderLayout.CENTER)
+            add(inputCenter, BorderLayout.CENTER)
             add(actionPanel, BorderLayout.EAST)
         }
     }
@@ -1847,7 +2194,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val session = currentSession ?: return
         val text = inputArea.text.trim()
-        if (text.isEmpty()) {
+        val attachments = session.state.draftAttachments.toList()
+        if (text.isEmpty() && attachments.isEmpty()) {
             return
         }
         val provider = resolveSelectedProvider()
@@ -1884,32 +2232,55 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         cancelToken = token
         suppressToolMarkup = false
         SwingUtilities.invokeLater { inputArea.text = "" }
-        appendMessage("用户", text, collapsible = false, collapsedByDefault = false)
-        updateSessionTitle(text)
+        appendMessage(
+            "用户",
+            AgentAttachmentPresentationSupport.userMessagePreview(text, attachments),
+            collapsible = false,
+            collapsedByDefault = false,
+            attachments = attachments
+        )
+        updateSessionTitle(text.ifBlank { attachments.firstOrNull()?.name.orEmpty() })
         beginRequestUi()
         updateStatus()
 
         val userMessage = JsonObject().apply {
             addProperty("role", "user")
             addProperty("content", text)
+            if (attachments.isNotEmpty()) {
+                add("attachments", attachmentJsonArray(attachments))
+            }
         }
         session.messages.add(userMessage)
+        session.state.draftAttachments.clear()
+        refreshAttachmentDrafts()
         syncSessionMessages(session)
 
         ApplicationManager.getApplication().executeOnPooledThread {
-            val toolRegistry = AgentToolRegistry.build(project)
+            val resolvedSkills = AgentSkillSupport.resolve(
+                project.pluginState().agentSkills,
+                session.state.enabledSkillIds
+            )
+            val toolRegistry = AgentToolRegistry.build(project, resolvedSkills.selectedSkills)
+            if (resolvedSkills.warnings.isNotEmpty()) {
+                ApplicationManager.getApplication().invokeLater {
+                    project.infoNotify("Skills", resolvedSkills.warnings.joinToString("\n"))
+                    refreshSkillsAfterChange()
+                }
+            }
             val assistantStarted = AtomicBoolean(false)
             val reasoningStarted = AtomicBoolean(false)
             val reasoningClosed = AtomicBoolean(false)
-            val streamedContent = AtomicBoolean(false)
+            val assistantContentStreamed = AtomicBoolean(false)
             var toolStreamingUsed = false
             val result = client.complete(
+                session.state,
                 session.messages,
                 toolRegistry,
                 provider,
                 model,
+                resolvedSkills = resolvedSkills,
                 onDelta = { delta ->
-                    streamedContent.set(true)
+                    assistantContentStreamed.set(true)
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
@@ -1931,7 +2302,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     }
                 },
                 onReasoningDelta = { delta ->
-                    streamedContent.set(true)
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
@@ -2004,11 +2374,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 }
                 if (result.errorMessage != null) {
                     appendMessage("错误", result.errorMessage, collapsible = false, collapsedByDefault = false)
-                } else if (!assistantStarted.get() && !streamedContent.get()) {
+                } else if (AgentChatRenderingSupport.shouldRenderFinalAssistantContent(
+                        assistantStarted = assistantStarted.get() || assistantContentStreamed.get(),
+                        assistantContent = result.assistantContent,
+                    )
+                ) {
                     val content = result.assistantContent.orEmpty()
-                    if (content.isNotBlank()) {
-                        appendMessage("助手", content, collapsible = false, collapsedByDefault = false)
-                    }
+                    appendMessage("助手", content, collapsible = false, collapsedByDefault = false)
                 }
                 syncSessionMessages(session)
                 finishRequestUi()
@@ -2016,9 +2388,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun appendMessage(role: String, content: String, collapsible: Boolean, collapsedByDefault: Boolean) {
+    private fun appendMessage(
+        role: String,
+        content: String,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean,
+        attachments: List<AgentAttachmentState> = emptyList(),
+    ) {
         val color = if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
-        val item = RenderItem(role, content, collapsible, collapsedByDefault)
+        val item = RenderItem(role, content, collapsible, collapsedByDefault, attachments = attachments.toMutableList())
         addRenderItem(item)
         val block = createMessageBlock(role, color, collapsible, collapsedByDefault, item)
         block.textArea.text = content
@@ -2123,6 +2501,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(contentArea, BorderLayout.CENTER)
             isVisible = !collapsedByDefault
         }
+        renderItem?.attachments?.takeIf { it.isNotEmpty() }?.let { attachments ->
+            contentPanel.add(createMessageAttachmentPanel(attachments), BorderLayout.SOUTH)
+        }
 
         val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
             isOpaque = false
@@ -2175,6 +2556,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?.ifBlank { resolveDefaultModel(provider) }
             ?: resolveDefaultModel(provider)
         val modelText = if (model.isBlank()) "未选择" else model
+        val conversationMode = AgentConversationMode.fromId(currentSession?.state?.conversationMode).displayName
+        val modelSettings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(provider, model) else null
+        val streamText = if (modelSettings?.streamingEnabled != false) "流式" else "非流式"
         val mcpServers = McpSupport.safeServers(project.pluginState().agentMcpServers)
         val enabledCount = mcpServers.count { it.enabled }
         val mcpStatus = if (project.pluginState().agentMcpEnabled) {
@@ -2182,12 +2566,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         } else {
             "MCP: 未启用"
         }
+        val skillStatus = "Skills: ${currentSession?.state?.enabledSkillIds?.size ?: 0}"
         statusLabel.text = if (provider == null) {
-            "供应方未配置 | Model: $modelText | $mcpStatus"
+            "供应方未配置 | 模型: $modelText | 模式: $conversationMode | $skillStatus | $mcpStatus"
         } else if (apiKey.isBlank()) {
-            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $modelText | $mcpStatus"
+            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $skillStatus | $mcpStatus"
         } else {
-            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | Model: $modelText | $mcpStatus"
+            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $skillStatus | $mcpStatus"
         }
     }
 
@@ -2212,6 +2597,190 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         if (enabled) {
             inputArea.requestFocusInWindow()
+        }
+        refreshAttachmentDrafts()
+        updateToolbars()
+    }
+
+    private fun resolveCurrentModelSettings(): AgentModelSettings? {
+        val provider = resolveSelectedProvider() ?: return null
+        val model = currentSession?.model?.trim().orEmpty().ifBlank { resolveDefaultModel(provider) }
+        if (model.isBlank()) {
+            return null
+        }
+        return AgentProviderSupport.findModelSettings(provider, model)
+    }
+
+    private fun chooseAttachments() {
+        val descriptor = FileChooserDescriptor(true, false, true, true, false, true).apply {
+            title = "选择附件"
+            isForcedToUseIdeaFileChooser = true
+        }
+        val files = FileChooser.chooseFiles(descriptor, project, null)
+        if (files.isEmpty()) {
+            return
+        }
+        addAttachmentFiles(files.map { File(it.path) })
+    }
+
+    private fun addAttachmentsFromTransferable(transferable: Transferable): Boolean {
+        return when {
+            transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) -> {
+                addAttachmentFiles(AgentAttachmentClipboardSupport.extractFiles(transferable))
+            }
+            transferable.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
+                val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return false
+                val file = saveClipboardImage(image) ?: return false
+                addAttachmentFiles(listOf(file))
+            }
+            else -> addAttachmentFiles(AgentAttachmentClipboardSupport.extractFiles(transferable))
+        }
+    }
+
+    private fun pasteAttachmentsFromClipboard(): Boolean {
+        if (!AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())) {
+            return false
+        }
+        val clipboard = runCatching { Toolkit.getDefaultToolkit().systemClipboard }.getOrNull() ?: return false
+        val contents = runCatching { clipboard.getContents(null) }.getOrNull() ?: return false
+        return addAttachmentsFromTransferable(contents)
+    }
+
+    private fun saveClipboardImage(image: Image): File? {
+        val buffered = if (image is BufferedImage) {
+            image
+        } else {
+            BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB).apply {
+                val graphics = createGraphics()
+                try {
+                    graphics.drawImage(image, 0, 0, null)
+                } finally {
+                    graphics.dispose()
+                }
+            }
+        }
+        return runCatching {
+            File.createTempFile("agent-attachment-", ".png").apply {
+                deleteOnExit()
+                ImageIO.write(buffered, "png", this)
+            }
+        }.getOrNull()
+    }
+
+    private fun addAttachmentFiles(files: List<File>): Boolean {
+        val session = currentSession ?: return false
+        if (files.isEmpty()) {
+            return false
+        }
+        val allowed = AgentInputCapabilitySupport.allowedAttachmentKinds(resolveCurrentModelSettings())
+        if (allowed.isEmpty()) {
+            project.infoNotify("附件", "当前模型未启用附件能力")
+            return false
+        }
+        var added = false
+        files.filter { it.exists() && it.isFile }.forEach { file ->
+            val draft = AgentAttachmentSupport.normalize(
+                AgentAttachmentState(
+                    name = file.name,
+                    path = file.absolutePath,
+                )
+            )
+            if (draft.kind !in allowed) {
+                return@forEach
+            }
+            if (session.state.draftAttachments.none { it.path == draft.path }) {
+                session.state.draftAttachments.add(draft)
+                added = true
+            }
+        }
+        if (!added) {
+            project.infoNotify("附件", "没有可添加的附件，或附件类型当前模型不支持")
+        }
+        refreshAttachmentDrafts()
+        return added
+    }
+
+    private fun refreshAttachmentDrafts() {
+        attachmentDraftPanel.removeAll()
+        val session = currentSession
+        val drafts = session?.state?.draftAttachments.orEmpty()
+        val visible = AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())
+        attachmentDraftScroll.isVisible = visible && drafts.isNotEmpty()
+        drafts.forEachIndexed { index, draft ->
+            attachmentDraftPanel.add(createAttachmentChip(draft))
+            if (index < drafts.lastIndex) {
+                attachmentDraftPanel.add(Box.createHorizontalStrut(JBUI.scale(6)))
+            }
+        }
+        attachmentDraftPanel.revalidate()
+        attachmentDraftPanel.repaint()
+        attachmentDraftScroll.revalidate()
+        attachmentDraftScroll.repaint()
+        updateToolbars()
+    }
+
+    private fun createAttachmentChip(draft: AgentAttachmentState): JComponent {
+        return AgentAttachmentChipUi.createDraftChip(
+            attachment = draft,
+            onOpen = { openAttachment(draft) },
+            onRemove = {
+                currentSession?.state?.draftAttachments?.removeIf { it.id == draft.id }
+                refreshAttachmentDrafts()
+            }
+        )
+    }
+
+    private fun createMessageAttachmentPanel(attachments: List<AgentAttachmentState>): JComponent {
+        val content = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            border = JBUI.Borders.empty(0, 12, 2, 8)
+            attachments.forEachIndexed { index, attachment ->
+                add(createHistoryAttachmentChip(attachment))
+                if (index < attachments.lastIndex) {
+                    add(Box.createHorizontalStrut(JBUI.scale(6)))
+                }
+            }
+        }
+        return AgentAttachmentChipUi.createHorizontalStrip(content).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+    }
+
+    private fun createHistoryAttachmentChip(draft: AgentAttachmentState): JComponent {
+        return AgentAttachmentChipUi.createHistoryChip(
+            attachment = draft,
+            onOpen = { openAttachment(draft) }
+        )
+    }
+
+    private fun openAttachment(attachment: AgentAttachmentState) {
+        val path = attachment.path.trim()
+        if (path.isBlank()) {
+            project.infoNotify("附件", "附件没有可打开的本地路径")
+            return
+        }
+        val file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(path))
+        if (file == null) {
+            project.errorNotify("附件", "未找到文件: $path")
+            return
+        }
+        FileEditorManager.getInstance(project).openFile(file, true)
+    }
+
+    private fun attachmentJsonArray(attachments: List<AgentAttachmentState>): com.google.gson.JsonArray {
+        return com.google.gson.JsonArray().apply {
+            attachments.forEach { attachment ->
+                add(JsonObject().apply {
+                    addProperty("id", attachment.id)
+                    addProperty("name", attachment.name)
+                    addProperty("path", attachment.path)
+                    addProperty("mimeType", attachment.mimeType)
+                    addProperty("size", attachment.size)
+                    addProperty("kind", attachment.kind)
+                    addProperty("deliveryMode", attachment.deliveryMode)
+                })
+            }
         }
     }
 
@@ -2242,15 +2811,51 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private fun createCapabilitySelection(
+        selectedValues: Collection<String>,
+        options: List<AgentCapabilityOption>,
+    ): CapabilitySelection {
+        val selected = selectedValues.toSet()
+        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+            isOpaque = false
+        }
+        val checkBoxes = linkedMapOf<String, JCheckBox>()
+        options.forEach { option ->
+            val checkBox = JCheckBox(option.label).apply {
+                isOpaque = false
+                isSelected = selected.contains(option.id)
+                toolTipText = option.description
+            }
+            checkBoxes[option.id] = checkBox
+            panel.add(checkBox)
+        }
+        return CapabilitySelection(panel, checkBoxes)
+    }
+
+    private fun selectedCapabilityIds(vararg selections: CapabilitySelection): MutableList<String> {
+        return selections.asSequence()
+            .flatMap { it.checkBoxes.asSequence() }
+            .filter { (_, checkBox) -> checkBox.isSelected }
+            .map { (id, _) -> id }
+            .distinct()
+            .toMutableList()
+    }
+
     private data class RenderItem(
         val role: String,
         var content: String,
         val collapsible: Boolean,
         val collapsedByDefault: Boolean,
+        val attachments: MutableList<AgentAttachmentState> = mutableListOf(),
         var state: AgentRenderState? = null,
     )
 
     private data class ModelSettingOption(val label: String, val value: String)
+
+    private data class CapabilitySelection(
+        val panel: JPanel,
+        val checkBoxes: Map<String, JCheckBox>,
+    )
 
     private class ChatSession(
         val id: String,

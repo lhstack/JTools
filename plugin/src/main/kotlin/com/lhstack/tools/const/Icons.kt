@@ -16,6 +16,8 @@ class Icons {
 
         fun modelTuningIcon() = findIcon("icons/model_tuning.svg")
 
+        fun attachmentIcon() = findIcon("icons/attachment.svg")
+
         fun providerConfigIcon() = findIcon("icons/provider_config.svg")
 
         fun mcpConfigIcon() = findIcon("icons/mcp_config.svg")
@@ -38,7 +40,7 @@ class Icons {
 
         fun jsIcon() = findIcon("icons/js.svg")
 
-        fun closeAllIcon() = findIcon("icons/close_all.svg")
+        fun closeAllIcon() = findIcon("icons/session_clear.svg")
 
         fun newTabIcon() = findIcon("icons/new_tab.svg")
 
@@ -46,7 +48,11 @@ class Icons {
 
         fun exportIcon() = findIcon("icons/export.svg")
 
-        fun libraryIcon() = findIcon("icons/library.svg")
+        fun libraryIcon() = findIcon("icons/session_manage.svg")
+
+        fun sessionSkillsIcon() = findIcon("icons/session_skills.svg")
+
+        fun skillsManageIcon() = findIcon("icons/skills_manage.svg")
 
         fun openConsolePanel() = findIcon("icons/console.svg")
 

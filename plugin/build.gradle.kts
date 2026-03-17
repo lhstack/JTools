@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.3.0"
+version = "1.1.3.1"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -21,12 +21,15 @@ repositories {
 
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
+    implementation("io.agentscope:agentscope:1.0.10")
     implementation("cn.hutool:hutool-core:5.8.37")
     implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
-    implementation("com.anthropic:anthropic-java:2.14.0")
-    implementation("com.openai:openai-java:4.18.0")
     implementation(project(":sdk"))
+    testImplementation(kotlin("test"))
+    testImplementation(platform("org.junit:junit-bom:5.12.2"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("junit:junit:4.13.2")
     intellijPlatform{
         intellijIdeaCommunity("2025.2")
         bundledPlugin("com.intellij.java")
@@ -34,6 +37,7 @@ dependencies {
         bundledPlugin("org.jetbrains.idea.maven")
         bundledPlugin("org.jetbrains.idea.gradle.dsl")
     }
+
 }
 val sdkProject = project(":sdk")
 val sdkVersion = sdkProject.version.toString()
@@ -45,16 +49,31 @@ val proguardRules = listOf(
     "-useuniqueclassmembernames",
     "-dontwarn !com.lhstack.tools.**",
     "-flattenpackagehierarchy",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.10/30de6faa127a4a012db8e71bf1b9c0a99b1402b2/kotlin-stdlib-2.2.10.jar",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/util.jar",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app.jar",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app-client.jar",
-    "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.base.jmod(!.jar;!module-info.class)",
-    "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.desktop.jmod(!.jar;!module-info.class)",
+    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.10\\30de6faa127a4a012db8e71bf1b9c0a99b1402b2\\kotlin-stdlib-2.2.10.jar",
+    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\util.jar",
+    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app.jar",
+    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app-client.jar",
+    "-libraryjars D:\\Program Files\\java\\17\\jmods\\java.base.jmod(!.jar;!module-info.class)",
+    "-libraryjars D:\\Program Files\\java\\17\\jmods\\java.desktop.jmod(!.jar;!module-info.class)",
     "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
     "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
+    "-keep class com.lhstack.tools.plugins.PluginState { *; }",
+    "-keep class com.lhstack.tools.plugins.PluginState\$State { *; }",
+    "-keep class com.lhstack.tools.actions.DeveloperState { *; }",
+    "-keep class com.lhstack.tools.actions.DeveloperState\$State { *; }",
+    "-keep class com.lhstack.tools.plugins.CefPluginCacheState { *; }",
+    "-keep class com.lhstack.tools.plugins.CefPluginCacheState\$State { *; }",
+    "-keep class com.lhstack.tools.agent.AgentProviderState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentModelSettings { *; }",
+    "-keep class com.lhstack.tools.agent.AgentSessionState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentRenderState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentSessionRuntimeState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentAttachmentState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentSkillState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentSkillResourceState { *; }",
+    "-keep class com.lhstack.tools.agent.McpServerState { *; }",
     "-keepclassmembers class * implements com.intellij.openapi.Disposable { public void dispose(); }",
     "-keepclassmembers class * { void dispose(); }",
     "-keepclassmembers class com.lhstack.tools.plugins.PluginState** { *; }",
@@ -204,6 +223,9 @@ tasks {
         sourceCompatibility = "17"
         targetCompatibility = "17"
         options.encoding = "UTF-8"
+    }
+    withType<Test> {
+        useJUnitPlatform()
     }
     withType<JavaExec> {
         jvmArgs("-Dfile.encoding=UTF-8")

@@ -3,6 +3,7 @@ package com.lhstack.tools.plugins
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.lhstack.tools.converter.JsonConverter
+import com.lhstack.tools.agent.AgentSkillState
 import com.lhstack.tools.agent.AgentSessionState
 
 @Service
@@ -26,10 +27,10 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentOpenApiKey: String = ""
         var agentOpenApiBaseUrl: String = ""
         var agentModel: String = ""
-        var agentModels: MutableList<String> = mutableListOf()
         var agentProviders: MutableList<com.lhstack.tools.agent.AgentProviderState> = mutableListOf()
         var agentActiveProviderId: String = ""
         var agentSessions: MutableList<AgentSessionState> = mutableListOf()
+        var agentSkills: MutableList<AgentSkillState> = mutableListOf()
         var agentActiveSessionId: String = ""
         var agentActiveSessionIdByProject: MutableMap<String, String> = mutableMapOf()
         var agentMaxToolIterations: Int = 30
@@ -52,6 +53,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         com.lhstack.tools.agent.McpSupport.cleanServers(rawServers)
         state.agentMcpServers = rawServers
         state.agentSessions = state.agentSessions.filterIsInstance<AgentSessionState>().toMutableList()
+        state.agentSkills = com.lhstack.tools.agent.AgentSkillSupport.normalizeSkills(state.agentSkills)
         val providers = state.agentProviders.filterIsInstance<com.lhstack.tools.agent.AgentProviderState>().toMutableList()
         if (providers.isEmpty()) {
             val legacyKey = state.agentOpenApiKey.trim()
@@ -59,6 +61,8 @@ class PluginState : PersistentStateComponent<PluginState.State> {
             val provider = com.lhstack.tools.agent.AgentProviderState().apply {
                 name = "OpenAI"
                 type = com.lhstack.tools.agent.AgentProviderType.OPENAI.id
+                providerType = com.lhstack.tools.agent.AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE
+                vendorTemplate = com.lhstack.tools.agent.AgentProviderCatalog.TEMPLATE_OPENAI
                 apiKey = legacyKey
                 baseUrl = if (legacyBaseUrl.isBlank()) {
                     com.lhstack.tools.agent.AgentProviderSupport.defaultBaseUrl(

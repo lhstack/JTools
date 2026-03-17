@@ -24,6 +24,7 @@ import com.lhstack.tools.plugins.pluginState
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.net.URI
@@ -36,6 +37,7 @@ import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
+import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 
 class McpConfigPanel(
@@ -92,6 +94,7 @@ class McpConfigPanel(
 
     init {
         availabilityService.addListener(availabilityListener)
+        configureScrolling()
         buildUi()
         refreshServerList()
     }
@@ -133,27 +136,56 @@ class McpConfigPanel(
             }
         }
 
-        val listPanel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(serverList), BorderLayout.CENTER)
-            add(buildServerListButtons(), BorderLayout.SOUTH)
-        }
+        val listPanel = AgentFormUi.sectionCard(
+            "服务列表",
+            "选择、复制或删除 MCP 服务。",
+            JPanel(BorderLayout(0, 10)).apply {
+                isOpaque = false
+                add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    add(globalEnabledCheck)
+                }, BorderLayout.NORTH)
+                add(JBScrollPane(serverList), BorderLayout.CENTER)
+                add(buildServerListButtons(), BorderLayout.SOUTH)
+            }
+        )
 
         val detailContent = JPanel(VerticalLayout(8)).apply {
-            add(buildFormPanel())
-            add(buildTabsPanel())
+            isOpaque = false
+            add(
+                AgentFormUi.sectionCard(
+                    "服务配置",
+                    "配置传输方式、认证信息和请求头。",
+                    buildFormPanel()
+                )
+            )
+            add(
+                AgentFormUi.sectionCard(
+                    "工具与资源",
+                    "查看当前服务暴露的 tools、resources 和 prompts。",
+                    buildTabsPanel()
+                )
+            )
         }
-        val detailPanel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(detailContent), BorderLayout.CENTER)
-            add(buildActionsPanel(), BorderLayout.SOUTH)
-        }
+        val detailPanel = AgentFormUi.sectionCard(
+            "当前服务",
+            "保存、测试连接并刷新工具元数据。",
+            JPanel(BorderLayout(0, 10)).apply {
+                isOpaque = false
+                add(JBScrollPane(detailContent).apply {
+                    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                }, BorderLayout.CENTER)
+                add(buildActionsPanel(), BorderLayout.SOUTH)
+            }
+        )
 
         val split = JBSplitter(false, 0.28f).apply {
-            border = JBUI.Borders.empty(8)
+            border = JBUI.Borders.empty()
             firstComponent = listPanel
             secondComponent = detailPanel
         }
 
-        root.add(globalEnabledCheck, BorderLayout.NORTH)
+        root.border = JBUI.Borders.empty(8)
         root.add(split, BorderLayout.CENTER)
         globalEnabledCheck.addActionListener {
             project.pluginState().agentMcpEnabled = globalEnabledCheck.isSelected
@@ -224,7 +256,7 @@ class McpConfigPanel(
         val panel = JPanel(BorderLayout())
         val tabs = javax.swing.JTabbedPane()
         toolPanel.isOpaque = false
-        tabs.addTab("Tools", JBScrollPane(toolPanel))
+        tabs.addTab("Tools", McpPanelUiSupport.fixedListScroll(toolPanel))
         tabs.addTab("Resources", buildResourcePanel())
         tabs.addTab("Prompts", buildPromptPanel())
         panel.add(tabs, BorderLayout.CENTER)
@@ -252,7 +284,7 @@ class McpConfigPanel(
         val toolbar = ActionManager.getInstance().createActionToolbar("McpResourceToolbar", group, true)
         toolbar.targetComponent = resourceList
         return JPanel(BorderLayout()).apply {
-            add(JBScrollPane(resourceList), BorderLayout.CENTER)
+            add(McpPanelUiSupport.fixedListScroll(resourceList), BorderLayout.CENTER)
             add(toolbar.component, BorderLayout.SOUTH)
         }
     }
@@ -277,7 +309,7 @@ class McpConfigPanel(
         val toolbar = ActionManager.getInstance().createActionToolbar("McpPromptToolbar", group, true)
         toolbar.targetComponent = promptList
         return JPanel(BorderLayout()).apply {
-            add(JBScrollPane(promptList), BorderLayout.CENTER)
+            add(McpPanelUiSupport.fixedListScroll(promptList), BorderLayout.CENTER)
             add(toolbar.component, BorderLayout.SOUTH)
         }
     }
@@ -471,29 +503,34 @@ class McpConfigPanel(
     }
 
     private fun configureFixedWidths() {
-        val fieldWidth = JBUI.scale(480)
-        setFixedWidth(nameField, fieldWidth)
-        setFixedWidth(transportCombo, fieldWidth)
-        setFixedWidth(stdioCommandField, fieldWidth)
-        setFixedWidth(stdioArgsScroll, fieldWidth)
-        setFixedWidth(stdioEnvScroll, fieldWidth)
-        setFixedWidth(urlField, fieldWidth)
-        setFixedWidth(headersScroll, fieldWidth)
-        setFixedWidth(authTypeCombo, fieldWidth)
-        setFixedWidth(authHeaderNameField, fieldWidth)
-        setFixedWidth(authHeaderValueField, fieldWidth)
-        setFixedWidth(authUsernameField, fieldWidth)
-        setFixedWidth(authPasswordField, fieldWidth)
-        setFixedWidth(authQueryParamField, fieldWidth)
-        setFixedWidth(authQueryValueField, fieldWidth)
+        AgentFormUi.constrainWidth(nameField, 500)
+        AgentFormUi.constrainWidth(transportCombo, 500)
+        AgentFormUi.constrainWidth(stdioCommandField, 500)
+        AgentFormUi.constrainWidth(stdioArgsScroll, 500)
+        AgentFormUi.constrainWidth(stdioEnvScroll, 500)
+        AgentFormUi.constrainWidth(urlField, 500)
+        AgentFormUi.constrainWidth(headersScroll, 500)
+        AgentFormUi.constrainWidth(authTypeCombo, 500)
+        AgentFormUi.constrainWidth(authHeaderNameField, 500)
+        AgentFormUi.constrainWidth(authHeaderValueField, 500)
+        AgentFormUi.constrainWidth(authUsernameField, 500)
+        AgentFormUi.constrainWidth(authPasswordField, 500)
+        AgentFormUi.constrainWidth(authQueryParamField, 500)
+        AgentFormUi.constrainWidth(authQueryValueField, 500)
+        listOf(stdioArgsScroll, stdioEnvScroll, headersScroll).forEach { scroll ->
+            scroll.preferredSize = Dimension(scroll.preferredSize.width, JBUI.scale(120))
+            scroll.minimumSize = Dimension(0, JBUI.scale(96))
+        }
     }
 
-    private fun setFixedWidth(component: JComponent, width: Int) {
-        val size = component.preferredSize
-        val dimension = Dimension(width, size.height)
-        component.preferredSize = dimension
-        component.minimumSize = dimension
-        component.maximumSize = dimension
+    private fun configureScrolling() {
+        listOf(stdioArgsArea, stdioEnvArea, headersArea).forEach { area ->
+            area.lineWrap = true
+            area.wrapStyleWord = true
+        }
+        listOf(stdioArgsScroll, stdioEnvScroll, headersScroll).forEach { scroll ->
+            scroll.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        }
     }
 
     private fun setRowsVisible(rows: List<Row>, visible: Boolean) {

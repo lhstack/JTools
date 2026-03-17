@@ -34,9 +34,20 @@
         <li><b>🤖 Agent Chat:</b> Built-in agent entry with streaming output, reasoning blocks, and collapsible tool logs.</li>
         <li><b>🧭 Provider Manager:</b> Multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy.</li>
         <li><b>🎛️ Provider Selector:</b> Provider selector with model lists fetched from each provider.</li>
+        <li><b>🧩 Provider Templates:</b> OpenAI-compatible provider types and vendor templates with preset endpoints and parameter hints for easier third-party model integration.</li>
+        <li><b>🌍 Broad Provider Coverage:</b> Built-in templates for OpenAI, DeepSeek, GLM, OpenRouter, SiliconFlow, DashScope, Gemini, Ollama, and Anthropic-style integrations.</li>
         <li><b>🧰 Function Calling:</b> Aggregated plugin and system tools with unique identifiers to avoid name conflicts.</li>
         <li><b>📦 Plugin Ops:</b> Local/URL/batch install and uninstall tool calls for faster workflows.</li>
         <li><b>🧪 Dev Testing:</b> Developer panel can expose current plugin instance tool calls for debugging.</li>
+        <li><b>📎 Attachment Workflow:</b> Attach local files and images to chat, with model-aware capability checks, clipboard support, and optimized upload handling.</li>
+        <li><b>🖼️ Multimodal Inputs:</b> Per-model capability switches for image, audio, video, and file attachments, with automatic text extraction for readable files.</li>
+        <li><b>🧠 Skill Management:</b> Import or edit local SKILL.md skills, attach them per session, and expose skill resources directly to the agent runtime.</li>
+        <li><b>📚 Skill Resources:</b> references/examples/scripts resources can be mounted into agent sessions and read through dedicated resource tools.</li>
+        <li><b>🛠️ Built-in Agent Tools:</b> JTools exposes system-level tools for plugin operations, file browsing, skill CRUD, session skill toggles, and MCP management.</li>
+        <li><b>🎚️ Model Tuning:</b> Configure per-model streaming, multimodal capabilities, and advanced OpenAI/Anthropic parameters from a dedicated tuning panel.</li>
+        <li><b>🧾 Parameter Guidance:</b> Store provider-level default and recommended parameters to make model configuration more repeatable across sessions.</li>
+        <li><b>💾 Session Persistence:</b> Restore sessions, enabled skills, draft attachments, and active context across projects for long-running conversations.</li>
+        <li><b>🧠 Runtime State:</b> Session runtime can preserve memory, tool state, and planning context for more consistent multi-step workflows.</li>
         <li><b>⚙️ Agent Limits:</b> Configurable max tool iterations and tool result size limits to prevent oversized context.</li>
         <li><b>📂 File Listing:</b> jtools_list_files supports maxEntries with truncation metadata.</li>
         <li><b>🔧 Dynamic SDK Management:</b> Automatic SDK dependency resolution for IDEA, Maven, and Gradle projects.</li>
@@ -52,6 +63,8 @@
         <li>Creating lightweight utility tools without full plugin overhead</li>
         <li>Developing custom web-based tools integrated into the IDE</li>
         <li>Building team-specific development tools with easy distribution</li>
+        <li>Running an IDE-native agent workspace with providers, skills, MCP servers, and attachments in one panel</li>
+        <li>Connecting private or third-party model services through vendor templates without rebuilding the plugin workflow</li>
     </ul>
 
     <h2>🚀 Getting Started</h2>
@@ -83,9 +96,20 @@
         <li><b>🤖 智能体对话：</b>内置智能体入口，支持流式输出、推理块展示与工具调用折叠日志。</li>
         <li><b>🧭 供应方管理：</b>多供应方配置（OpenAI/Anthropic），支持 Base URL、请求头、代理。</li>
         <li><b>🎛️ 供应方选择：</b>对话中可选供应方，并维护供应方级别模型列表与默认模型。</li>
+        <li><b>🧩 供应方模板：</b>支持 OpenAI Compatible 接入类型与厂商模板，预置端点和参数建议，便于接入第三方模型服务。</li>
+        <li><b>🌍 广泛供应方覆盖：</b>内置 OpenAI、DeepSeek、GLM、OpenRouter、SiliconFlow、DashScope、Gemini、Ollama、Anthropic 等接入模板。</li>
         <li><b>🧰 函数调用：</b>聚合插件与系统工具并增加唯一标识，避免名称冲突。</li>
         <li><b>📦 插件管理：</b>支持本地/URL/批量安装与卸载的工具调用。</li>
         <li><b>🧪 开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试。</li>
+        <li><b>📎 附件工作流：</b>对话支持本地文件和图片附件，具备模型能力校验、剪贴板支持与上传优化。</li>
+        <li><b>🖼️ 多模态输入：</b>可按模型开启图片、音频、视频、文件附件能力，并对可读文件自动抽取文本上下文。</li>
+        <li><b>🧠 Skills 管理：</b>支持导入或编辑本地 SKILL.md 技能，按会话挂载，并将技能资源直接暴露给智能体运行时。</li>
+        <li><b>📚 Skills 资源：</b>references/examples/scripts 等资源文件可随技能挂载，并通过专用资源工具读取。</li>
+        <li><b>🛠️ 内置智能体工具：</b>提供插件管理、文件浏览、技能增删改查、会话技能开关与 MCP 管理等系统工具。</li>
+        <li><b>🎚️ 模型调优：</b>提供独立模型调优面板，可配置流式输出、多模态能力以及 OpenAI/Anthropic 高级参数。</li>
+        <li><b>🧾 参数建议：</b>支持保存供应方默认参数与推荐参数，让模型配置在不同会话中更容易复用。</li>
+        <li><b>💾 会话持久化：</b>跨项目保留会话、启用的技能、草稿附件与当前上下文，适合长会话持续协作。</li>
+        <li><b>🧠 运行时状态：</b>会话运行时可保留记忆、工具状态与规划上下文，适合多步骤连续任务。</li>
         <li><b>⚙️ 智能体限制：</b>可配置最大工具调用轮次并限制工具返回长度，避免超大上下文。</li>
         <li><b>📂 文件列表：</b>jtools_list_files 支持 maxEntries 并返回截断信息。</li>
         <li><b>🔧 动态 SDK 管理：</b>自动解析 IDEA、Maven 和 Gradle 项目的 SDK 依赖。</li>
@@ -101,6 +125,8 @@
         <li>创建轻量级实用工具，无需完整插件开销</li>
         <li>开发集成到 IDE 中的自定义 Web 工具</li>
         <li>构建团队专用开发工具，便于分发</li>
+        <li>在 IDE 内运行一体化智能体工作台，统一管理供应方、Skills、MCP 与附件</li>
+        <li>通过厂商模板快速接入私有或第三方模型服务，而不必重建整套插件工作流</li>
     </ul>
 
     <h2>🚀 快速开始</h2>
@@ -115,8 +141,28 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.0</h2>
+            <h2>📦 Version v1.1.3.1</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>📎 <b>Attachment Workflow:</b> Added model-aware file/image attachments with clipboard support and optimized media handling</li>
+                <li>🖼️ <b>Multimodal Inputs:</b> Added per-model image/audio/video/file capability switches and readable file context extraction</li>
+                <li>🧠 <b>Skill Management:</b> Added local SKILL.md import, manual editing, per-session enablement, and runtime resource mounting</li>
+                <li>📚 <b>Skill Resources:</b> Added resource listing/reading support so imported skills can expose references, examples, and scripts to tools</li>
+                <li>🎚️ <b>Model Tuning:</b> Added per-model tuning for streaming, multimodal capabilities, and advanced OpenAI/Anthropic parameters</li>
+                <li>🧩 <b>Provider Templates:</b> Expanded provider configuration with DashScope/OpenAI-Compatible/Anthropic/Gemini/Ollama types, vendor templates, and parameter recommendations</li>
+                <li>🛠️ <b>System Tool Suite:</b> Added built-in tools for skill CRUD, session skill toggles, MCP management, and richer agent-side operations</li>
+                <li>💾 <b>Session Persistence:</b> Persisted active session state, draft attachments, and enabled skills by project</li>
+                <li>📎 <b>附件工作流：</b>新增模型感知的文件/图片附件能力，支持剪贴板粘贴与媒体上传优化</li>
+                <li>🖼️ <b>多模态输入：</b>新增按模型维度控制图片/音频/视频/文件能力，并可抽取可读文件内容作为上下文</li>
+                <li>🧠 <b>Skills 管理：</b>新增本地 SKILL.md 导入、手动编辑、按会话启用与运行时资源挂载</li>
+                <li>📚 <b>Skills 资源：</b>新增资源列举与读取能力，导入技能可向工具侧暴露 references、examples、scripts 等文件</li>
+                <li>🎚️ <b>模型调优：</b>新增按模型维度配置流式输出、多模态能力与 OpenAI/Anthropic 高级参数</li>
+                <li>🧩 <b>供应方模板：</b>扩展供应方配置，支持 DashScope/OpenAI Compatible/Anthropic/Gemini/Ollama 接入类型、厂商模板与参数建议</li>
+                <li>🛠️ <b>系统工具套件：</b>新增技能增删改查、会话技能开关、MCP 管理等内置工具能力</li>
+                <li>💾 <b>会话持久化：</b>按项目保存当前会话、草稿附件与启用技能状态</li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.0</h2>
             <ul>
                 <li>🎛️ <b>Model Params:</b> Added model parameter panel for fine-grained controls</li>
                 <li>🧾 <b>Formatted Output:</b> Optimized response formatting for cleaner rendering</li>

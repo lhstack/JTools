@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent
 
+import com.intellij.util.xmlb.annotations.Tag
 import java.net.Proxy
 import java.util.UUID
 
@@ -29,25 +30,37 @@ enum class AgentProxyType(val id: String, val displayName: String, val javaType:
     }
 }
 
+@Tag("agent-provider")
 class AgentProviderState {
     var id: String = ""
     var name: String = ""
     var type: String = AgentProviderType.OPENAI.id
+    var providerType: String = AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE
+    var vendorTemplate: String = AgentProviderCatalog.TEMPLATE_OPENAI
     var apiKey: String = ""
     var baseUrl: String = ""
+    var endpointPath: String = ""
     var customHeaders: String = ""
     var maxTokens: Int = 1024
     var models: MutableList<String> = mutableListOf()
     var activeModel: String = ""
     var modelSettings: MutableList<AgentModelSettings> = mutableListOf()
+    var capabilities: MutableList<String> = mutableListOf()
+    var defaultParameters: MutableMap<String, String> = linkedMapOf()
+    var recommendedParameters: MutableMap<String, String> = linkedMapOf()
     var proxyEnabled: Boolean = false
     var proxyType: String = AgentProxyType.HTTP.id
     var proxyHost: String = ""
     var proxyPort: Int = 0
 }
 
+@Tag("model-settings")
 class AgentModelSettings {
     var model: String = ""
+    var streamingEnabled: Boolean = true
+    var chatModeEnabled: Boolean = true
+    var responsesModeEnabled: Boolean = false
+    var modelCapabilities: MutableList<String> = mutableListOf()
     var openAiReasoningEffort: String = ""
     var openAiTemperature: String = ""
     var openAiTopP: String = ""
@@ -88,17 +101,27 @@ object AgentProviderSupport {
         }
     }
 
+    fun defaultBaseUrl(providerType: String, vendorTemplate: String): String {
+        return AgentProviderCatalog.defaultBaseUrl(providerType, vendorTemplate)
+    }
+
     fun normalizeProvider(provider: AgentProviderState) {
         if (provider.id.isBlank()) {
             provider.id = UUID.randomUUID().toString()
         }
         val resolvedType = AgentProviderType.fromId(provider.type)
         provider.type = resolvedType.id
+        provider.providerType = AgentProviderCatalog.normalizeProviderType(provider.providerType, provider.type)
+        provider.vendorTemplate =
+            AgentProviderCatalog.normalizeVendorTemplate(provider.providerType, provider.vendorTemplate, provider.type)
         if (provider.name.isBlank()) {
             provider.name = resolvedType.displayName
         }
         if (provider.baseUrl.isBlank()) {
-            provider.baseUrl = defaultBaseUrl(resolvedType)
+            provider.baseUrl = defaultBaseUrl(provider.providerType, provider.vendorTemplate)
+        }
+        provider.endpointPath = provider.endpointPath.trim().ifBlank {
+            AgentProviderCatalog.defaultEndpointPath(provider.providerType)
         }
         if (provider.maxTokens <= 0) {
             provider.maxTokens = 1024
@@ -106,6 +129,21 @@ object AgentProviderSupport {
         provider.proxyType = AgentProxyType.fromId(provider.proxyType).id
         provider.models = provider.models.filter { it.isNotBlank() }.toMutableList()
         provider.activeModel = provider.activeModel.trim()
+        provider.capabilities = provider.capabilities
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .toMutableList()
+        provider.defaultParameters = LinkedHashMap(
+            provider.defaultParameters.mapNotNull { (key, value) ->
+                key.trim().takeIf { it.isNotBlank() }?.let { it to value.trim() }
+            }.toMap()
+        )
+        provider.recommendedParameters = LinkedHashMap(
+            provider.recommendedParameters.mapNotNull { (key, value) ->
+                key.trim().takeIf { it.isNotBlank() }?.let { it to value.trim() }
+            }.toMap()
+        )
         normalizeModelSettings(provider)
     }
 
@@ -161,6 +199,7 @@ object AgentProviderSupport {
                 return@mapNotNull null
             }
             entry.model = model
+            entry.modelCapabilities = AgentModelCapabilityCatalog.normalize(entry.modelCapabilities).toMutableList()
             entry.openAiReasoningEffort = entry.openAiReasoningEffort.trim().lowercase()
             entry.openAiTemperature = entry.openAiTemperature.trim()
             entry.openAiTopP = entry.openAiTopP.trim()

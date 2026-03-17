@@ -26,6 +26,32 @@ object McpSupport {
         return servers.filterIsInstance<McpServerState>()
     }
 
+    fun normalizeServer(server: McpServerState): McpServerState {
+        ensureServerId(server)
+        server.name = server.name.trim().ifBlank { "MCP Server" }
+        server.transport = McpTransportType.fromId(server.transport).id
+        server.stdioCommand = server.stdioCommand.trim()
+        server.stdioArgs = server.stdioArgs.mapNotNull { it.trim().takeIf(String::isNotEmpty) }.toMutableList()
+        server.stdioEnv = server.stdioEnv
+            .mapNotNull { (key, value) -> key.trim().takeIf(String::isNotEmpty)?.let { it to value.trim() } }
+            .toMap()
+            .toMutableMap()
+        server.url = server.url.trim()
+        server.headers = server.headers
+            .mapNotNull { (key, value) -> key.trim().takeIf(String::isNotEmpty)?.let { it to value.trim() } }
+            .toMap()
+            .toMutableMap()
+        server.authType = McpAuthType.fromId(server.authType).id
+        server.authHeaderName = server.authHeaderName.trim().ifBlank { "Authorization" }
+        server.authHeaderValue = server.authHeaderValue.trim()
+        server.authUsername = server.authUsername.trim()
+        server.authPassword = server.authPassword.trim()
+        server.authQueryParam = server.authQueryParam.trim().ifBlank { "token" }
+        server.authQueryValue = server.authQueryValue.trim()
+        server.disabledTools = server.disabledTools.mapNotNull { it.trim().takeIf(String::isNotEmpty) }.distinct().toMutableList()
+        return server
+    }
+
     fun parseArgs(text: String): MutableList<String> {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) {

@@ -1,5 +1,8 @@
 package com.lhstack.tools.agent
 
+import com.intellij.util.xmlb.annotations.Tag
+
+@Tag("mcp-server")
 class McpServerState {
     var id: String = ""
     var name: String = "MCP Server"
