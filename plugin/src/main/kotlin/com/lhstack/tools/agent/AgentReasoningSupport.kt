@@ -9,8 +9,22 @@ object AgentReasoningSupport {
             return null
         }
         return message.getContentBlocks(ThinkingBlock::class.java)
-            .joinToString("\n") { it.thinking }
+            .mapNotNull { block ->
+                block.thinking.takeIf { it.isNotBlank() }
+                    ?: stringifyReasoningDetails(block.metadata?.get(ThinkingBlock.METADATA_REASONING_DETAILS))
+            }
+            .joinToString("\n")
             .trim()
             .ifBlank { null }
+    }
+
+    private fun stringifyReasoningDetails(value: Any?): String? {
+        return when (value) {
+            null -> null
+            is String -> value.trim().ifBlank { null }
+            is Iterable<*> -> value.joinToString("\n") { it?.toString().orEmpty() }.trim().ifBlank { null }
+            is Array<*> -> value.joinToString("\n") { it?.toString().orEmpty() }.trim().ifBlank { null }
+            else -> value.toString().trim().ifBlank { null }
+        }
     }
 }

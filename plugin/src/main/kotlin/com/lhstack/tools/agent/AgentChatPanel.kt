@@ -110,11 +110,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var assistantBlock: MessageBlock? = null
     private var reasoningBlock: MessageBlock? = null
     private var suppressToolMarkup = false
+    private var pendingToolMarkup = ""
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
     private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
 
     private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
+    private data class ParsedToolMarkup(
+        val name: String,
+        val arguments: String,
+    )
+
+    private data class AssistantDeltaParseResult(
+        val visibleText: String,
+        val toolCalls: List<ParsedToolMarkup>,
+    )
 
     init {
         setupChatContainer()
@@ -730,7 +740,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         val toolCallingCheck = JCheckBox("支持工具调用").apply {
             isOpaque = false
-            isSelected = settings?.modelCapabilities?.contains("tool_calling") == true
+            val capabilities = settings?.modelCapabilities.orEmpty()
+            isSelected = capabilities.isEmpty() || capabilities.contains("tool_calling")
         }
         val effortOptions = listOf(
             ModelSettingOption("默认 (不设置)", ""),
@@ -978,7 +989,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         val toolCallingCheck = JCheckBox("支持工具调用").apply {
             isOpaque = false
-            isSelected = settings?.modelCapabilities?.contains("tool_calling") == true
+            val capabilities = settings?.modelCapabilities.orEmpty()
+            isSelected = capabilities.isEmpty() || capabilities.contains("tool_calling")
         }
         val thinkingOptions = listOf(
             ModelSettingOption("默认 (不设置)", ""),
@@ -2231,6 +2243,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val token = AgentClient.CancelToken()
         cancelToken = token
         suppressToolMarkup = false
+        pendingToolMarkup = ""
         SwingUtilities.invokeLater { inputArea.text = "" }
         appendMessage(
             "用户",
@@ -2271,6 +2284,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val reasoningStarted = AtomicBoolean(false)
             val reasoningClosed = AtomicBoolean(false)
             val assistantContentStreamed = AtomicBoolean(false)
+            val displayedToolCalls = mutableSetOf<String>()
             var toolStreamingUsed = false
             val result = client.complete(
                 session.state,
@@ -2288,8 +2302,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                         if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
                             closeReasoningBlock()
                         }
-                        val filtered = filterAssistantDelta(delta)
-                        if (filtered.isEmpty()) {
+                        val parsed = filterAssistantDelta(delta)
+                        if (parsed.toolCalls.isNotEmpty()) {
+                            toolStreamingUsed = true
+                            parsed.toolCalls.forEach { toolCall ->
+                                displayedToolCalls.add("${toolCall.name}\n${toolCall.arguments}")
+                                appendToolMessage(
+                                    "工具调用",
+                                    "name=${toolCall.name}\narguments=${truncate(toolCall.arguments)}",
+                                    collapsible = true,
+                                    collapsedByDefault = true
+                                )
+                            }
+                        }
+                        if (parsed.visibleText.isEmpty()) {
                             return@invokeLater
                         }
                         if (assistantStarted.compareAndSet(false, true)) {
@@ -2298,7 +2324,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             assistantBlock = createMessageBlock("助手", UIUtil.getLabelForeground(), false, false, item)
                             addMessageBlock(assistantBlock!!)
                         }
-                        appendToBlock(assistantBlock, filtered)
+                        appendToBlock(assistantBlock, parsed.visibleText)
                     }
                 },
                 onReasoningDelta = { delta ->
@@ -2325,6 +2351,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             closeReasoningBlock()
                         }
                         if (event.done) {
+                            displayedToolCalls.add("${event.name}\n${event.arguments}")
                             appendToolMessage(
                                 "工具调用",
                                 "name=${event.name}\narguments=${truncate(event.arguments)}",
@@ -2339,6 +2366,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
+                        }
+                        val toolKey = "${toolLog.name}\n${toolLog.arguments}"
+                        if (displayedToolCalls.add(toolKey)) {
+                            appendToolMessage(
+                                "工具调用",
+                                "name=${toolLog.name}\narguments=${truncate(toolLog.arguments)}",
+                                collapsible = true,
+                                collapsedByDefault = true
+                            )
                         }
                         appendToolMessage(
                             "工具结果",
@@ -2361,6 +2397,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 }
                 if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
                     closeReasoningBlock()
+                } else if (!reasoningStarted.get() && !result.reasoningContent.isNullOrBlank()) {
+                    appendMessage("推理", result.reasoningContent, collapsible = true, collapsedByDefault = false)
                 }
                 if (!toolStreamingUsed) {
                     result.toolCalls.forEach { toolCall ->
@@ -2784,31 +2822,76 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun filterAssistantDelta(delta: String): String {
-        var text = delta
-        if (!suppressToolMarkup) {
-            val start = text.indexOf("<tool_call")
-            if (start >= 0) {
-                val before = text.substring(0, start)
-                val end = text.indexOf("</tool_call>", start)
-                return if (end >= 0) {
-                    suppressToolMarkup = false
-                    before + text.substring(end + "</tool_call>".length)
-                } else {
-                    suppressToolMarkup = true
-                    before
-                }
-            }
-            return text
+    private fun filterAssistantDelta(delta: String): AssistantDeltaParseResult {
+        val source = if (pendingToolMarkup.isNotEmpty()) {
+            pendingToolMarkup + delta
         } else {
-            val end = text.indexOf("</tool_call>")
-            return if (end >= 0) {
-                suppressToolMarkup = false
-                text.substring(end + "</tool_call>".length)
-            } else {
-                ""
+            delta
+        }
+        pendingToolMarkup = ""
+        suppressToolMarkup = false
+
+        val visible = StringBuilder()
+        val toolCalls = mutableListOf<ParsedToolMarkup>()
+        var cursor = 0
+        while (cursor < source.length) {
+            val start = source.indexOf("<tool_call", cursor)
+            if (start < 0) {
+                visible.append(source.substring(cursor))
+                break
+            }
+            visible.append(source.substring(cursor, start))
+            val end = source.indexOf("</tool_call>", start)
+            if (end < 0) {
+                pendingToolMarkup = source.substring(start)
+                suppressToolMarkup = true
+                break
+            }
+            val block = source.substring(start, end + "</tool_call>".length)
+            parseToolMarkup(block)?.let { toolCalls.add(it) }
+            cursor = end + "</tool_call>".length
+        }
+        return AssistantDeltaParseResult(visible.toString(), toolCalls)
+    }
+
+    private fun parseToolMarkup(block: String): ParsedToolMarkup? {
+        val openEnd = block.indexOf('>')
+        val closeStart = block.lastIndexOf("</tool_call>")
+        if (openEnd < 0 || closeStart <= openEnd) {
+            return null
+        }
+        val header = block.substring(0, openEnd + 1)
+        val body = block.substring(openEnd + 1, closeStart).trim()
+        val attributeName = Regex("""name\s*=\s*"([^"]+)"""").find(header)?.groupValues?.getOrNull(1).orEmpty()
+
+        if (body.startsWith("{") && body.endsWith("}")) {
+            runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()?.let { json ->
+                val name = json.get("name")?.takeIf { !it.isJsonNull }?.asString
+                    ?: json.get("tool")?.takeIf { !it.isJsonNull }?.asString
+                    ?: attributeName
+                val argumentsElement = json.get("arguments")
+                    ?: json.get("input")
+                    ?: json.get("params")
+                val arguments = argumentsElement?.toString() ?: body
+                return ParsedToolMarkup(name.ifBlank { "tool_call" }, arguments)
             }
         }
+
+        val tagName = Regex("""<name>(.*?)</name>""", setOf(RegexOption.DOT_MATCHES_ALL))
+            .find(body)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            .orEmpty()
+        val tagArguments = Regex("""<arguments>(.*?)</arguments>""", setOf(RegexOption.DOT_MATCHES_ALL))
+            .find(body)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            .orEmpty()
+        val resolvedName = tagName.ifBlank { attributeName }.ifBlank { "tool_call" }
+        val resolvedArguments = tagArguments.ifBlank { body }
+        return ParsedToolMarkup(resolvedName, resolvedArguments)
     }
 
     private fun createCapabilitySelection(

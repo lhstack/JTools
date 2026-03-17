@@ -9,17 +9,13 @@ import kotlin.test.assertTrue
 class AgentDependencyMigrationTest {
 
     @Test
-    fun `plugin module no longer depends on openai or anthropic java sdk`() {
+    fun `plugin module no longer depends on openai java sdk`() {
         val buildFile = locatePluginBuildFile()
         val text = Files.readString(buildFile)
 
         assertFalse(
             text.contains("implementation(\"com.openai:openai-java:"),
             "plugin/build.gradle.kts should not declare openai-java after migrating chat runtime to AgentScope"
-        )
-        assertFalse(
-            text.contains("implementation(\"com.anthropic:anthropic-java:"),
-            "plugin/build.gradle.kts should not declare anthropic-java after migrating chat runtime to AgentScope"
         )
     }
 

@@ -19,16 +19,15 @@ import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
+import java.awt.Component
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
-import javax.swing.BorderFactory
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComponent
-import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
@@ -206,13 +205,8 @@ class AgentSkillConfigPanel(
                         }
                         secondComponent = JPanel(BorderLayout(0, 8)).apply {
                             isOpaque = false
-                            add(
-                                AgentFormUi.verticalStack(
-                                    singleLineFieldTile("资源路径", resourcePathField, "例如 references/api.md。"),
-                                    AgentFormUi.fieldTile("资源内容", resourceContentScroll, "资源的文本内容。"),
-                                ),
-                                BorderLayout.CENTER
-                            )
+                            add(singleLineFieldTile("资源路径", resourcePathField, "例如 references/api.md。"), BorderLayout.NORTH)
+                            add(AgentFormUi.fieldTile("资源内容", resourceContentScroll, "资源的文本内容。"), BorderLayout.CENTER)
                         }
                     },
                     BorderLayout.CENTER
@@ -447,31 +441,10 @@ class AgentSkillConfigPanel(
         resourceList.repaint()
     }
 
-    private fun fixedHeightField(field: JComponent, height: Int): JComponent {
-        val scaledHeight = JBUI.scale(height)
-        return JPanel(BorderLayout()).apply {
-            isOpaque = false
-            border = BorderFactory.createEmptyBorder()
-            preferredSize = Dimension(0, scaledHeight)
-            minimumSize = Dimension(0, scaledHeight)
-            maximumSize = Dimension(Int.MAX_VALUE, scaledHeight)
-            add(field, BorderLayout.CENTER)
-        }
-    }
-
     private fun singleLineFieldTile(label: String, field: JComponent, hint: String? = null): JComponent {
-        return JPanel(BorderLayout(0, JBUI.scale(6))).apply {
-            isOpaque = false
-            add(JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-                isOpaque = false
-                add(JLabel(label))
-                hint?.takeIf { it.isNotBlank() }?.let {
-                    add(JLabel(com.intellij.icons.AllIcons.General.ContextHelp).apply {
-                        toolTipText = it
-                    })
-                }
-            }, BorderLayout.NORTH)
-            add(fixedHeightField(field, 28), BorderLayout.SOUTH)
+        return AgentFormUi.fieldTile(label, field, hint).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }
 

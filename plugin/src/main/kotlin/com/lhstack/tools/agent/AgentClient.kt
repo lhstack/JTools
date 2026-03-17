@@ -49,6 +49,7 @@ data class ToolCallStreamEvent(
 data class AgentCompletionResult(
     val assistantContent: String?,
     val toolCalls: List<ToolCallLog>,
+    val reasoningContent: String? = null,
     val errorMessage: String? = null,
 )
 
@@ -113,6 +114,10 @@ class AgentClient {
         val toolLogs = mutableListOf<ToolCallLog>()
         val assistantToolMessages = mutableListOf<JsonObject>()
         val toolResultMessages = mutableListOf<JsonObject>()
+        val seenToolCallIds = mutableSetOf<String>()
+        val seenToolResultIds = mutableSetOf<String>()
+        val toolCallsById = linkedMapOf<String, Pair<String, String>>()
+        var emittedReasoning = ""
         val handle = getOrCreateRuntime(
             sessionState = sessionState,
             provider = provider,
@@ -121,6 +126,8 @@ class AgentClient {
             toolRegistry = toolRegistry,
             maxToolIterations = maxToolIterations,
             onToolCall = { event ->
+                seenToolCallIds.add(event.id)
+                toolCallsById[event.id] = event.name to event.arguments
                 onToolCall?.invoke(event)
                 assistantToolMessages.add(
                     AgentToolCallHistorySupport.assistantToolCallMessage(
@@ -131,6 +138,7 @@ class AgentClient {
                 )
             },
             onToolResult = { log, toolUseId ->
+                seenToolResultIds.add(toolUseId)
                 toolLogs.add(log)
                 onToolResult?.invoke(log)
                 toolResultMessages.add(
@@ -148,6 +156,7 @@ class AgentClient {
             val currentMsg = jsonToMsg(messages.lastOrNull()) ?: return AgentCompletionResult(
                 assistantContent = null,
                 toolCalls = toolLogs,
+                reasoningContent = null,
                 errorMessage = "当前消息为空"
             )
             cancelToken?.registerInterrupt { handle.agent.interrupt() }
@@ -163,19 +172,75 @@ class AgentClient {
                 .build()
             handle.agent.stream(listOf(currentMsg), options)
                 .doOnNext { event ->
+                    val message = event.message
                     when (event.type) {
                         EventType.REASONING -> {
-                            val text = AgentReasoningSupport.extractThinking(event.message).orEmpty()
-                            if (text.isNotBlank() && !event.isLast) {
-                                onReasoningDelta?.invoke(text)
+                            val text = AgentReasoningSupport.extractThinking(message).orEmpty()
+                            val delta = reasoningDelta(emittedReasoning, text)
+                            if (delta.isNotBlank()) {
+                                emittedReasoning = text
+                                onReasoningDelta?.invoke(delta)
                             }
                         }
                         EventType.AGENT_RESULT -> {
-                            val message = event.message ?: return@doOnNext
+                            if (message == null) {
+                                return@doOnNext
+                            }
+                            message.getContentBlocks(ToolUseBlock::class.java).forEach { block ->
+                                if (seenToolCallIds.add(block.id)) {
+                                    val arguments = gsonToJson(block.input)
+                                    toolCallsById[block.id] = block.name to arguments
+                                    assistantToolMessages.add(
+                                        AgentToolCallHistorySupport.assistantToolCallMessage(
+                                            toolCallId = block.id,
+                                            name = block.name,
+                                            arguments = arguments,
+                                        )
+                                    )
+                                    onToolCall?.invoke(
+                                        ToolCallStreamEvent(
+                                            id = block.id,
+                                            index = toolCallsById.size - 1,
+                                            name = block.name,
+                                            arguments = arguments,
+                                            done = true,
+                                        )
+                                    )
+                                }
+                            }
+                            val reasoningText = AgentReasoningSupport.extractThinking(message).orEmpty()
+                            val reasoningDelta = reasoningDelta(emittedReasoning, reasoningText)
+                            if (reasoningDelta.isNotBlank()) {
+                                emittedReasoning = reasoningText
+                                onReasoningDelta?.invoke(reasoningDelta)
+                            }
                             finalAssistant = message
                             val text = message.getTextContent().orEmpty()
                             if (text.isNotBlank() && !event.isLast) {
                                 onDelta?.invoke(text)
+                            }
+                        }
+                        EventType.TOOL_RESULT -> {
+                            if (message == null) {
+                                return@doOnNext
+                            }
+                            message.getContentBlocks(ToolResultBlock::class.java).forEach { block ->
+                                if (seenToolResultIds.add(block.id)) {
+                                    val call = toolCallsById[block.id]
+                                    val log = ToolCallLog(
+                                        name = call?.first ?: block.name,
+                                        arguments = call?.second ?: "",
+                                        result = toolResultText(block),
+                                    )
+                                    toolLogs.add(log)
+                                    toolResultMessages.add(
+                                        AgentToolCallHistorySupport.toolResultMessage(
+                                            toolCallId = block.id,
+                                            result = log.result,
+                                        )
+                                    )
+                                    onToolResult?.invoke(log)
+                                }
                             }
                         }
                         else -> Unit
@@ -184,7 +249,7 @@ class AgentClient {
                 .blockLast()
             handle.agent.saveTo(handle.session, handle.runtimeSpec.features.sessionKey)
             if (cancelToken?.isCancelled() == true) {
-                return AgentCompletionResult(null, toolLogs, "已取消")
+                return AgentCompletionResult(null, toolLogs, emittedReasoning.ifBlank { null }, "已取消")
             }
 
             assistantToolMessages.forEach { messages.add(it) }
@@ -197,6 +262,7 @@ class AgentClient {
             return AgentCompletionResult(
                 assistantContent = finalContent,
                 toolCalls = toolLogs,
+                reasoningContent = emittedReasoning.ifBlank { null },
             )
         } catch (e: Throwable) {
             val errorMessage = when {
@@ -207,8 +273,25 @@ class AgentClient {
             return AgentCompletionResult(
                 assistantContent = null,
                 toolCalls = toolLogs,
+                reasoningContent = emittedReasoning.ifBlank { null },
                 errorMessage = errorMessage,
             )
+        }
+    }
+
+    private fun reasoningDelta(previous: String, current: String): String {
+        if (current.isBlank()) {
+            return ""
+        }
+        if (previous.isBlank()) {
+            return current
+        }
+        return if (current.startsWith(previous)) {
+            current.removePrefix(previous)
+        } else if (current == previous) {
+            ""
+        } else {
+            current
         }
     }
 

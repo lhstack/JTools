@@ -22,6 +22,8 @@ repositories {
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
     implementation("io.agentscope:agentscope:1.0.10")
+    implementation("com.anthropic:anthropic-java:2.16.1")
+    implementation("com.google.genai:google-genai:1.43.0")
     implementation("cn.hutool:hutool-core:5.8.37")
     implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
@@ -49,12 +51,12 @@ val proguardRules = listOf(
     "-useuniqueclassmembernames",
     "-dontwarn !com.lhstack.tools.**",
     "-flattenpackagehierarchy",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.10\\30de6faa127a4a012db8e71bf1b9c0a99b1402b2\\kotlin-stdlib-2.2.10.jar",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\util.jar",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app.jar",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\7d9972382a2d6e607e1390b589094e45\\transformed\\ideaIC-2025.2-win\\lib\\app-client.jar",
-    "-libraryjars D:\\Program Files\\java\\17\\jmods\\java.base.jmod(!.jar;!module-info.class)",
-    "-libraryjars D:\\Program Files\\java\\17\\jmods\\java.desktop.jmod(!.jar;!module-info.class)",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.10/30de6faa127a4a012db8e71bf1b9c0a99b1402b2/kotlin-stdlib-2.2.10.jar",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/util.jar",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app.jar",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app-client.jar",
+    "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.base.jmod(!.jar;!module-info.class)",
+    "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.desktop.jmod(!.jar;!module-info.class)",
     "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
     "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",

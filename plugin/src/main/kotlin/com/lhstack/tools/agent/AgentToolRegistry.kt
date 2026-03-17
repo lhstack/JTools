@@ -759,6 +759,24 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
+                    name = "jtools_get_current_project",
+                    description = "获取当前用户所在项目的信息",
+                    parametersJson = emptyParameters(),
+                    call = {
+                        val info = mapOf(
+                            "name" to project.name,
+                            "locationHash" to project.locationHash,
+                            "basePath" to project.basePath,
+                            "moduleCount" to ModuleManager.getInstance(project).modules.size
+                        )
+                        success(project, info)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
                     name = "jtools_get_project_info",
                     description = "获取某个项目的信息(通过 locationHash 或 name)",
                     parametersJson = """
@@ -836,6 +854,38 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
+                    name = "jtools_read_directory",
+                    description = "读取指定目录内容(只读,结果可能截断)",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "目录路径" },
+                            "depth": { "type": "integer", "description": "递归深度,默认1", "default": 1 },
+                            "maxEntries": { "type": "integer", "description": "最多返回条目数,默认1000", "default": 1000 }
+                          },
+                          "required": ["path"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val depth = payload.get("depth")?.takeIf { !it.isJsonNull }?.asInt ?: 1
+                        val maxEntries = payload.get("maxEntries")?.takeIf { !it.isJsonNull }?.asInt
+                            ?: DEFAULT_MAX_LIST_ENTRIES
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        val result = listFiles(path, depth, maxEntries)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
                     name = "jtools_read_file",
                     description = "读取指定文件内容(只读,可限制大小)",
                     parametersJson = """
@@ -857,6 +907,64 @@ class AgentToolRegistry private constructor(
                             return@AgentTool error(project, "path 不能为空")
                         }
                         val result = readFile(path, maxBytes)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_write_file",
+                    description = "写入指定文件内容(支持覆盖或追加,自动创建父目录)。调用前应先和用户确认目标文件路径；如果用户未明确给出完整目录，优先使用当前项目目录作为基准路径。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "文件路径。调用前应先与用户确认；相对路径会基于当前项目目录解析。" },
+                            "content": { "type": "string", "description": "要写入的内容" },
+                            "append": { "type": "boolean", "description": "是否追加写入", "default": false }
+                          },
+                          "required": ["path", "content"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val content = payload.get("content")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                        val append = payload.get("append")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        val result = writeFile(project, path, content, append)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_create_directory",
+                    description = "创建目录(支持递归创建父目录)。调用前应先和用户确认目标目录路径；如果用户未明确给出完整目录，优先使用当前项目目录作为基准路径。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "要创建的目录路径。调用前应先与用户确认；相对路径会基于当前项目目录解析。" }
+                          },
+                          "required": ["path"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        val result = createDirectory(project, path)
                         success(project, result)
                     },
                     pluginInfo = systemPluginInfo
@@ -1540,6 +1648,67 @@ class AgentToolRegistry private constructor(
                 "truncated" to truncated,
                 "content" to content
             )
+        }
+
+        private fun writeFile(project: Project, path: String, content: String, append: Boolean): Map<String, Any?> {
+            val file = resolveProjectAwareFile(project, path)
+            if (file.exists() && file.isDirectory) {
+                return mapOf(
+                    "ok" to false,
+                    "path" to file.absolutePath,
+                    "error" to "目标已存在且是目录"
+                )
+            }
+            file.parentFile?.let { parent ->
+                Files.createDirectories(parent.toPath())
+            }
+            val existed = file.exists()
+            if (append) {
+                Files.writeString(
+                    file.toPath(),
+                    content,
+                    StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND
+                )
+            } else {
+                Files.writeString(file.toPath(), content, StandardCharsets.UTF_8)
+            }
+            return mapOf(
+                "ok" to true,
+                "path" to file.absolutePath,
+                "append" to append,
+                "existed" to existed,
+                "sizeBytes" to file.length()
+            )
+        }
+
+        private fun createDirectory(project: Project, path: String): Map<String, Any?> {
+            val directory = resolveProjectAwareFile(project, path)
+            val existed = directory.exists()
+            if (existed && !directory.isDirectory) {
+                return mapOf(
+                    "ok" to false,
+                    "path" to directory.absolutePath,
+                    "error" to "目标已存在且不是目录"
+                )
+            }
+            Files.createDirectories(directory.toPath())
+            return mapOf(
+                "ok" to true,
+                "path" to directory.absolutePath,
+                "existed" to existed,
+                "created" to !existed
+            )
+        }
+
+        private fun resolveProjectAwareFile(project: Project, path: String): File {
+            val candidate = File(path)
+            if (candidate.isAbsolute) {
+                return candidate
+            }
+            val basePath = project.basePath?.takeIf { it.isNotBlank() } ?: System.getProperty("user.dir")
+            return File(basePath, path)
         }
 
         private fun collectPluginDetails(project: Project): List<Map<String, Any?>> {
