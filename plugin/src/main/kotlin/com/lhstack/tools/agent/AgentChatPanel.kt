@@ -110,7 +110,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var assistantBlock: MessageBlock? = null
     private val streamingTextBlocks = mutableMapOf<String, MessageBlock>()
     private var toolBlock: MessageBlock? = null
-    private val renderedToolCallIds = mutableSetOf<String>()
+    private val startedToolCallIds = mutableSetOf<String>()
     private val startedToolResultIds = mutableSetOf<String>()
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
@@ -2404,26 +2404,28 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun renderToolCallEvent(event: ToolCallStreamEvent) {
-        if (!event.done || !renderedToolCallIds.add(event.id)) {
+        if (event.arguments.isBlank()) {
             return
         }
         val block = ensureToolBlock()
-        appendToBlock(
-            block,
-            buildString {
-                if (block.renderItem?.content?.isNotBlank() == true) {
-                    append("\n\n")
+        if (startedToolCallIds.add(event.id)) {
+            appendToBlock(
+                block,
+                buildString {
+                    if (block.renderItem?.content?.isNotBlank() == true) {
+                        append("\n\n")
+                    }
+                    append("[")
+                    append(event.name)
+                    append("]\narguments:\n")
                 }
-                append("[")
-                append(event.name)
-                append("]\narguments:\n")
-                append(truncate(event.arguments))
-            }
-        )
+            )
+        }
+        appendToBlock(block, truncate(event.arguments))
     }
 
     private fun renderToolResultEvent(event: ToolResultStreamEvent) {
-        if (!renderedToolCallIds.contains(event.id)) {
+        if (!startedToolCallIds.contains(event.id)) {
             renderToolCallEvent(
                 ToolCallStreamEvent(
                     id = event.id,
@@ -2491,7 +2493,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         assistantBlock = null
         toolBlock = null
         streamingTextBlocks.clear()
-        renderedToolCallIds.clear()
+        startedToolCallIds.clear()
         startedToolResultIds.clear()
     }
 
@@ -2583,7 +2585,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             addProperty("role", "system")
             addProperty(
                 "content",
-                "你是 JTools 智能体, 可调用工具完成任务。插件工具名称以 plugin_ 开头, 系统工具以 jtools_ 开头。避免连续重复调用同一个工具, 如果无法获得新信息请停止并向用户说明。不要在回答内容中输出任何 tool_call/tool_result 标记或 XML 块。"
+                "你是 JTools 智能体, 可调用工具完成任务。插件工具名称以 plugin_ 开头, 系统工具以 jtools_ 开头。避免连续重复调用同一个工具, 如果无法获得新信息请停止并向用户说明。调用工具时, 参数必须始终是合法 JSON 对象；如果某个参数值里包含双引号, 需要写成 \\\"；如果包含换行, 需要写成 \\n。"
             )
         }
         session.messages.add(systemMessage)

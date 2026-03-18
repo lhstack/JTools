@@ -916,13 +916,13 @@ class AgentToolRegistry private constructor(
             registerTool(
                 AgentTool(
                     name = "jtools_write_file",
-                    description = "写入指定文件内容(支持覆盖或追加,自动创建父目录)。调用前应先和用户确认目标文件路径；如果用户未明确给出完整目录，优先使用当前项目目录作为基准路径。",
+                    description = "写入指定文件内容(支持覆盖或追加,自动创建父目录)。调用前应先和用户确认目标文件路径；如果用户未明确给出完整目录，优先使用当前项目目录作为基准路径。content 就是文件的完整文本内容；如果内容里包含双引号、换行等字符，需要按工具参数的转义规则传递。",
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
                             "path": { "type": "string", "description": "文件路径。调用前应先与用户确认；相对路径会基于当前项目目录解析。" },
-                            "content": { "type": "string", "description": "要写入的内容" },
+                            "content": { "type": "string", "description": "文件的完整文本内容。内容里如果包含双引号，需要写成 \\\"；如果包含换行，需要写成 \\n。" },
                             "append": { "type": "boolean", "description": "是否追加写入", "default": false }
                           },
                           "required": ["path", "content"]

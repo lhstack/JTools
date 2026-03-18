@@ -120,10 +120,10 @@ class AgentClient {
         toolTimeoutMs: Long = 120_000L,
         cancelToken: CancelToken? = null,
     ): AgentCompletionResult {
-        val assistantToolMessages = mutableListOf<JsonObject>()
-        val seenToolCallIds = mutableSetOf<String>()
+        val assistantToolMessagesById = linkedMapOf<String, JsonObject>()
         val toolCallsById = linkedMapOf<String, Pair<String, String>>()
         val toolLogsById = linkedMapOf<String, ToolCallLog>()
+        val toolCallTextsById = mutableMapOf<String, String>()
         val reasoningTextsById = mutableMapOf<String, String>()
         val assistantTextsById = mutableMapOf<String, String>()
         val hintTextsById = mutableMapOf<String, String>()
@@ -153,9 +153,7 @@ class AgentClient {
                 .eventTypes(
                     EventType.REASONING,
                     EventType.TOOL_RESULT,
-                    EventType.HINT,
                     EventType.AGENT_RESULT,
-                    EventType.SUMMARY,
                 )
                 .incremental(true)
                 .includeReasoningChunk(true)
@@ -173,57 +171,62 @@ class AgentClient {
                                 return@doOnNext
                             }
                             message.getContentBlocks(ToolUseBlock::class.java).forEach { block ->
-                                if (seenToolCallIds.add(block.id)) {
-                                    val arguments = gsonToJson(block.input)
-                                    toolCallsById[block.id] = block.name to arguments
-                                    assistantToolMessages.add(
-                                        AgentToolCallHistorySupport.assistantToolCallMessage(
-                                            toolCallId = block.id,
-                                            name = block.name,
-                                            arguments = arguments,
-                                        )
+                                val arguments = toolUseArguments(block)
+                                toolCallsById[block.id] = block.name to arguments
+                                assistantToolMessagesById[block.id] =
+                                    AgentToolCallHistorySupport.assistantToolCallMessage(
+                                        toolCallId = block.id,
+                                        name = block.name,
+                                        arguments = arguments,
                                     )
+                                val delta = AgentStreamTextSupport.delta(
+                                    previous = toolCallTextsById[block.id].orEmpty(),
+                                    current = arguments,
+                                )
+                                toolCallTextsById[block.id] = arguments
+                                if (delta.isNotBlank()) {
                                     onToolCall?.invoke(
                                         ToolCallStreamEvent(
                                             id = block.id,
-                                            index = toolCallsById.size - 1,
+                                            index = toolCallsById.keys.indexOf(block.id),
                                             name = block.name,
-                                            arguments = arguments,
+                                            arguments = delta,
                                             done = true,
                                         )
                                     )
                                 }
                             }
-                            val text = AgentReasoningSupport.extractThinking(message)
-                                ?: message.getTextContent().orEmpty()
-                            emitTextDelta(
-                                messageId = event.messageId,
-                                currentText = text,
-                                snapshots = reasoningTextsById,
-                                consumer = onReasoningDelta,
-                            )
+                            AgentReasoningSupport.extractThinking(message)?.let { text ->
+                                 emitTextDelta(
+                                     eventKey = "reasoning",
+                                     currentText = text,
+                                     snapshots = reasoningTextsById,
+                                     consumer = onReasoningDelta,
+                                 )
+                            }
+
                         }
                         EventType.HINT -> {
                             if (message == null) {
                                 return@doOnNext
                             }
-                            emitTextDelta(
-                                messageId = event.messageId,
-                                currentText = message.getTextContent().orEmpty(),
-                                snapshots = hintTextsById,
-                                consumer = onHintDelta,
-                            )
+//                            emitTextDelta(
+//                                eventKey = "hint",
+//                                currentText = message.getTextContent().orEmpty(),
+//                                snapshots = hintTextsById,
+//                                consumer = onHintDelta,
+//                            )
                         }
                         EventType.SUMMARY -> {
                             if (message == null) {
                                 return@doOnNext
                             }
-                            emitTextDelta(
-                                messageId = event.messageId,
-                                currentText = message.getTextContent().orEmpty(),
-                                snapshots = summaryTextsById,
-                                consumer = onSummaryDelta,
-                            )
+//                            emitTextDelta(
+//                                eventKey = "summary",
+//                                currentText = message.getTextContent().orEmpty(),
+//                                snapshots = summaryTextsById,
+//                                consumer = onSummaryDelta,
+//                            )
                         }
                         EventType.AGENT_RESULT -> {
                             if (message == null) {
@@ -231,7 +234,7 @@ class AgentClient {
                             }
                             finalAssistant = message
                             emitTextDelta(
-                                messageId = event.messageId,
+                                eventKey = "assistant",
                                 currentText = message.getTextContent().orEmpty(),
                                 snapshots = assistantTextsById,
                                 consumer = onAssistantDelta,
@@ -280,7 +283,7 @@ class AgentClient {
                 )
             }
 
-            assistantToolMessages.forEach { messages.add(it) }
+            assistantToolMessagesById.values.forEach { messages.add(it) }
             toolLogsById.forEach { (toolUseId, log) ->
                 messages.add(
                     AgentToolCallHistorySupport.toolResultMessage(
@@ -315,18 +318,18 @@ class AgentClient {
     }
 
     private fun emitTextDelta(
-        messageId: String,
+        eventKey: String,
         currentText: String,
         snapshots: MutableMap<String, String>,
         consumer: ((AgentTextStreamEvent) -> Unit)?,
     ) {
         val delta = AgentStreamTextSupport.delta(
-            previous = snapshots[messageId].orEmpty(),
+            previous = snapshots[eventKey].orEmpty(),
             current = currentText,
         )
-        snapshots[messageId] = currentText
+        snapshots[eventKey] = currentText
         if (delta.isNotBlank()) {
-            consumer?.invoke(AgentTextStreamEvent(messageId, delta))
+            consumer?.invoke(AgentTextStreamEvent(eventKey, delta))
         }
     }
 
@@ -536,6 +539,18 @@ class AgentClient {
                 else -> output.toString()
             }
         }
+    }
+
+    private fun toolUseArguments(block: ToolUseBlock): String {
+        val inputJson = gsonToJson(block.input)
+        if (inputJson != "{}") {
+            return inputJson
+        }
+        val content = block.content?.trim().orEmpty()
+        if (content.isNotBlank()) {
+            return content
+        }
+        return ""
     }
 
     private fun fetchOpenAICompatibleModels(provider: AgentProviderState): List<String> {
