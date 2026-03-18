@@ -1,6 +1,7 @@
 package com.lhstack.tools.agent
 
 import io.agentscope.core.message.Msg
+import io.agentscope.core.message.TextBlock
 import io.agentscope.core.message.ThinkingBlock
 
 object AgentReasoningSupport {
@@ -15,7 +16,10 @@ object AgentReasoningSupport {
             }
             .joinToString("\n")
             .trim()
-            .ifBlank { null }
+            .ifBlank { null } ?: message.getContentBlocks(TextBlock::class.java).mapNotNull { block ->
+            block.text
+        }.joinToString("\n")
+            .trim()
     }
 
     private fun stringifyReasoningDetails(value: Any?): String? {

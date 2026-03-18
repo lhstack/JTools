@@ -170,16 +170,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         inputArea.actionMap.put("pasteAttachmentOrText", object : AbstractAction() {
             override fun actionPerformed(e: ActionEvent) {
-                if (!pasteAttachmentsFromClipboard()) {
-                    inputArea.paste()
-                }
+                inputArea.paste()
             }
         })
         inputArea.transferHandler = object : TransferHandler() {
             override fun canImport(support: TransferSupport): Boolean {
-                return AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
-                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ||
-                        support.isDataFlavorSupported(DataFlavor.imageFlavor))
+                if (!AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())) {
+                    return false
+                }
+                // Avoid resolving the native Transferable during drag-over. Some external file drags
+                // expose incomplete flavor arrays and IntelliJ's top-level DnD checks can NPE first.
+                return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ||
+                    support.isDataFlavorSupported(DataFlavor.imageFlavor)
             }
 
             override fun importData(support: TransferSupport): Boolean {
@@ -2671,9 +2673,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun addAttachmentsFromTransferable(transferable: Transferable): Boolean {
+        val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
         return when {
-            transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) -> {
-                addAttachmentFiles(AgentAttachmentClipboardSupport.extractFiles(transferable))
+            files.isNotEmpty() -> {
+                addAttachmentFiles(files)
             }
             transferable.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
                 val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return false
@@ -2682,15 +2685,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             else -> addAttachmentFiles(AgentAttachmentClipboardSupport.extractFiles(transferable))
         }
-    }
-
-    private fun pasteAttachmentsFromClipboard(): Boolean {
-        if (!AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())) {
-            return false
-        }
-        val clipboard = runCatching { Toolkit.getDefaultToolkit().systemClipboard }.getOrNull() ?: return false
-        val contents = runCatching { clipboard.getContents(null) }.getOrNull() ?: return false
-        return addAttachmentsFromTransferable(contents)
     }
 
     private fun saveClipboardImage(image: Image): File? {
