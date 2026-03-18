@@ -109,8 +109,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private var assistantBlock: MessageBlock? = null
     private val streamingTextBlocks = mutableMapOf<String, MessageBlock>()
-    private val toolCallBlocks = mutableMapOf<String, MessageBlock>()
-    private val toolResultBlocks = mutableMapOf<String, MessageBlock>()
+    private var toolBlock: MessageBlock? = null
+    private val renderedToolCallIds = mutableSetOf<String>()
+    private val startedToolResultIds = mutableSetOf<String>()
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
     private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
@@ -2403,24 +2404,26 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun renderToolCallEvent(event: ToolCallStreamEvent) {
-        if (!event.done || toolCallBlocks.containsKey(event.id)) {
+        if (!event.done || !renderedToolCallIds.add(event.id)) {
             return
         }
-        val block = createTrackedMessageBlock(
-            role = "工具调用",
-            collapsible = true,
-            collapsedByDefault = true,
-            insertBeforeAssistant = true,
-        )
+        val block = ensureToolBlock()
         appendToBlock(
             block,
-            "name=${event.name}\narguments=${truncate(event.arguments)}"
+            buildString {
+                if (block.renderItem?.content?.isNotBlank() == true) {
+                    append("\n\n")
+                }
+                append("[")
+                append(event.name)
+                append("]\narguments:\n")
+                append(truncate(event.arguments))
+            }
         )
-        toolCallBlocks[event.id] = block
     }
 
     private fun renderToolResultEvent(event: ToolResultStreamEvent) {
-        if (!toolCallBlocks.containsKey(event.id)) {
+        if (!renderedToolCallIds.contains(event.id)) {
             renderToolCallEvent(
                 ToolCallStreamEvent(
                     id = event.id,
@@ -2431,17 +2434,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 )
             )
         }
-        val block = toolResultBlocks.getOrPut(event.id) {
-            createTrackedMessageBlock(
-                role = "工具结果",
-                collapsible = true,
-                collapsedByDefault = true,
-                insertBeforeAssistant = true,
-            ).also {
-                appendToBlock(it, "name=${event.name}\nresult=")
-            }
+        val block = ensureToolBlock()
+        if (startedToolResultIds.add(event.id)) {
+            appendToBlock(block, "\nresult:\n")
         }
         appendToBlock(block, event.result)
+    }
+
+    private fun ensureToolBlock(): MessageBlock {
+        return toolBlock ?: createTrackedMessageBlock(
+            role = "工具",
+            collapsible = true,
+            collapsedByDefault = true,
+            insertBeforeAssistant = true,
+        ).also { toolBlock = it }
     }
 
     private fun createTrackedMessageBlock(
@@ -2483,9 +2489,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun clearStreamingRequestState() {
         assistantBlock = null
+        toolBlock = null
         streamingTextBlocks.clear()
-        toolCallBlocks.clear()
-        toolResultBlocks.clear()
+        renderedToolCallIds.clear()
+        startedToolResultIds.clear()
     }
 
     private fun addMessageBlock(block: MessageBlock, before: MessageBlock? = null) {
