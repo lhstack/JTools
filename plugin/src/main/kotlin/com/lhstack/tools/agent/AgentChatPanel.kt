@@ -108,23 +108,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var updatingConversationModeSelection = false
 
     private var assistantBlock: MessageBlock? = null
-    private var reasoningBlock: MessageBlock? = null
-    private var suppressToolMarkup = false
-    private var pendingToolMarkup = ""
+    private val streamingTextBlocks = mutableMapOf<String, MessageBlock>()
+    private val toolCallBlocks = mutableMapOf<String, MessageBlock>()
+    private val toolResultBlocks = mutableMapOf<String, MessageBlock>()
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
     private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
 
     private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
-    private data class ParsedToolMarkup(
-        val name: String,
-        val arguments: String,
-    )
-
-    private data class AssistantDeltaParseResult(
-        val visibleText: String,
-        val toolCalls: List<ParsedToolMarkup>,
-    )
 
     init {
         setupChatContainer()
@@ -616,8 +607,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         messageContainer.removeAll()
         messageContainer.revalidate()
         messageContainer.repaint()
-        assistantBlock = null
-        reasoningBlock = null
+        clearStreamingRequestState()
         session.renders.forEach { item ->
             appendRenderedItem(item)
         }
@@ -2043,8 +2033,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         cancelToken?.cancel()
         activeRequestId = requestCounter.incrementAndGet()
-        closeAssistantBlock()
-        closeReasoningBlock()
+        clearStreamingRequestState()
         appendMessage("系统", "已终止当前请求", collapsible = false, collapsedByDefault = false)
         finishRequestUi()
     }
@@ -2242,8 +2231,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         activeRequestId = requestId
         val token = AgentClient.CancelToken()
         cancelToken = token
-        suppressToolMarkup = false
-        pendingToolMarkup = ""
+        clearStreamingRequestState()
         SwingUtilities.invokeLater { inputArea.text = "" }
         appendMessage(
             "用户",
@@ -2280,12 +2268,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     refreshSkillsAfterChange()
                 }
             }
-            val assistantStarted = AtomicBoolean(false)
-            val reasoningStarted = AtomicBoolean(false)
-            val reasoningClosed = AtomicBoolean(false)
-            val assistantContentStreamed = AtomicBoolean(false)
-            val displayedToolCalls = mutableSetOf<String>()
-            var toolStreamingUsed = false
             val result = client.complete(
                 session.state,
                 session.messages,
@@ -2293,95 +2275,72 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 provider,
                 model,
                 resolvedSkills = resolvedSkills,
-                onDelta = { delta ->
-                    assistantContentStreamed.set(true)
+                onAssistantDelta = { event ->
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
                         }
-                        if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
-                            closeReasoningBlock()
-                        }
-                        val parsed = filterAssistantDelta(delta)
-                        if (parsed.toolCalls.isNotEmpty()) {
-                            toolStreamingUsed = true
-                            parsed.toolCalls.forEach { toolCall ->
-                                displayedToolCalls.add("${toolCall.name}\n${toolCall.arguments}")
-                                appendToolMessage(
-                                    "工具调用",
-                                    "name=${toolCall.name}\narguments=${truncate(toolCall.arguments)}",
-                                    collapsible = true,
-                                    collapsedByDefault = true
-                                )
-                            }
-                        }
-                        if (parsed.visibleText.isEmpty()) {
-                            return@invokeLater
-                        }
-                        if (assistantStarted.compareAndSet(false, true)) {
-                            val item = RenderItem("助手", "", collapsible = false, collapsedByDefault = false)
-                            addRenderItem(item)
-                            assistantBlock = createMessageBlock("助手", UIUtil.getLabelForeground(), false, false, item)
-                            addMessageBlock(assistantBlock!!)
-                        }
-                        appendToBlock(assistantBlock, parsed.visibleText)
+                        renderStreamingTextEvent(
+                            event = event,
+                            role = "助手",
+                            collapsible = false,
+                            collapsedByDefault = false,
+                        )
                     }
                 },
-                onReasoningDelta = { delta ->
+                onReasoningDelta = { event ->
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
                         }
-                        if (reasoningStarted.compareAndSet(false, true)) {
-                            val item = RenderItem("推理", "", collapsible = true, collapsedByDefault = false)
-                            addRenderItem(item)
-                            reasoningBlock = createMessageBlock("推理", JBColor(0x6A6A6A, 0x9A9A9A), true, false, item)
-                            addMessageBlock(reasoningBlock!!)
+                        renderStreamingTextEvent(
+                            event = event,
+                            role = "推理",
+                            collapsible = true,
+                            collapsedByDefault = false,
+                        )
+                    }
+                },
+                onHintDelta = { event ->
+                    ApplicationManager.getApplication().invokeLater {
+                        if (!isActiveRequest(requestId, token)) {
+                            return@invokeLater
                         }
-                        appendToBlock(reasoningBlock, delta)
+                        renderStreamingTextEvent(
+                            event = event,
+                            role = "提示",
+                            collapsible = true,
+                            collapsedByDefault = false,
+                        )
+                    }
+                },
+                onSummaryDelta = { event ->
+                    ApplicationManager.getApplication().invokeLater {
+                        if (!isActiveRequest(requestId, token)) {
+                            return@invokeLater
+                        }
+                        renderStreamingTextEvent(
+                            event = event,
+                            role = "总结",
+                            collapsible = true,
+                            collapsedByDefault = false,
+                        )
                     }
                 },
                 onToolCall = { event ->
-                    toolStreamingUsed = true
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
                         }
-                        if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
-                            closeReasoningBlock()
-                        }
-                        if (event.done) {
-                            displayedToolCalls.add("${event.name}\n${event.arguments}")
-                            appendToolMessage(
-                                "工具调用",
-                                "name=${event.name}\narguments=${truncate(event.arguments)}",
-                                collapsible = true,
-                                collapsedByDefault = true
-                            )
-                        }
+                        renderToolCallEvent(event)
                     }
                 },
-                onToolResult = { toolLog ->
-                    toolStreamingUsed = true
+                onToolResult = { event ->
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
                             return@invokeLater
                         }
-                        val toolKey = "${toolLog.name}\n${toolLog.arguments}"
-                        if (displayedToolCalls.add(toolKey)) {
-                            appendToolMessage(
-                                "工具调用",
-                                "name=${toolLog.name}\narguments=${truncate(toolLog.arguments)}",
-                                collapsible = true,
-                                collapsedByDefault = true
-                            )
-                        }
-                        appendToolMessage(
-                            "工具结果",
-                            "name=${toolLog.name}\nresult=${truncate(toolLog.result)}",
-                            collapsible = true,
-                            collapsedByDefault = true
-                        )
+                        renderToolResultEvent(event)
                     }
                 },
                 maxToolIterations = maxToolIterations,
@@ -2392,33 +2351,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 if (!isActiveRequest(requestId, token)) {
                     return@invokeLater
                 }
-                if (assistantStarted.get()) {
-                    closeAssistantBlock()
-                }
-                if (reasoningStarted.get() && reasoningClosed.compareAndSet(false, true)) {
-                    closeReasoningBlock()
-                } else if (!reasoningStarted.get() && !result.reasoningContent.isNullOrBlank()) {
-                    appendMessage("推理", result.reasoningContent, collapsible = true, collapsedByDefault = false)
-                }
-                if (!toolStreamingUsed) {
-                    result.toolCalls.forEach { toolCall ->
-                        appendMessage(
-                            "工具",
-                            "name=${toolCall.name}\narguments=${truncate(toolCall.arguments)}\nresult=${truncate(toolCall.result)}",
-                            collapsible = true,
-                            collapsedByDefault = true
-                        )
-                    }
-                }
+                clearStreamingRequestState()
                 if (result.errorMessage != null) {
                     appendMessage("错误", result.errorMessage, collapsible = false, collapsedByDefault = false)
-                } else if (AgentChatRenderingSupport.shouldRenderFinalAssistantContent(
-                        assistantStarted = assistantStarted.get() || assistantContentStreamed.get(),
-                        assistantContent = result.assistantContent,
-                    )
-                ) {
-                    val content = result.assistantContent.orEmpty()
-                    appendMessage("助手", content, collapsible = false, collapsedByDefault = false)
                 }
                 syncSessionMessages(session)
                 finishRequestUi()
@@ -2441,31 +2376,99 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         addMessageBlock(block)
     }
 
-    private fun appendMessageBeforeAssistant(
+    private fun renderStreamingTextEvent(
+        event: AgentTextStreamEvent,
         role: String,
-        content: String,
         collapsible: Boolean,
-        collapsedByDefault: Boolean
+        collapsedByDefault: Boolean,
     ) {
-        val color = if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
-        val item = RenderItem(role, content, collapsible, collapsedByDefault)
-        addRenderItem(item, assistantBlock?.renderItem)
-        val block = createMessageBlock(role, color, collapsible, collapsedByDefault, item)
-        block.textArea.text = content
-        addMessageBlock(block, assistantBlock)
+        if (event.text.isBlank()) {
+            return
+        }
+        val block = streamingTextBlocks.getOrPut(streamingBlockKey(role)) {
+            createTrackedMessageBlock(
+                role = role,
+                collapsible = collapsible,
+                collapsedByDefault = collapsedByDefault,
+            )
+        }
+        appendToBlock(block, event.text)
+        if (role == "助手") {
+            assistantBlock = block
+        }
     }
 
-    private fun appendToolMessage(
-        role: String,
-        content: String,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean
-    ) {
-        if (assistantBlock != null) {
-            appendMessageBeforeAssistant(role, content, collapsible, collapsedByDefault)
-        } else {
-            appendMessage(role, content, collapsible, collapsedByDefault)
+    private fun streamingBlockKey(role: String): String {
+        return role
+    }
+
+    private fun renderToolCallEvent(event: ToolCallStreamEvent) {
+        if (!event.done || toolCallBlocks.containsKey(event.id)) {
+            return
         }
+        val block = createTrackedMessageBlock(
+            role = "工具调用",
+            collapsible = true,
+            collapsedByDefault = true,
+            insertBeforeAssistant = true,
+        )
+        appendToBlock(
+            block,
+            "name=${event.name}\narguments=${truncate(event.arguments)}"
+        )
+        toolCallBlocks[event.id] = block
+    }
+
+    private fun renderToolResultEvent(event: ToolResultStreamEvent) {
+        if (!toolCallBlocks.containsKey(event.id)) {
+            renderToolCallEvent(
+                ToolCallStreamEvent(
+                    id = event.id,
+                    index = -1,
+                    name = event.name,
+                    arguments = event.arguments,
+                    done = true,
+                )
+            )
+        }
+        val block = toolResultBlocks.getOrPut(event.id) {
+            createTrackedMessageBlock(
+                role = "工具结果",
+                collapsible = true,
+                collapsedByDefault = true,
+                insertBeforeAssistant = true,
+            ).also {
+                appendToBlock(it, "name=${event.name}\nresult=")
+            }
+        }
+        appendToBlock(block, event.result)
+    }
+
+    private fun createTrackedMessageBlock(
+        role: String,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean,
+        insertBeforeAssistant: Boolean = false,
+    ): MessageBlock {
+        val item = RenderItem(role, "", collapsible, collapsedByDefault)
+        val block = createMessageBlock(
+            role,
+            if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground(),
+            collapsible,
+            collapsedByDefault,
+            item
+        )
+        if (insertBeforeAssistant && assistantBlock != null) {
+            addRenderItem(item, assistantBlock?.renderItem)
+            addMessageBlock(block, assistantBlock)
+        } else {
+            addRenderItem(item)
+            addMessageBlock(block)
+        }
+        if (role == "助手") {
+            assistantBlock = block
+        }
+        return block
     }
 
     private fun appendToBlock(block: MessageBlock?, text: String) {
@@ -2478,14 +2481,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         scrollToBottom()
     }
 
-    private fun closeAssistantBlock() {
+    private fun clearStreamingRequestState() {
         assistantBlock = null
-        scrollToBottom()
-    }
-
-    private fun closeReasoningBlock() {
-        reasoningBlock = null
-        scrollToBottom()
+        streamingTextBlocks.clear()
+        toolCallBlocks.clear()
+        toolResultBlocks.clear()
     }
 
     private fun addMessageBlock(block: MessageBlock, before: MessageBlock? = null) {
@@ -2820,78 +2820,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 })
             }
         }
-    }
-
-    private fun filterAssistantDelta(delta: String): AssistantDeltaParseResult {
-        val source = if (pendingToolMarkup.isNotEmpty()) {
-            pendingToolMarkup + delta
-        } else {
-            delta
-        }
-        pendingToolMarkup = ""
-        suppressToolMarkup = false
-
-        val visible = StringBuilder()
-        val toolCalls = mutableListOf<ParsedToolMarkup>()
-        var cursor = 0
-        while (cursor < source.length) {
-            val start = source.indexOf("<tool_call", cursor)
-            if (start < 0) {
-                visible.append(source.substring(cursor))
-                break
-            }
-            visible.append(source.substring(cursor, start))
-            val end = source.indexOf("</tool_call>", start)
-            if (end < 0) {
-                pendingToolMarkup = source.substring(start)
-                suppressToolMarkup = true
-                break
-            }
-            val block = source.substring(start, end + "</tool_call>".length)
-            parseToolMarkup(block)?.let { toolCalls.add(it) }
-            cursor = end + "</tool_call>".length
-        }
-        return AssistantDeltaParseResult(visible.toString(), toolCalls)
-    }
-
-    private fun parseToolMarkup(block: String): ParsedToolMarkup? {
-        val openEnd = block.indexOf('>')
-        val closeStart = block.lastIndexOf("</tool_call>")
-        if (openEnd < 0 || closeStart <= openEnd) {
-            return null
-        }
-        val header = block.substring(0, openEnd + 1)
-        val body = block.substring(openEnd + 1, closeStart).trim()
-        val attributeName = Regex("""name\s*=\s*"([^"]+)"""").find(header)?.groupValues?.getOrNull(1).orEmpty()
-
-        if (body.startsWith("{") && body.endsWith("}")) {
-            runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()?.let { json ->
-                val name = json.get("name")?.takeIf { !it.isJsonNull }?.asString
-                    ?: json.get("tool")?.takeIf { !it.isJsonNull }?.asString
-                    ?: attributeName
-                val argumentsElement = json.get("arguments")
-                    ?: json.get("input")
-                    ?: json.get("params")
-                val arguments = argumentsElement?.toString() ?: body
-                return ParsedToolMarkup(name.ifBlank { "tool_call" }, arguments)
-            }
-        }
-
-        val tagName = Regex("""<name>(.*?)</name>""", setOf(RegexOption.DOT_MATCHES_ALL))
-            .find(body)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.trim()
-            .orEmpty()
-        val tagArguments = Regex("""<arguments>(.*?)</arguments>""", setOf(RegexOption.DOT_MATCHES_ALL))
-            .find(body)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.trim()
-            .orEmpty()
-        val resolvedName = tagName.ifBlank { attributeName }.ifBlank { "tool_call" }
-        val resolvedArguments = tagArguments.ifBlank { body }
-        return ParsedToolMarkup(resolvedName, resolvedArguments)
     }
 
     private fun createCapabilitySelection(
