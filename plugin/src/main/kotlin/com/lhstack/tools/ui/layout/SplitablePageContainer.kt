@@ -20,6 +20,7 @@ import com.lhstack.tools.ext.catch
 import com.lhstack.tools.plugins.PluginInfo
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.JBUI
+import com.lhstack.tools.components.FloatingDialog
 import java.util.UUID
 import java.awt.BorderLayout
 import java.awt.Image
@@ -782,12 +783,22 @@ class SplitablePageContainer(
                 newTabs.tabs.toList().forEach { if (it != current) closeTab(it) }
             }
         })
-         tabsPopupGroup.add(object : AnAction({ "关闭所有" }, Icons.closeAllIcon()) {
+        tabsPopupGroup.add(object : AnAction({ "关闭所有" }, Icons.closeAllIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                  newTabs.tabs.toList().forEach { closeTab(it) }
             }
         })
         tabsPopupGroup.addSeparator()
+        tabsPopupGroup.add(object : AnAction({ "新窗口打开" }, Icons.closeAllIcon()) {
+            override fun actionPerformed(e: AnActionEvent) {
+                getTargetTab(e)?.let {
+                    it.isHidden = true
+                    FloatingDialog(project,it.text,it.component){
+                        it.isHidden = false
+                    }.isVisible = true
+                }
+            }
+        })
         tabsPopupGroup.add(object : AnAction({ "向右分屏" }, Icons.moveright()) {
             override fun actionPerformed(e: AnActionEvent) {
                  split(false, getTargetTab(e), moveTarget = false)
