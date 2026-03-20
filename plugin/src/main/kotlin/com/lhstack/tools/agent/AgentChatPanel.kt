@@ -9,6 +9,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
@@ -43,6 +44,7 @@ import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
+import javax.swing.text.DefaultEditorKit
 
 class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
     private val messageContainer = JPanel(VerticalLayout(8))
@@ -53,6 +55,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         layout = BoxLayout(this, BoxLayout.X_AXIS)
     }
     private val attachmentDraftScroll = AgentAttachmentChipUi.createHorizontalStrip(attachmentDraftPanel)
+    private val inputCenterPanel = JPanel(BorderLayout(0, 6)).apply {
+        isOpaque = false
+    }
     private val actionToolbars = mutableListOf<ActionToolbar>()
     private val actionEnabledState = mutableMapOf<AnAction, Boolean>()
     private val quickClearAction = createAction("清空当前会话", Icons.closeAllIcon()) {
@@ -146,6 +151,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun setupInputArea() {
+        val defaultTransferHandler = inputArea.transferHandler
+        val defaultPasteAction = inputArea.actionMap.get(DefaultEditorKit.pasteAction)
         inputArea.lineWrap = true
         inputArea.wrapStyleWord = true
         inputArea.margin = JBUI.insets(6)
@@ -160,37 +167,45 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 sendMessage()
             }
         })
-        inputArea.inputMap.put(
-            KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx),
-            "pasteAttachmentOrText"
-        )
-        inputArea.inputMap.put(
-            KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, InputEvent.SHIFT_DOWN_MASK),
-            "pasteAttachmentOrText"
-        )
-        inputArea.actionMap.put("pasteAttachmentOrText", object : AbstractAction() {
-            override fun actionPerformed(e: ActionEvent) {
-                inputArea.paste()
-            }
-        })
+        bindPasteAttachment(inputArea) {
+            defaultPasteAction?.actionPerformed(ActionEvent(inputArea, ActionEvent.ACTION_PERFORMED, DefaultEditorKit.pasteAction))
+        }
         inputArea.transferHandler = object : TransferHandler() {
             override fun canImport(support: TransferSupport): Boolean {
-                if (!AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())) {
-                    return false
+                if (AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
+                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(DataFlavor.imageFlavor))
+                ) {
+                    return true
                 }
-                // Avoid resolving the native Transferable during drag-over. Some external file drags
-                // expose incomplete flavor arrays and IntelliJ's top-level DnD checks can NPE first.
-                return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ||
-                    support.isDataFlavorSupported(DataFlavor.imageFlavor)
+                return defaultTransferHandler?.canImport(support) ?: false
             }
 
             override fun importData(support: TransferSupport): Boolean {
                 if (!canImport(support)) {
                     return false
                 }
-                return addAttachmentsFromTransferable(support.transferable)
+                if (AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
+                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(DataFlavor.imageFlavor))
+                ) {
+                    return addAttachmentsFromTransferable(support.transferable)
+                }
+                return defaultTransferHandler?.importData(support) ?: false
             }
         }
+    }
+
+    private fun bindPasteAttachment(component: JBTextArea, onTextFallback: () -> Unit) {
+        val action = PasteAttachmentAction(
+            onFiles = { files ->
+                addAttachmentFiles(files)
+            },
+            onImage = { image ->
+                saveClipboardImage(image)?.let { addAttachmentFiles(listOf(it)) }
+            },
+            onTextFallback = onTextFallback
+        )
+        val pasteAction = ActionManager.getInstance().getAction(IdeActions.ACTION_PASTE) ?: return
+        action.registerCustomShortcutSet(pasteAction.shortcutSet, component)
     }
 
     private fun setupSessionSelector() {
@@ -2179,15 +2194,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 this.add(sendToolbar)
             }, BorderLayout.SOUTH)
         }
-        val inputCenter = JPanel(BorderLayout(0, 6)).apply {
-            isOpaque = false
-            add(attachmentDraftScroll, BorderLayout.NORTH)
-            add(inputScroll, BorderLayout.CENTER)
-        }
+        inputCenterPanel.removeAll()
+        inputCenterPanel.add(attachmentDraftScroll, BorderLayout.NORTH)
+        inputCenterPanel.add(inputScroll, BorderLayout.CENTER)
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)
             add(header, BorderLayout.NORTH)
-            add(inputCenter, BorderLayout.CENTER)
+            add(inputCenterPanel, BorderLayout.CENTER)
             add(actionPanel, BorderLayout.EAST)
         }
     }
@@ -2757,6 +2770,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         attachmentDraftPanel.repaint()
         attachmentDraftScroll.revalidate()
         attachmentDraftScroll.repaint()
+        inputCenterPanel.revalidate()
+        inputCenterPanel.repaint()
+        content?.revalidate()
+        content?.repaint()
+        SwingUtilities.invokeLater {
+            val scrollBar = attachmentDraftScroll.horizontalScrollBar
+            val maxValue = (scrollBar.maximum - scrollBar.visibleAmount).coerceAtLeast(0)
+            if (drafts.isEmpty()) {
+                scrollBar.value = 0
+            } else if (scrollBar.value > maxValue) {
+                scrollBar.value = maxValue
+            }
+        }
         updateToolbars()
     }
 
@@ -2870,6 +2896,26 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val panel: JPanel,
         val checkBoxes: Map<String, JCheckBox>,
     )
+
+    private class PasteAttachmentAction(
+        private val onFiles: (List<File>) -> Unit,
+        private val onImage: (Image) -> Unit,
+        private val onTextFallback: () -> Unit,
+    ) : AnAction() {
+        override fun actionPerformed(e: AnActionEvent) {
+            val transferable = CopyPasteManager.getInstance().contents ?: return
+            val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
+            when {
+                files.isNotEmpty() -> onFiles(files)
+                transferable.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
+                    val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return
+                    onImage(image)
+                }
+
+                transferable.isDataFlavorSupported(DataFlavor.stringFlavor) -> onTextFallback()
+            }
+        }
+    }
 
     private class ChatSession(
         val id: String,

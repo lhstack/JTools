@@ -166,10 +166,10 @@ class AgentClient {
                 )
                 .incremental(true)
                 .includeReasoningChunk(true)
-                .includeReasoningResult(true)
+                .includeReasoningResult(false)
                 .includeActingChunk(true)
                 .includeSummaryChunk(true)
-                .includeSummaryResult(true)
+                .includeSummaryResult(false)
                 .build()
             handle.agent.stream(listOf(currentMsg), options)
                 .doOnNext { event ->
