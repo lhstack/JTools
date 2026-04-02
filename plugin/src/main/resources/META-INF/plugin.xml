@@ -141,8 +141,26 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.1</h2>
+            <h2>📦 Version v1.1.3.2</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>📝 <b>Skills Config UX:</b> Refined the skill resource path editor layout so labels and single-line inputs stay compact and aligned</li>
+                <li>✅ <b>Tool Calling Defaults:</b> Enabled tool calling by default in OpenAI and Anthropic model parameter dialogs unless explicitly disabled</li>
+                <li>🧠 <b>Reasoning &amp; Tool Logs:</b> Strengthened Anthropic/OpenAI fallback rendering for reasoning blocks, tool calls, and tool results</li>
+                <li>🔌 <b>Native Provider Dependencies:</b> Added Anthropic and Gemini native SDK dependencies for more complete provider runtime support</li>
+                <li>📂 <b>File Tooling Refresh:</b> Reworked file access into char-count plus chunked reads, and replaced direct writes with open/append/commit/discard write sessions</li>
+                <li>🛡️ <b>Safer Execution Flow:</b> Added confirmation dialogs before write-session creation and command execution to reduce accidental operations</li>
+                <li>🧰 <b>System Tools:</b> Added current-project lookup, directory read/create support, and project-aware path resolution for file operations</li>
+                <li>📝 <b>Skills 配置体验：</b>调整 skills 资源路径编辑区布局，收紧标签与输入框间距，并对齐单行表单高度</li>
+                <li>✅ <b>工具调用默认值：</b>OpenAI 和 Anthropic 模型参数面板中的工具调用能力默认勾选，除非用户显式关闭</li>
+                <li>🧠 <b>推理与工具日志：</b>补强 Anthropic/OpenAI 的推理内容、工具调用和工具结果渲染兜底</li>
+                <li>🔌 <b>原生供应方依赖：</b>补充 Anthropic 与 Gemini 原生 SDK 依赖，完善对应供应方运行时支持</li>
+                <li>📂 <b>文件工具重构：</b>文件读取改为字符总数加分段读取，文件写入改为 open/append/commit/discard 会话式流程</li>
+                <li>🛡️ <b>更安全的执行流程：</b>文件写入会话与脚本命令执行前增加确认弹窗，降低误操作风险</li>
+                <li>🧰 <b>系统工具增强：</b>新增当前项目查询、目录读取、目录创建与项目感知路径解析能力</li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.1</h2>
             <ul>
                 <li>📎 <b>Attachment Workflow:</b> Added model-aware file/image attachments with clipboard support and optimized media handling</li>
                 <li>🖼️ <b>Multimodal Inputs:</b> Added per-model image/audio/video/file capability switches and readable file context extraction</li>

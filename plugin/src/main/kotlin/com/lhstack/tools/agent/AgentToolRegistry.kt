@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.Messages
 import com.lhstack.tools.ext.gson
 import com.lhstack.tools.ext.logImpl
 import com.lhstack.tools.ext.openThisWindow
@@ -19,13 +20,19 @@ import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
 import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.io.FileUtils
+import java.io.BufferedReader
 import java.io.File
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.UUID
 import kotlin.math.min
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
@@ -82,6 +89,19 @@ class AgentToolRegistry private constructor(
         private const val SYSTEM_PLUGIN_NAME = "系统"
         private const val SYSTEM_PLUGIN_PATH = "<internal>"
         private const val SYSTEM_PLUGIN_TYPE = "system"
+        private const val WRITE_SESSION_MAX_CHARS_PER_APPEND = 2000
+
+        private data class WriteSessionState(
+            val sessionId: String,
+            val resolvedPath: File,
+            val mode: String,
+            val tempFile: File,
+            val createdAt: Long,
+            val fileExistedAtOpen: Boolean,
+            var totalChars: Int = 0,
+        )
+
+        private val writeSessions = ConcurrentHashMap<String, WriteSessionState>()
 
         fun build(project: Project, selectedSkills: List<AgentSkillState> = emptyList()): AgentToolRegistry {
             val tools = mutableListOf<AgentTool>()
@@ -886,14 +906,13 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_read_file",
-                    description = "读取指定文件内容(只读,可限制大小)",
+                    name = "jtools_get_file_char_count",
+                    description = "获取文件字符总数和字节大小。读取大文件前应先调用此工具，再按字符区间使用 jtools_read_file_chunk 分段读取。",
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
-                            "path": { "type": "string", "description": "文件路径" },
-                            "maxBytes": { "type": "integer", "description": "最大读取字节数,默认100000", "default": 100000 }
+                            "path": { "type": "string", "description": "文件路径。相对路径会基于当前项目目录解析。" }
                           },
                           "required": ["path"]
                         }
@@ -902,11 +921,10 @@ class AgentToolRegistry private constructor(
                         val payload = parseArgs(args)
                             ?: return@AgentTool error(project, "参数解析失败")
                         val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val maxBytes = payload.get("maxBytes")?.takeIf { !it.isJsonNull }?.asInt ?: 100_000
                         if (path.isBlank()) {
                             return@AgentTool error(project, "path 不能为空")
                         }
-                        val result = readFile(path, maxBytes)
+                        val result = getFileCharCount(project, path)
                         success(project, result)
                     },
                     pluginInfo = systemPluginInfo
@@ -915,29 +933,178 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_write_file",
-                    description = "写入指定文件内容(支持覆盖或追加,自动创建父目录)。调用前应先和用户确认目标文件路径；如果用户未明确给出完整目录，优先使用当前项目目录作为基准路径。",
+                    name = "jtools_read_file_chunk",
+                    description = "按字符区间读取文件内容。用于大文件分段读取，offset 和 length 都按字符数计算，相对路径会基于当前项目目录解析。返回结果包含 nextOffset、totalChars、remainingChars、hasMore；当 hasMore=false 时表示文件已读取完毕，必须停止继续读取。",
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
-                            "path": { "type": "string", "description": "文件路径。调用前应先与用户确认；相对路径会基于当前项目目录解析。" },
-                            "content": { "type": "string", "description": "严格按照json字符串的内容格式" },
-                            "append": { "type": "boolean", "description": "是否追加写入", "default": false }
+                            "path": { "type": "string", "description": "文件路径。相对路径会基于当前项目目录解析。" },
+                            "offset": { "type": "integer", "description": "起始字符偏移，从 0 开始。" },
+                            "length": { "type": "integer", "description": "本次读取的字符数。" }
                           },
-                          "required": ["path", "content"]
+                          "required": ["path", "offset", "length"]
                         }
                     """.trimIndent(),
                     call = { args ->
                         val payload = parseArgs(args)
                             ?: return@AgentTool error(project, "参数解析失败")
                         val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val content = payload.get("content")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                        val append = payload.get("append")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                        val offset = payload.get("offset")?.takeIf { !it.isJsonNull }?.asInt
+                            ?: return@AgentTool error(project, "offset 不能为空")
+                        val length = payload.get("length")?.takeIf { !it.isJsonNull }?.asInt
+                            ?: return@AgentTool error(project, "length 不能为空")
                         if (path.isBlank()) {
                             return@AgentTool error(project, "path 不能为空")
                         }
-                        val result = writeFile(project, path, content, append)
+                        val result = readFileChunk(project, path, offset, length)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_open_write_session",
+                    description = "打开一个文件写入会话。调用前会弹窗让用户确认目标路径和写入模式；只有确认后才会创建会话。后续通过 sessionId 追加内容，最后再 commit。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "文件路径。调用前应先与用户确认；相对路径会基于当前项目目录解析。" },
+                            "mode": {
+                              "type": "string",
+                              "description": "写入模式：create 表示新建，overwrite 表示覆盖，append 表示追加。",
+                              "enum": ["create", "overwrite", "append"]
+                            }
+                          },
+                          "required": ["path", "mode"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val mode = payload.get("mode")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        val result = openWriteSession(project, path, mode)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_append_write_session",
+                    description = "向已打开的写入会话追加一段内容。内容会先写入临时文件，不会立即修改正式文件。单次最多 2000 个字符。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "写入会话 ID。" },
+                            "content": { "type": "string", "description": "本次追加的文本内容，单次最多 2000 个字符。" }
+                          },
+                          "required": ["sessionId", "content"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val content = payload.get("content")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        val result = appendWriteSession(sessionId, content)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_commit_write_session",
+                    description = "提交写入会话，将临时文件内容一次性写入正式文件。提交成功后会自动销毁该写入会话。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "写入会话 ID。" }
+                          },
+                          "required": ["sessionId"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        val result = commitWriteSession(sessionId)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_discard_write_session",
+                    description = "丢弃写入会话并删除临时文件，不会修改正式文件。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "写入会话 ID。" }
+                          },
+                          "required": ["sessionId"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        val result = discardWriteSession(sessionId)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_execute_command",
+                    description = "执行脚本命令。执行前会弹出确认窗口，只有用户确认才会执行；用户拒绝时返回“用户拒绝执行”。未提供 workdir 时优先使用当前项目目录。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "command": { "type": "string", "description": "要执行的命令。" },
+                            "workdir": { "type": "string", "description": "执行目录，可选；相对路径会基于当前项目目录解析。" },
+                            "timeoutMs": { "type": "integer", "description": "超时时间，单位毫秒，默认 30000。" }
+                          },
+                          "required": ["command"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val command = payload.get("command")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val workdir = payload.get("workdir")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val timeoutMs = payload.get("timeoutMs")?.takeIf { !it.isJsonNull }?.asLong ?: 30_000L
+                        if (command.isBlank()) {
+                            return@AgentTool error(project, "command 不能为空")
+                        }
+                        val result = executeCommand(project, command, workdir, timeoutMs)
                         success(project, result)
                     },
                     pluginInfo = systemPluginInfo
@@ -1631,55 +1798,217 @@ class AgentToolRegistry private constructor(
             )
         }
 
-        private fun readFile(path: String, maxBytes: Int): Map<String, Any?> {
-            val file = File(path)
+        private fun getFileCharCount(project: Project, path: String): Map<String, Any?> {
+            val file = resolveProjectAwareFile(project, path)
             if (!file.exists() || !file.isFile) {
-                return mapOf("ok" to false, "error" to "文件不存在")
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "文件不存在")
             }
-            val limit = if (maxBytes <= 0) 100_000 else maxBytes
-            val bytes = file.inputStream().use { it.readNBytes(limit + 1) }
-            val truncated = bytes.size > limit
-            val contentBytes = if (truncated) bytes.copyOf(limit) else bytes
-            val content = String(contentBytes, StandardCharsets.UTF_8)
             return mapOf(
                 "ok" to true,
                 "path" to file.absolutePath,
                 "sizeBytes" to file.length(),
-                "truncated" to truncated,
-                "content" to content
+                "charCount" to countFileChars(file)
             )
         }
 
-        private fun writeFile(project: Project, path: String, content: String, append: Boolean): Map<String, Any?> {
+        private fun readFileChunk(project: Project, path: String, offset: Int, length: Int): Map<String, Any?> {
             val file = resolveProjectAwareFile(project, path)
-            if (file.exists() && file.isDirectory) {
-                return mapOf(
-                    "ok" to false,
-                    "path" to file.absolutePath,
-                    "error" to "目标已存在且是目录"
-                )
+            if (!file.exists() || !file.isFile) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "文件不存在")
             }
-            file.parentFile?.let { parent ->
-                Files.createDirectories(parent.toPath())
+            if (offset < 0) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "offset 不能小于 0")
             }
-            val existed = file.exists()
-            if (append) {
-                Files.writeString(
-                    file.toPath(),
-                    content,
-                    StandardCharsets.UTF_8,
-                    java.nio.file.StandardOpenOption.CREATE,
-                    java.nio.file.StandardOpenOption.APPEND
-                )
-            } else {
-                Files.writeString(file.toPath(), content, StandardCharsets.UTF_8)
+            if (length <= 0) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "length 必须大于 0")
             }
+            val endExclusive = offset + length
+            var totalChars = 0
+            val content = StringBuilder(length)
+            BufferedReader(Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)).use { reader ->
+                val buffer = CharArray(4096)
+                while (true) {
+                    val read = reader.read(buffer)
+                    if (read < 0) {
+                        break
+                    }
+                    val chunkStart = totalChars
+                    val chunkEnd = totalChars + read
+                    if (chunkEnd > offset && chunkStart < endExclusive) {
+                        val startInBuffer = maxOf(0, offset - chunkStart)
+                        val endInBuffer = minOf(read, endExclusive - chunkStart)
+                        if (endInBuffer > startInBuffer) {
+                            content.append(buffer, startInBuffer, endInBuffer - startInBuffer)
+                        }
+                    }
+                    totalChars = chunkEnd
+                }
+            }
+            val actualLength = content.length
+            val nextOffset = min(totalChars, offset + actualLength)
+            val remainingChars = maxOf(0, totalChars - nextOffset)
             return mapOf(
                 "ok" to true,
                 "path" to file.absolutePath,
-                "append" to append,
-                "existed" to existed,
-                "sizeBytes" to file.length()
+                "offset" to offset,
+                "length" to actualLength,
+                "requestedLength" to length,
+                "nextOffset" to nextOffset,
+                "endOffset" to nextOffset,
+                "remainingChars" to remainingChars,
+                "hasMore" to (nextOffset < totalChars),
+                "totalChars" to totalChars,
+                "sizeBytes" to file.length(),
+                "content" to content.toString()
+            )
+        }
+
+        private fun openWriteSession(project: Project, path: String, mode: String): Map<String, Any?> {
+            val normalizedMode = mode.trim().lowercase()
+            if (normalizedMode !in setOf("create", "overwrite", "append")) {
+                return mapOf("ok" to false, "error" to "mode 必须是 create、overwrite 或 append")
+            }
+            val resolvedPath = resolveProjectAwareFile(project, path)
+            if (resolvedPath.exists() && resolvedPath.isDirectory) {
+                return mapOf("ok" to false, "path" to resolvedPath.absolutePath, "error" to "目标已存在且是目录")
+            }
+            if (normalizedMode == "create" && resolvedPath.exists()) {
+                return mapOf("ok" to false, "path" to resolvedPath.absolutePath, "error" to "目标文件已存在，请使用 overwrite 或 append")
+            }
+            val approved = confirmWriteSessionOpen(project, resolvedPath, normalizedMode)
+            if (!approved) {
+                return mapOf(
+                    "ok" to false,
+                    "path" to resolvedPath.absolutePath,
+                    "mode" to normalizedMode,
+                    "error" to "用户拒绝写入"
+                )
+            }
+            val tempDir = resolvedPath.parentFile?.also { Files.createDirectories(it.toPath()) }
+                ?: File(System.getProperty("java.io.tmpdir"))
+            val tempFile = Files.createTempFile(tempDir.toPath(), "jtools-write-session-", ".tmp").toFile().apply {
+                deleteOnExit()
+            }
+            val sessionId = UUID.randomUUID().toString()
+            val state = WriteSessionState(
+                sessionId = sessionId,
+                resolvedPath = resolvedPath,
+                mode = normalizedMode,
+                tempFile = tempFile,
+                createdAt = System.currentTimeMillis(),
+                fileExistedAtOpen = resolvedPath.exists(),
+            )
+            writeSessions[sessionId] = state
+            return mapOf(
+                "ok" to true,
+                "sessionId" to sessionId,
+                "resolvedPath" to resolvedPath.absolutePath,
+                "mode" to normalizedMode,
+                "fileExists" to resolvedPath.exists()
+            )
+        }
+
+        private fun appendWriteSession(sessionId: String, content: String): Map<String, Any?> {
+            val session = writeSessions[sessionId]
+                ?: return mapOf("ok" to false, "sessionId" to sessionId, "error" to "写入会话不存在")
+            if (content.isEmpty()) {
+                return mapOf("ok" to false, "sessionId" to sessionId, "error" to "content 不能为空")
+            }
+            if (content.length > WRITE_SESSION_MAX_CHARS_PER_APPEND) {
+                return mapOf(
+                    "ok" to false,
+                    "sessionId" to sessionId,
+                    "error" to "单次最多追加 $WRITE_SESSION_MAX_CHARS_PER_APPEND 个字符",
+                    "contentLength" to content.length,
+                    "maxChars" to WRITE_SESSION_MAX_CHARS_PER_APPEND
+                )
+            }
+            Files.writeString(
+                session.tempFile.toPath(),
+                content,
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.APPEND
+            )
+            session.totalChars += content.length
+            return mapOf(
+                "ok" to true,
+                "sessionId" to sessionId,
+                "resolvedPath" to session.resolvedPath.absolutePath,
+                "writtenChars" to content.length,
+                "totalChars" to session.totalChars
+            )
+        }
+
+        private fun commitWriteSession(sessionId: String): Map<String, Any?> {
+            val session = writeSessions[sessionId]
+                ?: return mapOf("ok" to false, "sessionId" to sessionId, "error" to "写入会话不存在")
+            return try {
+                if (session.mode == "create" && session.resolvedPath.exists() && !session.fileExistedAtOpen) {
+                    return mapOf(
+                        "ok" to false,
+                        "sessionId" to sessionId,
+                        "resolvedPath" to session.resolvedPath.absolutePath,
+                        "error" to "目标文件已存在，create 模式不能覆盖，请重新打开写入会话"
+                    )
+                }
+                session.resolvedPath.parentFile?.let { Files.createDirectories(it.toPath()) }
+                when (session.mode) {
+                    "append" -> {
+                        Files.writeString(
+                            session.resolvedPath.toPath(),
+                            Files.readString(session.tempFile.toPath(), StandardCharsets.UTF_8),
+                            StandardCharsets.UTF_8,
+                            java.nio.file.StandardOpenOption.CREATE,
+                            java.nio.file.StandardOpenOption.APPEND
+                        )
+                        session.tempFile.delete()
+                    }
+                    else -> {
+                        runCatching {
+                            Files.move(
+                                session.tempFile.toPath(),
+                                session.resolvedPath.toPath(),
+                                StandardCopyOption.REPLACE_EXISTING,
+                                StandardCopyOption.ATOMIC_MOVE
+                            )
+                        }.recoverCatching {
+                            Files.move(
+                                session.tempFile.toPath(),
+                                session.resolvedPath.toPath(),
+                                StandardCopyOption.REPLACE_EXISTING
+                            )
+                        }.getOrThrow()
+                    }
+                }
+                writeSessions.remove(sessionId)
+                mapOf(
+                    "ok" to true,
+                    "sessionId" to sessionId,
+                    "resolvedPath" to session.resolvedPath.absolutePath,
+                    "mode" to session.mode,
+                    "sizeBytes" to session.resolvedPath.length(),
+                    "totalChars" to session.totalChars
+                )
+            } catch (e: Throwable) {
+                mapOf(
+                    "ok" to false,
+                    "sessionId" to sessionId,
+                    "resolvedPath" to session.resolvedPath.absolutePath,
+                    "error" to (e.message ?: "提交写入会话失败")
+                )
+            }
+        }
+
+        private fun discardWriteSession(sessionId: String): Map<String, Any?> {
+            val session = writeSessions.remove(sessionId)
+                ?: return mapOf("ok" to false, "sessionId" to sessionId, "error" to "写入会话不存在")
+            session.tempFile.delete()
+            return mapOf(
+                "ok" to true,
+                "sessionId" to sessionId,
+                "resolvedPath" to session.resolvedPath.absolutePath,
+                "discarded" to true
             )
         }
 
@@ -1702,6 +2031,68 @@ class AgentToolRegistry private constructor(
             )
         }
 
+        private fun executeCommand(project: Project, command: String, workdir: String, timeoutMs: Long): Map<String, Any?> {
+            val resolvedWorkdir = resolveProjectAwareDirectory(project, workdir)
+            val approved = confirmCommandExecution(project, command, resolvedWorkdir)
+            if (!approved) {
+                return mapOf(
+                    "ok" to false,
+                    "command" to command,
+                    "workdir" to resolvedWorkdir.absolutePath,
+                    "error" to "用户拒绝执行"
+                )
+            }
+            if (!resolvedWorkdir.exists() || !resolvedWorkdir.isDirectory) {
+                return mapOf(
+                    "ok" to false,
+                    "command" to command,
+                    "workdir" to resolvedWorkdir.absolutePath,
+                    "error" to "工作目录不存在"
+                )
+            }
+            val effectiveTimeout = if (timeoutMs <= 0) 30_000L else timeoutMs
+            return try {
+                val processBuilder = ProcessBuilder().apply {
+                    if (System.getProperty("os.name").lowercase().contains("win")) {
+                        command("cmd", "/c", command)
+                    } else {
+                        command("sh", "-c", command)
+                    }
+                    directory(resolvedWorkdir)
+                    redirectErrorStream(false)
+                }
+                val process = processBuilder.start()
+                val stdoutFuture = CompletableFuture.supplyAsync {
+                    process.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+                }
+                val stderrFuture = CompletableFuture.supplyAsync {
+                    process.errorStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+                }
+                val completed = process.waitFor(effectiveTimeout, TimeUnit.MILLISECONDS)
+                if (!completed) {
+                    process.destroyForcibly()
+                }
+                val stdout = stdoutFuture.join().trimEnd()
+                val stderr = stderrFuture.join().trimEnd()
+                mapOf(
+                    "ok" to (completed && process.exitValue() == 0),
+                    "command" to command,
+                    "workdir" to resolvedWorkdir.absolutePath,
+                    "exitCode" to if (completed) process.exitValue() else -1,
+                    "stdout" to stdout,
+                    "stderr" to stderr,
+                    "timedOut" to !completed
+                )
+            } catch (e: Throwable) {
+                mapOf(
+                    "ok" to false,
+                    "command" to command,
+                    "workdir" to resolvedWorkdir.absolutePath,
+                    "error" to (e.message ?: "命令执行失败")
+                )
+            }
+        }
+
         private fun resolveProjectAwareFile(project: Project, path: String): File {
             val candidate = File(path)
             if (candidate.isAbsolute) {
@@ -1709,6 +2100,70 @@ class AgentToolRegistry private constructor(
             }
             val basePath = project.basePath?.takeIf { it.isNotBlank() } ?: System.getProperty("user.dir")
             return File(basePath, path)
+        }
+
+        private fun resolveProjectAwareDirectory(project: Project, path: String): File {
+            if (path.isBlank()) {
+                val basePath = project.basePath?.takeIf { it.isNotBlank() } ?: System.getProperty("user.dir")
+                return File(basePath)
+            }
+            return resolveProjectAwareFile(project, path)
+        }
+
+        private fun confirmWriteSessionOpen(project: Project, path: File, mode: String): Boolean {
+            val accepted = booleanArrayOf(false)
+            ApplicationManager.getApplication().invokeAndWait {
+                val message = buildString {
+                    appendLine("即将打开文件写入会话：")
+                    append(path.absolutePath)
+                    appendLine()
+                    appendLine()
+                    append("模式：")
+                    append(mode)
+                }
+                accepted[0] = Messages.showYesNoDialog(
+                    project,
+                    message,
+                    "确认写入文件",
+                    Messages.getQuestionIcon()
+                ) == Messages.YES
+            }
+            return accepted[0]
+        }
+
+        private fun confirmCommandExecution(project: Project, command: String, workdir: File): Boolean {
+            val accepted = booleanArrayOf(false)
+            ApplicationManager.getApplication().invokeAndWait {
+                val message = buildString {
+                    appendLine("即将执行以下命令：")
+                    appendLine(command)
+                    appendLine()
+                    append("工作目录：")
+                    append(workdir.absolutePath)
+                }
+                accepted[0] = Messages.showYesNoDialog(
+                    project,
+                    message,
+                    "确认执行命令",
+                    Messages.getQuestionIcon()
+                ) == Messages.YES
+            }
+            return accepted[0]
+        }
+
+        private fun countFileChars(file: File): Int {
+            var total = 0
+            BufferedReader(Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)).use { reader ->
+                val buffer = CharArray(4096)
+                while (true) {
+                    val read = reader.read(buffer)
+                    if (read < 0) {
+                        break
+                    }
+                    total += read
+                }
+            }
+            return total
         }
 
         private fun collectPluginDetails(project: Project): List<Map<String, Any?>> {
@@ -1893,12 +2348,7 @@ class AgentToolRegistry private constructor(
             if (arguments.isBlank()) {
                 return JsonObject()
             }
-            return try {
-                val element = JsonParser.parseString(arguments)
-                if (element.isJsonObject) element.asJsonObject else null
-            } catch (_: Throwable) {
-                null
-            }
+            return JsonParser.parseString(arguments) as JsonObject?
         }
 
         private fun success(project: Project, data: Any): String {

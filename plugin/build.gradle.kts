@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.3.1"
+version = "1.1.3.2"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
