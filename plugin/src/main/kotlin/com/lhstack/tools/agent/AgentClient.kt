@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent
 
+import com.github.weisj.jsvg.bl
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -119,12 +120,9 @@ class AgentClient {
         resolvedSkills: AgentResolvedSkills = AgentResolvedSkills(emptyList(), null),
         onAssistantDelta: ((AgentTextStreamEvent) -> Unit)? = null,
         onReasoningDelta: ((AgentTextStreamEvent) -> Unit)? = null,
-        onHintDelta: ((AgentTextStreamEvent) -> Unit)? = null,
-        onSummaryDelta: ((AgentTextStreamEvent) -> Unit)? = null,
         onToolCall: ((ToolCallStreamEvent) -> Unit)? = null,
         onToolResult: ((ToolResultStreamEvent) -> Unit)? = null,
         maxToolIterations: Int = 5,
-        toolTimeoutMs: Long = 120_000L,
         cancelToken: CancelToken? = null,
     ): AgentCompletionResult {
         val assistantToolMessagesById = linkedMapOf<String, JsonObject>()
@@ -133,8 +131,6 @@ class AgentClient {
         val toolCallStatesById = mutableMapOf<String, ToolCallStreamState>()
         val reasoningTextsById = mutableMapOf<String, String>()
         val assistantTextsById = mutableMapOf<String, String>()
-        val hintTextsById = mutableMapOf<String, String>()
-        val summaryTextsById = mutableMapOf<String, String>()
         val toolResultTextsById = mutableMapOf<String, String>()
         val handle = getOrCreateRuntime(
             sessionState = sessionState,
@@ -160,11 +156,9 @@ class AgentClient {
                 .eventTypes(
                     EventType.REASONING,
                     EventType.TOOL_RESULT,
-                    EventType.HINT,
                     EventType.AGENT_RESULT,
-                    EventType.SUMMARY,
                 )
-                .incremental(true)
+                .incremental(false)
                 .includeReasoningChunk(true)
                 .includeReasoningResult(false)
                 .includeActingChunk(true)
@@ -174,12 +168,9 @@ class AgentClient {
             handle.agent.stream(listOf(currentMsg), options)
                 .doOnNext { event ->
                     val message = event.message
-                    when (event.type) {
-                        EventType.REASONING -> {
-                            if (message == null) {
-                                return@doOnNext
-                            }
-                            AgentReasoningSupport.extractThinking(message)?.let { text ->
+                    for (block in message.content) {
+                        if(block is ThinkingBlock){
+                            AgentReasoningSupport.extractThinking(block)?.let { text ->
                                 emitTextDelta(
                                     eventKey = "reasoning",
                                     currentText = text,
@@ -187,156 +178,123 @@ class AgentClient {
                                     consumer = onReasoningDelta,
                                 )
                             }
-                            message.getContentBlocks(ToolUseBlock::class.java).forEach { block ->
-                                val state = toolCallStatesById.getOrPut(block.id) { ToolCallStreamState() }
-                                val rawName = block.name.trim()
-                                if (rawName.isNotBlank() && rawName != TOOL_CALL_FRAGMENT_NAME) {
-                                    state.name = rawName
-                                }
-                                val resolvedName = state.name.ifBlank {
-                                    rawName.takeIf { it.isNotBlank() && it != TOOL_CALL_FRAGMENT_NAME }.orEmpty()
-                                }
-                                val content = block.content?.trim().orEmpty()
-                                val arguments = toolUseArguments(block)
-                                when {
-                                    rawName == TOOL_CALL_FRAGMENT_NAME -> {
-                                        if (content.isBlank()) {
-                                            return@forEach
-                                        }
-                                        state.hasFragments = true
-                                        val previous = state.arguments
-                                        state.arguments += content
-                                        toolCallsById[block.id] = resolvedName.ifBlank { rawName } to state.arguments
-                                        assistantToolMessagesById[block.id] =
-                                            AgentToolCallHistorySupport.assistantToolCallMessage(
-                                                toolCallId = block.id,
-                                                name = resolvedName.ifBlank { rawName },
-                                                arguments = state.arguments,
-                                            )
-                                        val delta = AgentStreamTextSupport.delta(
-                                            previous = previous,
-                                            current = state.arguments,
+                        }
+                        if(block is ToolUseBlock){
+                            val state = toolCallStatesById.getOrPut(block.id) { ToolCallStreamState() }
+                            val rawName = block.name.trim()
+                            if (rawName.isNotBlank() && rawName != TOOL_CALL_FRAGMENT_NAME) {
+                                state.name = rawName
+                            }
+                            val resolvedName = state.name.ifBlank {
+                                rawName.takeIf { it.isNotBlank() && it != TOOL_CALL_FRAGMENT_NAME }.orEmpty()
+                            }
+                            val arguments = toolUseArguments(block)
+                            when {
+                                rawName == TOOL_CALL_FRAGMENT_NAME -> {
+                                    state.hasFragments = true
+                                    val previous = state.arguments
+                                    state.arguments = arguments
+                                    toolCallsById[block.id] = resolvedName.ifBlank { rawName } to state.arguments
+                                    assistantToolMessagesById[block.id] =
+                                        AgentToolCallHistorySupport.assistantToolCallMessage(
+                                            toolCallId = block.id,
+                                            name = resolvedName.ifBlank { rawName },
+                                            arguments = state.arguments,
                                         )
-                                        if (delta.isNotBlank()) {
-                                            onToolCall?.invoke(
-                                                ToolCallStreamEvent(
-                                                    id = block.id,
-                                                    index = toolCallsById.keys.indexOf(block.id),
-                                                    name = resolvedName.ifBlank { rawName },
-                                                    arguments = delta,
-                                                    done = true,
-                                                )
-                                            )
-                                        }
-                                    }
-                                    arguments.isBlank() -> {
-                                        if (resolvedName.isNotBlank() && block.id !in toolCallsById) {
-                                            toolCallsById[block.id] = resolvedName to ""
-                                        }
-                                    }
-                                    state.hasFragments -> {
-                                        state.arguments = arguments
-                                        toolCallsById[block.id] = resolvedName.ifBlank { rawName } to arguments
-                                        assistantToolMessagesById[block.id] =
-                                            AgentToolCallHistorySupport.assistantToolCallMessage(
-                                                toolCallId = block.id,
+                                    val delta = AgentStreamTextSupport.delta(
+                                        previous = previous,
+                                        current = state.arguments,
+                                    )
+                                    if (delta.isNotBlank()) {
+                                        onToolCall?.invoke(
+                                            ToolCallStreamEvent(
+                                                id = block.id,
+                                                index = toolCallsById.keys.indexOf(block.id),
                                                 name = resolvedName.ifBlank { rawName },
-                                                arguments = arguments,
+                                                arguments = delta,
+                                                done = true,
                                             )
-                                    }
-                                    else -> {
-                                        val previous = state.arguments
-                                        state.arguments = arguments
-                                        toolCallsById[block.id] = resolvedName.ifBlank { rawName } to arguments
-                                        assistantToolMessagesById[block.id] =
-                                            AgentToolCallHistorySupport.assistantToolCallMessage(
-                                                toolCallId = block.id,
-                                                name = resolvedName.ifBlank { rawName },
-                                                arguments = arguments,
-                                            )
-                                        val delta = AgentStreamTextSupport.delta(
-                                            previous = previous,
-                                            current = arguments,
                                         )
-                                        if (delta.isNotBlank()) {
-                                            onToolCall?.invoke(
-                                                ToolCallStreamEvent(
-                                                    id = block.id,
-                                                    index = toolCallsById.keys.indexOf(block.id),
-                                                    name = resolvedName.ifBlank { rawName },
-                                                    arguments = delta,
-                                                    done = true,
-                                                )
+                                    }
+                                }
+                                arguments.isBlank() -> {
+                                    if (resolvedName.isNotBlank() && block.id !in toolCallsById) {
+                                        toolCallsById[block.id] = resolvedName to ""
+                                    }
+                                }
+                                state.hasFragments -> {
+                                    state.arguments = arguments
+                                    toolCallsById[block.id] = resolvedName.ifBlank { rawName } to arguments
+                                    assistantToolMessagesById[block.id] =
+                                        AgentToolCallHistorySupport.assistantToolCallMessage(
+                                            toolCallId = block.id,
+                                            name = resolvedName.ifBlank { rawName },
+                                            arguments = arguments,
+                                        )
+                                }
+                                else -> {
+                                    val previous = state.arguments
+                                    state.arguments = arguments
+                                    toolCallsById[block.id] = resolvedName.ifBlank { rawName } to arguments
+                                    assistantToolMessagesById[block.id] =
+                                        AgentToolCallHistorySupport.assistantToolCallMessage(
+                                            toolCallId = block.id,
+                                            name = resolvedName.ifBlank { rawName },
+                                            arguments = arguments,
+                                        )
+                                    val delta = AgentStreamTextSupport.delta(
+                                        previous = previous,
+                                        current = arguments,
+                                    )
+                                    if (delta.isNotBlank()) {
+                                        onToolCall?.invoke(
+                                            ToolCallStreamEvent(
+                                                id = block.id,
+                                                index = toolCallsById.keys.indexOf(block.id),
+                                                name = resolvedName.ifBlank { rawName },
+                                                arguments = delta,
+                                                done = true,
                                             )
-                                        }
+                                        )
                                     }
                                 }
                             }
                         }
-                        EventType.HINT -> {
-//                            if (message == null) {
-//                                return@doOnNext
-//                            }
-//                            emitTextDelta(
-//                                eventKey = "hint",
-//                                currentText = message.getTextContent().orEmpty(),
-//                                snapshots = hintTextsById,
-//                                consumer = onHintDelta,
-//                            )
-                        }
-                        EventType.SUMMARY -> {
-//                            if (message == null) {
-//                                return@doOnNext
-//                            }
-//                            emitTextDelta(
-//                                eventKey = "summary",
-//                                currentText = message.getTextContent().orEmpty(),
-//                                snapshots = summaryTextsById,
-//                                consumer = onSummaryDelta,
-//                            )
-                        }
-                        EventType.AGENT_RESULT -> {
-                            if (message == null) {
-                                return@doOnNext
-                            }
+
+                        if(block is TextBlock) {
                             finalAssistant = message
                             emitTextDelta(
                                 eventKey = "assistant",
-                                currentText = message.getTextContent().orEmpty(),
+                                currentText = block.text,
                                 snapshots = assistantTextsById,
                                 consumer = onAssistantDelta,
                             )
                         }
-                        EventType.TOOL_RESULT -> {
-                            if (message == null) {
-                                return@doOnNext
-                            }
-                            message.getContentBlocks(ToolResultBlock::class.java).forEach { block ->
-                                val call = toolCallsById[block.id]
-                                val resultText = toolResultText(block)
-                                toolLogsById[block.id] = ToolCallLog(
-                                    name = call?.first ?: block.name,
-                                    arguments = call?.second ?: "",
-                                    result = resultText,
-                                )
-                                val delta = AgentStreamTextSupport.delta(
-                                    previous = toolResultTextsById[block.id].orEmpty(),
-                                    current = resultText,
-                                )
-                                toolResultTextsById[block.id] = resultText
-                                if (delta.isNotBlank()) {
-                                    onToolResult?.invoke(
-                                        ToolResultStreamEvent(
-                                            id = block.id,
-                                            name = call?.first ?: block.name,
-                                            arguments = call?.second ?: "",
-                                            result = delta,
-                                        )
+
+                        if(block is ToolResultBlock){
+                            val call = toolCallsById[block.id]
+                            val resultText = toolResultText(block)
+                            toolLogsById[block.id] = ToolCallLog(
+                                name = call?.first ?: block.name,
+                                arguments = call?.second ?: "",
+                                result = resultText,
+                            )
+                            val delta = AgentStreamTextSupport.delta(
+                                previous = toolResultTextsById[block.id].orEmpty(),
+                                current = resultText,
+                            )
+                            toolResultTextsById[block.id] = resultText
+                            if (delta.isNotBlank()) {
+                                onToolResult?.invoke(
+                                    ToolResultStreamEvent(
+                                        id = block.id,
+                                        name = call?.first ?: block.name,
+                                        arguments = call?.second ?: "",
+                                        result = delta,
                                     )
-                                }
+                                )
                             }
                         }
-                        else -> Unit
                     }
                 }
                 .blockLast()
@@ -611,15 +569,7 @@ class AgentClient {
     }
 
     private fun toolUseArguments(block: ToolUseBlock): String {
-        val inputJson = gsonToJson(block.input)
-        if (inputJson != "{}") {
-            return inputJson
-        }
-        val content = block.content?.trim().orEmpty()
-        if (content.isNotBlank()) {
-            return content
-        }
-        return ""
+        return Gson().toJson(block.input)
     }
 
     companion object {

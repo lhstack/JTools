@@ -36,4 +36,16 @@ class AgentRenderState {
     var collapsible: Boolean = false
     var collapsedByDefault: Boolean = false
     var attachments: MutableList<AgentAttachmentState> = mutableListOf()
+    var toolEntries: MutableList<AgentToolRenderEntryState> = mutableListOf()
+}
+
+@Tag("tool-render-entry")
+class AgentToolRenderEntryState {
+    var id: String = ""
+    var index: Int = 0
+    var name: String = ""
+    var startedAt: Long = 0L
+    var status: String = ""
+    var arguments: String = ""
+    var result: String = ""
 }

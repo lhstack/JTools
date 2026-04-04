@@ -141,8 +141,20 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.2</h2>
+            <h2>📦 Version v1.1.3.3</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧰 <b>Tool Call Cards:</b> Reworked tool logs into per-call cards with timestamps, status, and completion summary for clearer execution tracking</li>
+                <li>🔍 <b>Tool Detail Viewer:</b> Added popup JSON viewers for tool arguments and results so large payloads can be inspected without cluttering the chat stream</li>
+                <li>🧠 <b>Event Parsing Stability:</b> Refined reasoning/tool/result block parsing and argument serialization to improve tool call matching and fallback rendering</li>
+                <li>📦 <b>Render State Compatibility:</b> Persisted tool render entry state and aligned SDK version metadata for the 1.1.3.3 release</li>
+                <li>🧰 <b>工具调用卡片：</b>将工具日志重构为按调用分组的卡片列表，显示时间、状态与完成计数，执行过程更清晰</li>
+                <li>🔍 <b>工具详情查看：</b>新增参数/返回值弹窗 JSON 查看器，长内容无需挤占对话流即可直接检查</li>
+                <li>🧠 <b>事件解析稳定性：</b>改进推理、工具调用与工具结果 block 的解析和参数序列化，减少调用匹配错乱与渲染兜底不准的问题</li>
+                <li>📦 <b>渲染状态兼容性：</b>新增工具渲染条目状态持久化，并同步对齐 1.1.3.3 的 SDK 版本元数据</li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.2</h2>
             <ul>
                 <li>📝 <b>Skills Config UX:</b> Refined the skill resource path editor layout so labels and single-line inputs stay compact and aligned</li>
                 <li>✅ <b>Tool Calling Defaults:</b> Enabled tool calling by default in OpenAI and Anthropic model parameter dialogs unless explicitly disabled</li>

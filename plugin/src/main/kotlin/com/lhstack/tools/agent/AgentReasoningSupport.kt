@@ -1,25 +1,11 @@
 package com.lhstack.tools.agent
 
-import io.agentscope.core.message.Msg
-import io.agentscope.core.message.TextBlock
 import io.agentscope.core.message.ThinkingBlock
 
 object AgentReasoningSupport {
-    fun extractThinking(message: Msg?): String? {
-        if (message == null) {
-            return null
-        }
-        return message.getContentBlocks(ThinkingBlock::class.java)
-            .mapNotNull { block ->
-                block.thinking.takeIf { it.isNotBlank() }
-                    ?: stringifyReasoningDetails(block.metadata?.get(ThinkingBlock.METADATA_REASONING_DETAILS))
-            }
-            .joinToString("\n")
-            .trim()
-            .ifBlank { null } ?: message.getContentBlocks(TextBlock::class.java).mapNotNull { block ->
-            block.text
-        }.joinToString("\n")
-            .trim()
+    fun extractThinking(block: ThinkingBlock): String? {
+        return block.thinking.takeIf { it.isNotBlank() }
+            ?: stringifyReasoningDetails(block.metadata?.get(ThinkingBlock.METADATA_REASONING_DETAILS))
     }
 
     private fun stringifyReasoningDetails(value: Any?): String? {

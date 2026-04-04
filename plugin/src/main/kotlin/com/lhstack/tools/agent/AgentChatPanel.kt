@@ -1,11 +1,15 @@
 package com.lhstack.tools.agent
 
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.icons.AllIcons
+import com.intellij.lang.Language
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -15,6 +19,8 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.ui.popup.Balloon
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
@@ -23,12 +29,15 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
+import com.intellij.ui.LanguageTextField
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
+import kotlinx.datetime.format.DateTimeFormat
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -36,6 +45,10 @@ import java.awt.datatransfer.Transferable
 import java.awt.event.*
 import java.awt.image.BufferedImage
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -47,6 +60,11 @@ import javax.swing.event.PopupMenuListener
 import javax.swing.text.DefaultEditorKit
 
 class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
+    private companion object {
+        private const val TOOL_BLOCK_VISIBLE_LINES = 10
+    }
+
+    private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val messageContainer = JPanel(VerticalLayout(8))
     private val chatScroll = JBScrollPane(messageContainer)
     private val inputArea = JBTextArea(3, 0)
@@ -65,7 +83,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
     private val sessionManageAction = createAction("会话管理", Icons.libraryIcon()) { openSessionManager() }
     private val modelManageAction = createAction("模型管理", Icons.toolIcon()) { openModelManager() }
-    private val modelSettingsAction = createAction("模型扩展设置", Icons.modelTuningIcon()) { openModelSettingsDialog() }
+    private val modelSettingsAction =
+        createAction("模型扩展设置", Icons.modelTuningIcon()) { openModelSettingsDialog() }
     private val providerManageAction = createAction("供应方管理", Icons.providerConfigIcon()) { openProviderManager() }
     private val skillSelectAction = createAction("会话 Skills", Icons.sessionSkillsIcon()) { openSkillSelector() }
     private val skillManageAction = createAction("Skills 管理", Icons.skillsManageIcon()) { openSkillManager() }
@@ -104,7 +123,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val client = AgentClient()
     private val sending = AtomicBoolean(false)
     private val requestCounter = AtomicInteger(0)
-    @Volatile private var activeRequestId = 0
+    @Volatile
+    private var activeRequestId = 0
     private var cancelToken: AgentClient.CancelToken? = null
     private var currentSession: ChatSession? = null
     private var updatingSessionSelection = false
@@ -114,12 +134,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private var assistantBlock: MessageBlock? = null
     private val streamingTextBlocks = mutableMapOf<String, MessageBlock>()
-    private var toolBlock: MessageBlock? = null
-    private val startedToolCallIds = mutableSetOf<String>()
-    private val startedToolResultIds = mutableSetOf<String>()
+    private var toolBlock: ToolListBlock? = null
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
     private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
+    private var activeToolPopupArgumentField: LanguageTextField? = createJsonViewer()
+    private var activeToolPopupResultField: LanguageTextField? = createJsonViewer()
 
     private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
 
@@ -168,12 +188,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         })
         bindPasteAttachment(inputArea) {
-            defaultPasteAction?.actionPerformed(ActionEvent(inputArea, ActionEvent.ACTION_PERFORMED, DefaultEditorKit.pasteAction))
+            defaultPasteAction?.actionPerformed(
+                ActionEvent(
+                    inputArea,
+                    ActionEvent.ACTION_PERFORMED,
+                    DefaultEditorKit.pasteAction
+                )
+            )
         }
         inputArea.transferHandler = object : TransferHandler() {
             override fun canImport(support: TransferSupport): Boolean {
                 if (AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
-                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(DataFlavor.imageFlavor))
+                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(
+                        DataFlavor.imageFlavor
+                    ))
                 ) {
                     return true
                 }
@@ -185,7 +213,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     return false
                 }
                 if (AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
-                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(DataFlavor.imageFlavor))
+                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(
+                        DataFlavor.imageFlavor
+                    ))
                 ) {
                     return addAttachmentsFromTransferable(support.transferable)
                 }
@@ -475,7 +505,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         actionToolbars.forEach { it.updateActionsAsync() }
     }
 
-    private fun createToolbar(id: String, group: DefaultActionGroup, horizontal: Boolean, target: JComponent): JComponent {
+    private fun createToolbar(
+        id: String,
+        group: DefaultActionGroup,
+        horizontal: Boolean,
+        target: JComponent
+    ): JComponent {
         val toolbar = ActionManager.getInstance().createActionToolbar(id, group, horizontal)
         toolbar.targetComponent = target
         toolbar.setMinimumButtonSize(AgentToolbarIconSupport.minimumButtonSize)
@@ -633,10 +668,42 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun appendRenderedItem(item: RenderItem) {
+        if (item.role == "工具") {
+            appendRenderedToolItem(item)
+            return
+        }
         val color = if (item.role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
         val block = createMessageBlock(item.role, color, item.collapsible, item.collapsedByDefault, item)
         block.textArea.text = item.content
         addMessageBlock(block)
+    }
+
+    private fun appendRenderedToolItem(item: RenderItem) {
+        val block = createToolListBlock(item)
+        val toolEntries = item.state?.toolEntries
+            ?.takeIf { it.isNotEmpty() }
+            ?: item.content.takeIf { it.isNotBlank() }?.let { legacyContent ->
+                mutableListOf(
+                    AgentToolRenderEntryState().apply {
+                        id = "legacy-tool-log"
+                        index = 0
+                        name = "工具日志"
+                        startedAt = 0L
+                        status = "已完成"
+                        result = legacyContent
+                    }
+                )
+            }
+            ?: emptyList()
+        toolEntries.sortedBy { it.index }.forEach { entryState ->
+            val entryCard = createToolEntryCard(entryState)
+            block.entriesById[entryState.id] = entryCard
+            block.listPanel.add(entryCard.panel)
+        }
+        updateToolBlockSummary(block)
+        block.listPanel.revalidate()
+        block.listPanel.repaint()
+        addBlockComponent(block.panel)
     }
 
     private fun addRenderItem(item: RenderItem, before: RenderItem? = null) {
@@ -808,7 +875,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val schemaNameField = JBTextField(settings?.openAiResponseFormatSchemaName.orEmpty())
         val schemaDescField = JBTextField(settings?.openAiResponseFormatSchemaDescription.orEmpty())
-        val schemaStrictCheck = JCheckBox("Strict").apply { isSelected = settings?.openAiResponseFormatSchemaStrict == true }
+        val schemaStrictCheck =
+            JCheckBox("Strict").apply { isSelected = settings?.openAiResponseFormatSchemaStrict == true }
         val schemaArea = JBTextArea(6, 28).apply {
             text = settings?.openAiResponseFormatSchemaJson.orEmpty()
             lineWrap = true
@@ -842,6 +910,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             schemaStrictCheck.isEnabled = enabled
             schemaArea.isEnabled = enabled
         }
+
         fun updateLogprobsState() {
             val enabled = (logprobsCombo.selectedItem as? ModelSettingOption)?.value == "true"
             topLogprobsField.isEnabled = enabled
@@ -859,7 +928,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     AgentFormUi.fieldTile("模型", JLabel(model), "当前正在配置的模型名称。"),
                     AgentFormUi.fieldTile("流式输出", streamingCheck, "决定该模型是否支持流式返回内容。"),
                 ),
-                AgentFormUi.fieldTile("多模态能力", capabilitySelection.panel, "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"),
+                AgentFormUi.fieldTile(
+                    "多模态能力",
+                    capabilitySelection.panel,
+                    "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"
+                ),
                 AgentFormUi.fieldTile("工具调用", toolCallingCheck, "勾选后表示该模型支持工具调用。"),
             )
         )
@@ -872,7 +945,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     AgentFormUi.fieldTile("温度", temperatureField, "控制输出随机性，值越高越发散。"),
                     AgentFormUi.fieldTile("Top P", topPField, "控制核采样范围。"),
                     AgentFormUi.fieldTile("最大输出 Tokens", maxTokensField, "限制模型本次回答的最大输出长度。"),
-                    AgentFormUi.fieldTile("最大完成 Tokens", maxCompletionTokensField, "限制 completion 阶段的 token 上限。"),
+                    AgentFormUi.fieldTile(
+                        "最大完成 Tokens",
+                        maxCompletionTokensField,
+                        "限制 completion 阶段的 token 上限。"
+                    ),
                     AgentFormUi.fieldTile("随机种子", seedField, "在支持的模型上固定随机种子，便于复现。"),
                     AgentFormUi.fieldTile("存在惩罚", presencePenaltyField, "降低重复主题出现的概率。"),
                     AgentFormUi.fieldTile("频率惩罚", frequencyPenaltyField, "降低重复措辞出现的概率。"),
@@ -938,7 +1015,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 if (!requireNumber(seedField, "Seed", integerOnly = true)) return
                 val responseMode = (responseFormatCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
                 val logprobsValue = (logprobsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                if (logprobsValue == "true" && !requireNumber(topLogprobsField, "Top Logprobs", integerOnly = true)) return
+                if (logprobsValue == "true" && !requireNumber(
+                        topLogprobsField,
+                        "Top Logprobs",
+                        integerOnly = true
+                    )
+                ) return
                 if (responseMode == "json_schema") {
                     if (schemaArea.text.trim().isEmpty()) {
                         Messages.showErrorDialog(project, "Schema JSON 不能为空", "参数无效")
@@ -976,7 +1058,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 target.openAiLogprobs = logprobsValue
                 target.openAiTopLogprobs = topLogprobsField.text.trim()
                 target.openAiToolChoice = (toolChoiceCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                target.openAiParallelToolCalls = (parallelToolCallsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
+                target.openAiParallelToolCalls =
+                    (parallelToolCallsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
                 super.doOKAction()
             }
         }
@@ -1069,7 +1152,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     AgentFormUi.fieldTile("模型", JLabel(model), "当前正在配置的模型名称。"),
                     AgentFormUi.fieldTile("流式输出", streamingCheck, "决定该模型是否支持流式返回内容。"),
                 ),
-                AgentFormUi.fieldTile("多模态能力", capabilitySelection.panel, "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"),
+                AgentFormUi.fieldTile(
+                    "多模态能力",
+                    capabilitySelection.panel,
+                    "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"
+                ),
                 AgentFormUi.fieldTile("工具调用", toolCallingCheck, "勾选后表示该模型支持工具调用。"),
             )
         )
@@ -1098,7 +1185,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     AgentFormUi.fieldTile("推理地域", inferenceGeoField, "指定推理地域或可用区域。"),
                     AgentFormUi.fieldTile("用户标识", metadataUserIdField, "请求中附带的用户标识。"),
                 ),
-                AgentFormUi.fieldTile("输出 Schema JSON", JBScrollPane(outputSchemaArea), "结构化输出使用的 JSON Schema 对象。"),
+                AgentFormUi.fieldTile(
+                    "输出 Schema JSON",
+                    JBScrollPane(outputSchemaArea),
+                    "结构化输出使用的 JSON Schema 对象。"
+                ),
             )
         )
         val panel = AgentFormUi.verticalStack(capabilityCard, samplingCard, metadataCard)
@@ -1230,7 +1321,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         conversationModeSelector.removeAllItems()
         val provider = resolveSelectedProvider()
         val model = currentSession?.model?.trim().orEmpty().ifBlank { resolveDefaultModel(provider) }
-        val settings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(provider, model) else null
+        val settings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(
+            provider,
+            model
+        ) else null
         val availableModes = AgentConversationModeSupport.availableModes(settings?.responsesModeEnabled == true)
         availableModes.forEach { conversationModeSelector.addItem(it) }
         val requested = AgentConversationMode.fromId(selected)
@@ -1465,10 +1559,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openSessionManager() {
-        object:DialogWrapper(project,false) {
+        object : DialogWrapper(project, false) {
             init {
                 this.title = "会话管理"
-                this.setSize(760,520)
+                this.setSize(760, 520)
                 this.init()
             }
 
@@ -1564,10 +1658,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             return
         }
         val providerId = provider.id
-        object:DialogWrapper(project,false){
+        object : DialogWrapper(project, false) {
             init {
                 this.title = "模型管理"
-                this.setSize(760,360)
+                this.setSize(760, 360)
                 this.init()
             }
 
@@ -1593,6 +1687,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 val emptyHint = JLabel("当前模型列表为空，请从右侧选择并添加").apply {
                     foreground = JBColor.GRAY
                 }
+
                 fun toolbarAction(text: String, icon: javax.swing.Icon, action: () -> Unit): AnAction {
                     return object : AnAction({ text }, icon) {
                         override fun actionPerformed(e: AnActionEvent) {
@@ -1626,6 +1721,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     toolbar.targetComponent = target
                     return toolbar.component
                 }
+
                 fun refreshCurrentList() {
                     currentListModel.clear()
                     ensureModelList(provider).forEach { currentListModel.addElement(it) }
@@ -1656,7 +1752,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 })
 
                 val addAction = toolbarAction("新增", AllIcons.General.Add) {
-                    val input = Messages.showInputDialog(project, "请输入模型名称", "新增模型", null) ?: return@toolbarAction
+                    val input =
+                        Messages.showInputDialog(project, "请输入模型名称", "新增模型", null) ?: return@toolbarAction
                     val name = input.trim()
                     if (name.isEmpty()) {
                         return@toolbarAction
@@ -1706,7 +1803,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
                 val deleteAction = toolbarAction("删除", Icons.mcpDeleteIcon()) {
                     val current = currentList.selectedValue ?: return@toolbarAction
-                    val confirmed = Messages.showYesNoDialog(project, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
+                    val confirmed =
+                        Messages.showYesNoDialog(project, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
                     if (confirmed != Messages.YES) {
                         return@toolbarAction
                     }
@@ -1949,7 +2047,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openMcpManager() {
-        val dialog = object: DialogWrapper(project,false){
+        val dialog = object : DialogWrapper(project, false) {
             val panel = McpConfigPanel(project) { text ->
                 if (text.isNotBlank()) {
                     SwingUtilities.invokeLater {
@@ -1958,15 +2056,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     }
                 }
             }
+
             init {
                 this.title = "MCP 配置"
                 this.setSize(JBUI.scale(980), JBUI.scale(660))
                 this.setResizable(true)
-                Disposer.register(this.disposable){
+                Disposer.register(this.disposable) {
                     panel.dispose()
                 }
                 this.init()
             }
+
             override fun createCenterPanel(): JComponent = panel.component
             override fun createActions(): Array<out Action?> {
                 return arrayOf()
@@ -2317,32 +2417,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                         )
                     }
                 },
-                onHintDelta = { event ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (!isActiveRequest(requestId, token)) {
-                            return@invokeLater
-                        }
-                        renderStreamingTextEvent(
-                            event = event,
-                            role = "提示",
-                            collapsible = true,
-                            collapsedByDefault = false,
-                        )
-                    }
-                },
-                onSummaryDelta = { event ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (!isActiveRequest(requestId, token)) {
-                            return@invokeLater
-                        }
-                        renderStreamingTextEvent(
-                            event = event,
-                            role = "总结",
-                            collapsible = true,
-                            collapsedByDefault = false,
-                        )
-                    }
-                },
                 onToolCall = { event ->
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
@@ -2360,7 +2434,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     }
                 },
                 maxToolIterations = maxToolIterations,
-                toolTimeoutMs = toolTimeoutMs.toLong(),
                 cancelToken = token
             )
             ApplicationManager.getApplication().invokeLater {
@@ -2419,49 +2492,29 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun renderToolCallEvent(event: ToolCallStreamEvent) {
-        if (event.arguments.isBlank()) {
-            return
-        }
         val block = ensureToolBlock()
-        if (startedToolCallIds.add(event.id)) {
-            appendToBlock(
-                block,
-                buildString {
-                    if (block.renderItem?.content?.isNotBlank() == true) {
-                        append("\n\n")
-                    }
-                    append("[")
-                    append(event.name)
-                    append("]\narguments:\n")
-                }
-            )
-        }
-        appendToBlock(block, truncate(event.arguments))
+        val entry = ensureToolEntryCard(block, event.id, event.index, event.name, "")
+        entry.state.name = event.name.ifBlank { entry.state.name }
+        entry.state.arguments = event.arguments
+        entry.state.status = if (entry.state.result.isNotBlank()) "已完成" else "调用中"
+        updateToolBlockSummary(block)
+        updateToolEntryCard(entry)
     }
 
     private fun renderToolResultEvent(event: ToolResultStreamEvent) {
-        if (!startedToolCallIds.contains(event.id)) {
-            renderToolCallEvent(
-                ToolCallStreamEvent(
-                    id = event.id,
-                    index = -1,
-                    name = event.name,
-                    arguments = event.arguments,
-                    done = true,
-                )
-            )
-        }
         val block = ensureToolBlock()
-        if (startedToolResultIds.add(event.id)) {
-            appendToBlock(block, "\nresult:\n")
+        val entry = ensureToolEntryCard(block, event.id, -1, event.name, event.arguments)
+        if (entry.state.arguments.isBlank() && event.arguments.isNotBlank()) {
+            entry.state.arguments = event.arguments
         }
-        appendToBlock(block, event.result)
+        entry.state.result += event.result
+        entry.state.status = "已完成"
+        updateToolBlockSummary(block)
+        updateToolEntryCard(entry)
     }
 
-    private fun ensureToolBlock(): MessageBlock {
-        return toolBlock ?: createTrackedMessageBlock(
-            role = "工具",
-            collapsible = true,
+    private fun ensureToolBlock(): ToolListBlock {
+        return toolBlock ?: createTrackedToolBlock(
             collapsedByDefault = true,
             insertBeforeAssistant = true,
         ).also { toolBlock = it }
@@ -2497,9 +2550,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun appendToBlock(block: MessageBlock?, text: String) {
         block ?: return
         block.textArea.append(text)
+        block.textArea.revalidate()
         block.renderItem?.let {
             it.content += text
             it.state?.content = it.content
+        }
+        if (block.contentPanel.isVisible && block.scrollPane != null) {
+            scrollBlockContentToBottom(block.scrollPane)
         }
         scrollToBottom()
     }
@@ -2508,20 +2565,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         assistantBlock = null
         toolBlock = null
         streamingTextBlocks.clear()
-        startedToolCallIds.clear()
-        startedToolResultIds.clear()
     }
 
     private fun addMessageBlock(block: MessageBlock, before: MessageBlock? = null) {
+        addBlockComponent(block.panel, before?.panel)
+    }
+
+    private fun addBlockComponent(component: JComponent, before: JComponent? = null) {
         if (before != null) {
-            val index = messageContainer.getComponentZOrder(before.panel)
+            val index = messageContainer.getComponentZOrder(before)
             if (index >= 0) {
-                messageContainer.add(block.panel, index)
+                messageContainer.add(component, index)
             } else {
-                messageContainer.add(block.panel)
+                messageContainer.add(component)
             }
         } else {
-            messageContainer.add(block.panel)
+            messageContainer.add(component)
         }
         messageContainer.revalidate()
         messageContainer.repaint()
@@ -2532,6 +2591,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         SwingUtilities.invokeLater {
             val bar = chatScroll.verticalScrollBar
             bar.value = bar.maximum
+        }
+    }
+
+    private fun scrollBlockContentToTop(scrollPane: JScrollPane) {
+        SwingUtilities.invokeLater {
+            scrollPane.verticalScrollBar.value = 0
+        }
+    }
+
+    private fun scrollBlockContentToBottom(scrollPane: JScrollPane) {
+        SwingUtilities.invokeLater {
+            val bar = scrollPane.verticalScrollBar
+            bar.value = (bar.maximum - bar.visibleAmount).coerceAtLeast(0)
         }
     }
 
@@ -2591,7 +2663,243 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         panel.add(header, BorderLayout.NORTH)
         panel.add(contentPanel, BorderLayout.CENTER)
 
-        return MessageBlock(panel, contentArea, renderItem)
+        return MessageBlock(panel, contentArea, contentPanel, null, renderItem)
+    }
+
+    private fun createTrackedToolBlock(
+        collapsedByDefault: Boolean,
+        insertBeforeAssistant: Boolean = false,
+    ): ToolListBlock {
+        val item = RenderItem("工具", "", collapsible = true, collapsedByDefault = collapsedByDefault)
+        val block = createToolListBlock(item)
+        if (insertBeforeAssistant && assistantBlock != null) {
+            addRenderItem(item, assistantBlock?.renderItem)
+            addBlockComponent(block.panel, assistantBlock?.panel)
+        } else {
+            addRenderItem(item)
+            addBlockComponent(block.panel)
+        }
+        return block
+    }
+
+    private fun createToolListBlock(renderItem: RenderItem): ToolListBlock {
+        val listPanel = JPanel(VerticalLayout(6)).apply {
+            isOpaque = false
+        }
+        val listScroll = JBScrollPane(listPanel).apply {
+            border = JBUI.Borders.empty(4, 8, 6, 8)
+            isOpaque = false
+            viewport.isOpaque = false
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBar.unitIncrement = UIUtil.getLineHeight(JBTextArea())
+            val visibleHeight = (UIUtil.getLineHeight(JBTextArea()) * TOOL_BLOCK_VISIBLE_LINES) + JBUI.scale(12)
+            minimumSize = Dimension(0, visibleHeight)
+            preferredSize = Dimension(JBUI.scale(480), visibleHeight)
+            maximumSize = Dimension(Int.MAX_VALUE, visibleHeight)
+        }
+        val panel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+        }
+        val headerLabel = JLabel("工具调用").apply {
+            foreground = UIUtil.getLabelForeground()
+            font = font.deriveFont(font.style or Font.BOLD)
+        }
+        val contentPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(listScroll, BorderLayout.CENTER)
+            isVisible = !renderItem.collapsedByDefault
+        }
+        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+            isOpaque = false
+        }
+        val toggle = JButton(if (contentPanel.isVisible) "▼" else "▶").apply {
+            isFocusable = false
+            isContentAreaFilled = false
+            isBorderPainted = false
+            margin = JBUI.insets(0)
+        }
+        toggle.addActionListener {
+            contentPanel.isVisible = !contentPanel.isVisible
+            toggle.text = if (contentPanel.isVisible) "▼" else "▶"
+            if (contentPanel.isVisible) {
+                scrollBlockContentToTop(listScroll)
+            }
+            panel.revalidate()
+            panel.repaint()
+        }
+        header.add(toggle)
+        header.add(headerLabel)
+        panel.add(header, BorderLayout.NORTH)
+        panel.add(contentPanel, BorderLayout.CENTER)
+        return ToolListBlock(panel, contentPanel, listPanel, listScroll, headerLabel, renderItem, linkedMapOf())
+    }
+
+
+    private fun updateToolEntryCard(card: ToolEntryCard) {
+        card.titleLabel.text = buildToolEntryTitle(card.state)
+    }
+
+
+    private fun buildToolEntryTitle(state: AgentToolRenderEntryState): String {
+        val name = state.name.ifBlank { "未命名工具" }
+        val timestamp = if (state.startedAt > 0) formatToolStartedAt(state.startedAt) else "--:--:--"
+        val status = state.status.ifBlank { "调用中" }
+        return "#${state.index + 1} $name · $timestamp · $status"
+    }
+
+    private fun formatToolStartedAt(timestamp: Long): String {
+        return Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+    }
+
+    private fun ensureToolEntryCard(
+        block: ToolListBlock,
+        toolId: String,
+        index: Int,
+        name: String,
+        arguments: String,
+    ): ToolEntryCard {
+        block.entriesById[toolId]?.let { existing ->
+            if (existing.state.name.isBlank() && name.isNotBlank()) {
+                existing.state.name = name
+            }
+            if (existing.state.arguments.isBlank() && arguments.isNotBlank()) {
+                existing.state.arguments = arguments
+            }
+            return existing
+        }
+        val renderState = block.renderItem.state ?: AgentRenderState().also { block.renderItem.state = it }
+        val state = AgentToolRenderEntryState().apply {
+            id = toolId
+            this.index = if (index >= 0) index else renderState.toolEntries.size
+            this.name = name
+            startedAt = System.currentTimeMillis()
+            status = "调用中"
+            this.arguments = arguments
+        }
+        renderState.toolEntries.add(state)
+        val entryCard = createToolEntryCard(state)
+        block.entriesById[toolId] = entryCard
+        block.listPanel.add(entryCard.panel)
+        block.listPanel.revalidate()
+        block.listPanel.repaint()
+        if (block.contentPanel.isVisible) {
+            scrollBlockContentToBottom(block.scrollPane)
+        }
+        return entryCard
+    }
+
+    private fun createToolEntryCard(state: AgentToolRenderEntryState): ToolEntryCard {
+        val titleLabel = JLabel().apply {
+            foreground = UIUtil.getLabelForeground()
+            font = font.deriveFont(font.style or Font.BOLD)
+        }
+        val previewButton = JButton("查看").apply {
+            isFocusable = false
+            isContentAreaFilled = false
+            isBorderPainted = false
+            margin = JBUI.insets(0)
+            toolTipText = "查看参数和返回值"
+        }
+        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+            isOpaque = false
+            add(titleLabel)
+            add(previewButton)
+        }
+        val panel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = BorderFactory.createCompoundBorder(
+                JBUI.Borders.customLine(JBColor.border(), 1),
+                JBUI.Borders.empty(4)
+            )
+            add(header, BorderLayout.NORTH)
+        }
+        previewButton.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    showToolDetailPopup(ToolEntryCard(panel, titleLabel, previewButton, state), previewButton, e)
+                }
+            }
+        })
+        return ToolEntryCard(panel, titleLabel, previewButton, state).also {
+            updateToolEntryCard(it)
+        }
+    }
+
+    private fun showToolDetailPopup(card: ToolEntryCard, anchor: JComponent, e: MouseEvent) {
+        activeToolPopupResultField?.text = runCatching {
+            gson.toJson(JsonParser.parseString(card.state.result))
+        }.getOrElse { card.state.result }
+        activeToolPopupArgumentField?.text = runCatching {
+            gson.toJson(JsonParser.parseString(card.state.arguments))
+        }.getOrElse { card.state.arguments }
+        val content = JPanel(GridLayout(2, 1, 0, JBUI.scale(6))).apply {
+            isOpaque = true
+            background = UIUtil.getPanelBackground()
+            border = JBUI.Borders.empty(8)
+            add(createToolJsonSection("参数", activeToolPopupArgumentField!!, 60))
+            add(createToolJsonSection("返回值", activeToolPopupResultField!!, 200))
+        }
+        JBPopupFactory.getInstance().createComponentPopupBuilder(content,null)
+            .setMovable(true)
+            .setResizable(true)
+            .setTitle(card.titleLabel.text)
+            .createPopup()
+            .show(RelativePoint(e))
+    }
+
+
+    private fun createToolJsonSection(title: String, field: LanguageTextField, height: Int): JComponent {
+        return JPanel(BorderLayout(0, JBUI.scale(4))).apply {
+            isOpaque = false
+            add(JLabel(title).apply {
+                foreground = UIUtil.getContextHelpForeground()
+                font = font.deriveFont(font.style or Font.BOLD, font.size2D - 1f)
+            }, BorderLayout.NORTH)
+            add(field.apply {
+                minimumSize = Dimension(0, height)
+                preferredSize = Dimension(JBUI.scale(500), height)
+                maximumSize = Dimension(Int.MAX_VALUE, height)
+            }, BorderLayout.CENTER)
+        }
+    }
+
+    private fun createJsonViewer(): LanguageTextField {
+        val jsonLanguage = Language.findLanguageByID("JSON5") ?: Language.ANY
+        return object : LanguageTextField(jsonLanguage, project, "", false) {
+            override fun createEditor(): EditorEx {
+                val editor = super.createEditor()
+                editor.isViewer = true
+                editor.setBorder(null)
+                editor.scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+                val settings = editor.settings
+                settings.additionalLinesCount = 0
+                settings.additionalColumnsCount = 1
+                settings.isLineNumbersShown = true
+                settings.isLineMarkerAreaShown = false
+                settings.isIndentGuidesShown = false
+                settings.isFoldingOutlineShown = false
+                settings.isRightMarginShown = false
+                settings.isUseSoftWraps = true
+                return editor
+            }
+        }.apply {
+            isEnabled = true
+            border = JBUI.Borders.customLine(JBColor.border(), 1)
+        }
+    }
+
+
+    private fun updateToolBlockSummary(block: ToolListBlock) {
+        val count = block.entriesById.size
+        val completed = block.entriesById.values.count { it.state.status == "已完成" }
+        val summary = if (count <= 0) {
+            "工具调用"
+        } else {
+            "工具调用 ($completed/$count)"
+        }
+        block.headerLabel.text = summary
+        block.renderItem.content = summary
+        block.renderItem.state?.content = summary
     }
 
     private fun resetMessages(session: ChatSession) {
@@ -2619,7 +2927,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?: resolveDefaultModel(provider)
         val modelText = if (model.isBlank()) "未选择" else model
         val conversationMode = AgentConversationMode.fromId(currentSession?.state?.conversationMode).displayName
-        val modelSettings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(provider, model) else null
+        val modelSettings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(
+            provider,
+            model
+        ) else null
         val streamText = if (modelSettings?.streamingEnabled != false) "流式" else "非流式"
         val mcpServers = McpSupport.safeServers(project.pluginState().agentMcpServers)
         val enabledCount = mcpServers.count { it.enabled }
@@ -2640,13 +2951,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     fun refreshStatus() {
         updateStatus()
-    }
-
-    private fun truncate(value: String, max: Int = 2000): String {
-        if (value.length <= max) {
-            return value
-        }
-        return value.take(max) + "...(truncated)"
     }
 
     private fun setInputEnabled(enabled: Boolean) {
@@ -2691,11 +2995,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             files.isNotEmpty() -> {
                 addAttachmentFiles(files)
             }
+
             transferable.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
                 val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return false
                 val file = saveClipboardImage(image) ?: return false
                 addAttachmentFiles(listOf(file))
             }
+
             else -> addAttachmentFiles(AgentAttachmentClipboardSupport.extractFiles(transferable))
         }
     }
@@ -2930,5 +3236,28 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         override fun toString(): String = title
     }
 
-    private data class MessageBlock(val panel: JComponent, val textArea: JBTextArea, val renderItem: RenderItem?)
+    private data class MessageBlock(
+        val panel: JComponent,
+        val textArea: JBTextArea,
+        val contentPanel: JComponent,
+        val scrollPane: JScrollPane?,
+        val renderItem: RenderItem?
+    )
+
+    private data class ToolListBlock(
+        val panel: JComponent,
+        val contentPanel: JComponent,
+        val listPanel: JPanel,
+        val scrollPane: JScrollPane,
+        val headerLabel: JLabel,
+        val renderItem: RenderItem,
+        val entriesById: MutableMap<String, ToolEntryCard>,
+    )
+
+    private data class ToolEntryCard(
+        val panel: JComponent,
+        val titleLabel: JLabel,
+        val previewButton: JButton,
+        val state: AgentToolRenderEntryState,
+    )
 }
