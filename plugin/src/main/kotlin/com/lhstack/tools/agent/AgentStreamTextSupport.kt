@@ -2,10 +2,10 @@ package com.lhstack.tools.agent
 
 object AgentStreamTextSupport {
     fun delta(previous: String, current: String): String {
-        if (current.isBlank()) {
+        if (current.isEmpty()) {
             return ""
         }
-        if (previous.isBlank()) {
+        if (previous.isEmpty()) {
             return current
         }
         return if (current.startsWith(previous)) {

@@ -35,6 +35,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.errorNotify
+import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
 import kotlinx.datetime.format.DateTimeFormat
@@ -188,13 +189,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         })
         bindPasteAttachment(inputArea) {
-            defaultPasteAction?.actionPerformed(
-                ActionEvent(
-                    inputArea,
-                    ActionEvent.ACTION_PERFORMED,
-                    DefaultEditorKit.pasteAction
+            if(defaultPasteAction != null){
+                defaultPasteAction.actionPerformed(
+                    ActionEvent(
+                        inputArea,
+                        ActionEvent.ACTION_PERFORMED,
+                        DefaultEditorKit.pasteAction
+                    )
                 )
-            )
+            }else {
+                inputArea.text += it
+            }
         }
         inputArea.transferHandler = object : TransferHandler() {
             override fun canImport(support: TransferSupport): Boolean {
@@ -224,7 +229,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun bindPasteAttachment(component: JBTextArea, onTextFallback: () -> Unit) {
+    private fun bindPasteAttachment(component: JBTextArea, onTextFallback: (String) -> Unit) {
         val action = PasteAttachmentAction(
             onFiles = { files ->
                 addAttachmentFiles(files)
@@ -2471,7 +2476,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         collapsible: Boolean,
         collapsedByDefault: Boolean,
     ) {
-        if (event.text.isBlank()) {
+        if (event.text.isEmpty()) {
             return
         }
         val block = streamingTextBlocks.getOrPut(streamingBlockKey(role)) {
@@ -3054,7 +3059,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         }
         if (!added) {
-            project.infoNotify("附件", "没有可添加的附件，或附件类型当前模型不支持")
+            val alreadyAddFiles = session.state.draftAttachments.map { it.path }.toSet()
+            files.filter { !alreadyAddFiles.contains(it.path) || alreadyAddFiles.isEmpty() }.map { if(it.isFile){"文件: ${it.name},路径: ${it.path} 不支持"}else{"文件夹: ${it.name},路径: ${it.path} 不支持"} }
+                .joinToString { "\n" }.ifNotBlank {
+                    project.infoNotify("附件", "没有可添加的附件，或附件类型当前模型不支持")
+                }
         }
         refreshAttachmentDrafts()
         return added
@@ -3206,7 +3215,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private class PasteAttachmentAction(
         private val onFiles: (List<File>) -> Unit,
         private val onImage: (Image) -> Unit,
-        private val onTextFallback: () -> Unit,
+        private val onTextFallback: (String) -> Unit,
     ) : AnAction() {
         override fun actionPerformed(e: AnActionEvent) {
             val transferable = CopyPasteManager.getInstance().contents ?: return
@@ -3217,8 +3226,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return
                     onImage(image)
                 }
-
-                transferable.isDataFlavorSupported(DataFlavor.stringFlavor) -> onTextFallback()
+                transferable.isDataFlavorSupported(DataFlavor.stringFlavor) -> {
+                    val text = transferable.getTransferData(DataFlavor.stringFlavor) as? String ?: return
+                    onTextFallback(text)
+                }
             }
         }
     }

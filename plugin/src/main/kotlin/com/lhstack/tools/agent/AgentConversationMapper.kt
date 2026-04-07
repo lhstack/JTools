@@ -94,11 +94,13 @@ object AgentConversationMapper {
     private fun buildFileContextText(entry: AgentFileContextEntry): String {
         return buildString {
             append("附件列表:\n")
-            append("- ")
+            append("- 文件名: ")
             append(entry.name)
             append(" (")
             append(entry.mimeType)
             append(")")
+            append("- 路径: ")
+            append(entry.path)
             if (!entry.content.isNullOrBlank()) {
                 append("\n")
                 append(entry.content.take(2000))

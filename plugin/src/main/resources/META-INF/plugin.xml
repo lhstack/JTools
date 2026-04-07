@@ -141,8 +141,20 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.3</h2>
+            <h2>📦 Version v1.1.3.4</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>📋 <b>Clipboard Attachment Handling:</b> Tightened clipboard detection so only real file URIs are treated as attachments, while plain-text paste cleanly falls back to the input box</li>
+                <li>🧠 <b>Streaming Text Fidelity:</b> Preserved whitespace-only streaming deltas so replies keep spaces and line breaks that previously vanished during incremental rendering</li>
+                <li>📎 <b>Attachment Context Paths:</b> Added original file paths to attachment context payloads so the agent can distinguish same-named files more reliably</li>
+                <li>🔌 <b>Dependency &amp; SDK Alignment:</b> Upgraded AgentScope to 1.0.11 and aligned SDK version metadata for the 1.1.3.4 release</li>
+                <li>📋 <b>粘贴附件体验：</b>收紧剪贴板识别逻辑，仅在存在真实文件 URI 时按附件处理，纯文本粘贴则稳定回退到输入框</li>
+                <li>🧠 <b>流式文本保真：</b>保留仅包含空格或换行的流式增量内容，减少增量渲染时回复格式丢失的问题</li>
+                <li>📎 <b>附件上下文补全：</b>附件上下文新增原始文件路径，便于智能体区分同名文件并定位来源</li>
+                <li>🔌 <b>版本依赖同步：</b>升级 AgentScope 到 1.0.11，并同步对齐 1.1.3.4 的 SDK 版本元数据</li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.3</h2>
             <ul>
                 <li>🧰 <b>Tool Call Cards:</b> Reworked tool logs into per-call cards with timestamps, status, and completion summary for clearer execution tracking</li>
                 <li>🔍 <b>Tool Detail Viewer:</b> Added popup JSON viewers for tool arguments and results so large payloads can be inspected without cluttering the chat stream</li>

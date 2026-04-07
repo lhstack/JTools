@@ -355,9 +355,7 @@ class AgentClient {
             current = currentText,
         )
         snapshots[eventKey] = currentText
-        if (delta.isNotBlank()) {
-            consumer?.invoke(AgentTextStreamEvent(eventKey, delta))
-        }
+        consumer?.invoke(AgentTextStreamEvent(eventKey, delta))
     }
 
     fun listModels(provider: AgentProviderState): ModelListResult {

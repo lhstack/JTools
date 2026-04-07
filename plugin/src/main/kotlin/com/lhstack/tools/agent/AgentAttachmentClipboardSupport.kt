@@ -8,29 +8,6 @@ import java.net.URI
 
 object AgentAttachmentClipboardSupport {
 
-    fun hasFileLikeContent(transferable: Transferable): Boolean {
-        if (!FileCopyPasteUtil.getFileList(transferable).isNullOrEmpty()) {
-            return true
-        }
-        if (transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
-            return true
-        }
-        if (transferable.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-            val text = runCatching { transferable.getTransferData(DataFlavor.stringFlavor)?.toString().orEmpty() }.getOrNull().orEmpty()
-            if (parseFiles(text).isNotEmpty()) {
-                return true
-            }
-        }
-        return transferable.transferDataFlavors.any { flavor ->
-            (flavor.representationClass == String::class.java || flavor.mimeType.contains("uri-list", ignoreCase = true)) &&
-                runCatching { transferable.getTransferData(flavor)?.toString().orEmpty() }
-                    .getOrNull()
-                    ?.let(::parseFiles)
-                    .orEmpty()
-                    .isNotEmpty()
-        }
-    }
-
     fun extractFiles(transferable: Transferable): List<File> {
         FileCopyPasteUtil.getFileList(transferable)?.let { files ->
             if (files.isNotEmpty()) {
@@ -41,13 +18,9 @@ object AgentAttachmentClipboardSupport {
             val files = transferable.getTransferData(DataFlavor.javaFileListFlavor) as? List<*>
             return files.orEmpty().filterIsInstance<File>()
         }
-        if (transferable.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-            val text = transferable.getTransferData(DataFlavor.stringFlavor)?.toString().orEmpty()
-            return parseFiles(text)
-        }
         transferable.transferDataFlavors.forEach { flavor ->
-            if (flavor.representationClass == String::class.java || flavor.mimeType.contains("uri-list", ignoreCase = true)) {
-                val text = runCatching { transferable.getTransferData(flavor)?.toString().orEmpty() }.getOrNull().orEmpty()
+            if (flavor.mimeType.contains("uri-list", ignoreCase = true)) {
+                val text = runCatching { transferable.getTransferData(flavor).toString() }.getOrNull().orEmpty()
                 val files = parseFiles(text)
                 if (files.isNotEmpty()) {
                     return files
