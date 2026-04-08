@@ -1,6 +1,5 @@
 package com.lhstack.tools.agent
 
-import io.agentscope.core.skill.util.MarkdownSkillParser
 import java.nio.charset.MalformedInputException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -8,7 +7,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.UUID
 import kotlin.io.path.isDirectory
-import kotlin.io.path.name
 
 object AgentSkillImportSupport {
     private const val skillFileName = "SKILL.md"

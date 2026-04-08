@@ -2,6 +2,8 @@ package com.lhstack.tools.plugins
 
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.annotations.OptionTag
+import com.lhstack.tools.agent.AgentSystemPromptState
+import com.lhstack.tools.agent.AgentSystemPromptSupport
 import com.lhstack.tools.converter.JsonConverter
 import com.lhstack.tools.agent.AgentSkillState
 import com.lhstack.tools.agent.AgentSessionState
@@ -30,6 +32,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentProviders: MutableList<com.lhstack.tools.agent.AgentProviderState> = mutableListOf()
         var agentActiveProviderId: String = ""
         var agentSessions: MutableList<AgentSessionState> = mutableListOf()
+        var agentSystemPrompts: MutableList<AgentSystemPromptState> = mutableListOf()
         var agentSkills: MutableList<AgentSkillState> = mutableListOf()
         var agentActiveSessionId: String = ""
         var agentActiveSessionIdByProject: MutableMap<String, String> = mutableMapOf()
@@ -53,6 +56,7 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         com.lhstack.tools.agent.McpSupport.cleanServers(rawServers)
         state.agentMcpServers = rawServers
         state.agentSessions = state.agentSessions.filterIsInstance<AgentSessionState>().toMutableList()
+        state.agentSystemPrompts = AgentSystemPromptSupport.normalizePrompts(state.agentSystemPrompts)
         state.agentSkills = com.lhstack.tools.agent.AgentSkillSupport.normalizeSkills(state.agentSkills)
         val providers = state.agentProviders.filterIsInstance<com.lhstack.tools.agent.AgentProviderState>().toMutableList()
         if (providers.isEmpty()) {
@@ -82,6 +86,9 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         }
         providers.forEach { com.lhstack.tools.agent.AgentProviderSupport.normalizeProvider(it) }
         state.agentProviders = providers
+        state.agentSessions.forEach { session ->
+            AgentSystemPromptSupport.syncSessionSystemPrompt(session, state.agentSystemPrompts)
+        }
         if (state.agentActiveProviderId.isBlank() && providers.isNotEmpty()) {
             state.agentActiveProviderId = providers.first().id
         }

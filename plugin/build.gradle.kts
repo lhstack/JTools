@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.3.4"
+version = "1.1.3.5"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -70,6 +70,7 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.agent.AgentProviderState { *; }",
     "-keep class com.lhstack.tools.agent.AgentModelSettings { *; }",
     "-keep class com.lhstack.tools.agent.AgentSessionState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentSystemPromptState { *; }",
     "-keep class com.lhstack.tools.agent.AgentRenderState { *; }",
     "-keep class com.lhstack.tools.agent.AgentToolRenderEntryState { *; }",
     "-keep class com.lhstack.tools.agent.AgentSessionRuntimeState { *; }",
@@ -136,6 +137,7 @@ val proguardRules = listOf(
         -keep class com.lhstack.tools.agent.McpServerState { *; }
         -keepclassmembers class com.lhstack.tools.agent.McpServerState { *; }
         -keepclassmembers class com.lhstack.tools.agent.AgentSessionState { *; }
+        -keepclassmembers class com.lhstack.tools.agent.AgentSystemPromptState { *; }
         -keepclassmembers class com.lhstack.tools.agent.AgentRenderState { *; }
         -keep class com.lhstack.tools.agent.AgentProviderState { *; }
         -keep class com.lhstack.tools.agent.AgentProxyType { *; }

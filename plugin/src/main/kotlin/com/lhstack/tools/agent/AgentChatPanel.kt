@@ -87,6 +87,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val modelSettingsAction =
         createAction("模型扩展设置", Icons.modelTuningIcon()) { openModelSettingsDialog() }
     private val providerManageAction = createAction("供应方管理", Icons.providerConfigIcon()) { openProviderManager() }
+    private val systemPromptManageAction =
+        createAction("系统提示词管理", Icons.promptManageIcon()) { openSystemPromptManager() }
     private val skillSelectAction = createAction("会话 Skills", Icons.sessionSkillsIcon()) { openSkillSelector() }
     private val skillManageAction = createAction("Skills 管理", Icons.skillsManageIcon()) { openSkillManager() }
     private val mcpManageAction = createAction("MCP 配置", Icons.mcpConfigIcon()) { openMcpManager() }
@@ -117,6 +119,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val providerModel = DefaultComboBoxModel<AgentProviderState>()
     private val sessionSelector = ComboBox<ChatSession>()
     private val providerSelector = ComboBox<AgentProviderState>()
+    private val systemPromptSelector = ComboBox<SystemPromptOption>()
     private val modelSelector = ComboBox<String>()
     private val conversationModeSelector = ComboBox<AgentConversationMode>()
     private val comboFixedWidth = JBUI.scale(180)
@@ -130,6 +133,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var currentSession: ChatSession? = null
     private var updatingSessionSelection = false
     private var updatingProviderSelection = false
+    private var updatingSystemPromptSelection = false
     private var updatingModelSelection = false
     private var updatingConversationModeSelection = false
 
@@ -149,6 +153,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupInputArea()
         setupSessionSelector()
         setupProviderSelector()
+        setupSystemPromptSelector()
         setupModelSelector()
         setupConversationModeSelector()
         setActionEnabled(stopAction, false)
@@ -274,6 +279,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             updateCurrentProvider(selected)
         }
         refreshProviderSelector(null)
+    }
+
+    private fun setupSystemPromptSelector() {
+        systemPromptSelector.maximumRowCount = 8
+        systemPromptSelector.isEditable = false
+        configureComboBox(systemPromptSelector, comboFixedWidth, {
+            (it as? SystemPromptOption)?.label ?: it?.toString().orEmpty()
+        })
+        systemPromptSelector.addActionListener {
+            if (updatingSystemPromptSelection || sending.get()) {
+                return@addActionListener
+            }
+            val selected = systemPromptSelector.selectedItem as? SystemPromptOption ?: return@addActionListener
+            updateCurrentSystemPrompt(selected.id)
+        }
+        refreshSystemPromptSelector(null)
     }
 
     private fun setupModelSelector() {
@@ -573,6 +594,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             id = UUID.randomUUID().toString()
             projectKey = this@AgentChatPanel.projectKey
             providerId = resolvedProvider?.id.orEmpty()
+            systemPromptId = ""
             title = "新会话"
             autoTitle = true
             model = resolvedModel
@@ -596,6 +618,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (state.projectKey.isBlank()) {
             state.projectKey = projectKey
         }
+        val prompts = ensureSystemPromptList()
+        state.systemPromptId = AgentSystemPromptSupport.normalizeSelectedPromptId(state.systemPromptId, prompts)
+        AgentSystemPromptSupport.syncSessionSystemPrompt(state, prompts)
         val availableSkillIds = project.pluginState().agentSkills.map { it.id }.toSet()
         state.enabledSkillIds = state.enabledSkillIds
             .filter { it in availableSkillIds }
@@ -641,12 +666,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun switchSession(session: ChatSession) {
         currentSession = session
         setActiveSessionId(session.id)
+        syncSessionSystemPrompt(session)
         updatingSessionSelection = true
         sessionSelector.selectedItem = session
         updatingSessionSelection = false
         val resolvedProvider = resolveProviderForSession(session.state)
         session.providerId = resolvedProvider?.id.orEmpty()
         refreshProviderSelector(session.providerId)
+        refreshSystemPromptSelector(session.state.systemPromptId)
         val resolvedModel = session.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
         session.model = resolvedModel
         session.state.model = resolvedModel
@@ -738,6 +765,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         session.messages.forEach { message ->
             session.state.messages.add(message.toString())
         }
+    }
+
+    private fun syncSessionSystemPrompt(session: ChatSession) {
+        val prompts = ensureSystemPromptList()
+        session.state.systemPromptId = AgentSystemPromptSupport.normalizeSelectedPromptId(session.state.systemPromptId, prompts)
+        AgentSystemPromptSupport.syncSessionSystemPrompt(session.state, prompts)
+        AgentSystemPromptSupport.syncSystemPromptJson(
+            session.messages,
+            AgentSystemPromptSupport.resolvePromptContent(prompts, session.state.systemPromptId)
+        )
+        syncSessionMessages(session)
     }
 
     private fun updateCurrentModel(model: String) {
@@ -1399,6 +1437,50 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updatingProviderSelection = false
     }
 
+    private fun refreshSystemPromptSelector(selectedPromptId: String?) {
+        updatingSystemPromptSelection = true
+        systemPromptSelector.removeAllItems()
+        val prompts = ensureSystemPromptList()
+        val defaultPrompt = prompts.first { it.id == AgentSystemPromptSupport.DEFAULT_PROMPT_ID }
+        systemPromptSelector.addItem(SystemPromptOption("", defaultPrompt.name))
+        AgentSystemPromptSupport.customPrompts(prompts).forEach { prompt ->
+            systemPromptSelector.addItem(SystemPromptOption(prompt.id, prompt.name))
+        }
+        val resolvedId = AgentSystemPromptSupport.normalizeSelectedPromptId(
+            selectedPromptId ?: currentSession?.state?.systemPromptId,
+            prompts
+        )
+        val selected = (0 until systemPromptSelector.itemCount)
+            .mapNotNull { systemPromptSelector.getItemAt(it) }
+            .firstOrNull { it.id == resolvedId }
+            ?: SystemPromptOption("", defaultPrompt.name)
+        systemPromptSelector.selectedItem = selected
+        currentSession?.state?.systemPromptId = resolvedId
+        updatingSystemPromptSelection = false
+    }
+
+    private fun ensureSystemPromptList(): MutableList<AgentSystemPromptState> {
+        val prompts = AgentSystemPromptSupport.normalizePrompts(project.pluginState().agentSystemPrompts)
+        project.pluginState().agentSystemPrompts.clear()
+        project.pluginState().agentSystemPrompts.addAll(prompts)
+        return project.pluginState().agentSystemPrompts
+    }
+
+    private fun updateCurrentSystemPrompt(promptId: String) {
+        val session = currentSession ?: return
+        val prompts = ensureSystemPromptList()
+        val resolvedId = AgentSystemPromptSupport.normalizeSelectedPromptId(promptId, prompts)
+        if (session.state.systemPromptId == resolvedId) {
+            refreshSystemPromptSelector(resolvedId)
+            return
+        }
+        session.state.systemPromptId = resolvedId
+        syncSessionSystemPrompt(session)
+        client.clearSession(session.id)
+        refreshSystemPromptSelector(resolvedId)
+        updateStatus()
+    }
+
     private fun ensureModelList(provider: AgentProviderState?): MutableList<String> {
         if (provider == null) {
             return mutableListOf()
@@ -1952,6 +2034,29 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         refreshProvidersAfterChange()
     }
 
+    private fun openSystemPromptManager() {
+        val dialog = object : DialogWrapper(project, false) {
+            private val panel = AgentSystemPromptConfigPanel(project,(systemPromptSelector.selectedItem as? SystemPromptOption)?.id) { refreshSystemPromptsAfterChange() }
+
+            init {
+                title = "系统提示词管理"
+                setSize(JBUI.scale(1100), JBUI.scale(720))
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent = panel.component
+
+            override fun createActions(): Array<out Action?> = arrayOf()
+
+            override fun dispose() {
+                panel.dispose()
+                super.dispose()
+            }
+        }
+        dialog.showAndGet()
+        refreshSystemPromptsAfterChange()
+    }
+
     private fun openSkillManager() {
         val dialog = object : DialogWrapper(project, false) {
             private val panel = AgentSkillConfigPanel(project) { refreshSkillsAfterChange() }
@@ -2099,6 +2204,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         project.pluginState().agentSessions.forEach { state ->
             state.enabledSkillIds = state.enabledSkillIds.filter { it in validIds }.distinct().toMutableList()
         }
+        updateStatus()
+        updateToolbars()
+    }
+
+    private fun refreshSystemPromptsAfterChange() {
+        val normalized = AgentSystemPromptSupport.normalizePrompts(project.pluginState().agentSystemPrompts)
+        project.pluginState().agentSystemPrompts.clear()
+        project.pluginState().agentSystemPrompts.addAll(normalized)
+        project.pluginState().agentSessions.forEach { session ->
+            AgentSystemPromptSupport.syncSessionSystemPrompt(session, normalized)
+            client.clearSession(session.id)
+        }
+        currentSession?.let { syncSessionSystemPrompt(it) }
+        refreshSystemPromptSelector(currentSession?.state?.systemPromptId)
         updateStatus()
         updateToolbars()
     }
@@ -2257,6 +2376,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(Box.createHorizontalStrut(6))
             add(modelSelector)
         }
+        val systemPromptPanel = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(Box.createHorizontalGlue())
+            add(JLabel("提示词: "))
+            add(Box.createHorizontalStrut(6))
+            add(systemPromptSelector)
+        }
         val header = JPanel(BorderLayout()).apply {
             isOpaque = false
             add(inputHintLabel, BorderLayout.WEST)
@@ -2267,6 +2394,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 isOpaque = false
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 add(providerPanel)
+                add(Box.createVerticalStrut(4))
+                add(systemPromptPanel)
                 add(Box.createVerticalStrut(4))
                 add(modelPanel)
                 if (AgentConversationModeSupport.selectorVisible()) {
@@ -2285,6 +2414,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(selectorPanel, BorderLayout.NORTH)
             val sendGroup = DefaultActionGroup().apply {
                 add(providerManageAction)
+                add(systemPromptManageAction)
                 add(modelManageAction)
                 add(modelSettingsAction)
                 add(skillManageAction)
@@ -2344,6 +2474,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (!sending.compareAndSet(false, true)) {
             return
         }
+        syncSessionSystemPrompt(session)
         updateCurrentModel(model)
         updateCurrentProvider(provider)
         val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
@@ -2555,7 +2686,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun appendToBlock(block: MessageBlock?, text: String) {
         block ?: return
         block.textArea.append(text)
-        block.textArea.revalidate()
         block.renderItem?.let {
             it.content += text
             it.state?.content = it.content
@@ -2909,15 +3039,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun resetMessages(session: ChatSession) {
         session.messages.clear()
-        val systemMessage = JsonObject().apply {
-            addProperty("role", "system")
-            addProperty(
-                "content",
-                "你是 JTools 智能体, 可调用工具完成任务。插件工具名称以 plugin_ 开头, 系统工具以 jtools_ 开头。避免连续重复调用同一个工具, 如果无法获得新信息请停止并向用户说明。调用工具时, 参数必须始终是合法 JSON 对象；如果某个参数值里包含双引号, 需要写成 \\\"；如果包含换行, 需要写成 \\n。"
-            )
-        }
-        session.messages.add(systemMessage)
-        syncSessionMessages(session)
+        syncSessionSystemPrompt(session)
     }
 
     private fun updateStatus() {
@@ -2932,6 +3054,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?: resolveDefaultModel(provider)
         val modelText = if (model.isBlank()) "未选择" else model
         val conversationMode = AgentConversationMode.fromId(currentSession?.state?.conversationMode).displayName
+        val promptName = AgentSystemPromptSupport.resolvePromptName(
+            ensureSystemPromptList(),
+            currentSession?.state?.systemPromptId
+        )
         val modelSettings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(
             provider,
             model
@@ -2945,12 +3071,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "MCP: 未启用"
         }
         val skillStatus = "Skills: ${currentSession?.state?.enabledSkillIds?.size ?: 0}"
+        val promptStatus = "提示词: $promptName"
         statusLabel.text = if (provider == null) {
-            "供应方未配置 | 模型: $modelText | 模式: $conversationMode | $skillStatus | $mcpStatus"
+            "供应方未配置 | 模型: $modelText | 模式: $conversationMode | $promptStatus | $skillStatus | $mcpStatus"
         } else if (apiKey.isBlank()) {
-            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $skillStatus | $mcpStatus"
+            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $promptStatus | $skillStatus | $mcpStatus"
         } else {
-            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $skillStatus | $mcpStatus"
+            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $promptStatus | $skillStatus | $mcpStatus"
         }
     }
 
@@ -3204,6 +3331,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val attachments: MutableList<AgentAttachmentState> = mutableListOf(),
         var state: AgentRenderState? = null,
     )
+
+    private data class SystemPromptOption(val id: String, val label: String)
 
     private data class ModelSettingOption(val label: String, val value: String)
 

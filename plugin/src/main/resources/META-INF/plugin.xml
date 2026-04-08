@@ -141,8 +141,20 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.4</h2>
+            <h2>📦 Version v1.1.3.5</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>📝 <b>System Prompt Management:</b> Added a prompt selector and manager directly in chat so default and custom system prompts can be maintained and switched per session</li>
+                <li>🔒 <b>Prompt Guardrails &amp; Sync:</b> Made the built-in prompt explicitly read-only, disabled invalid save/delete actions, and moved prompt persistence/synchronization to stable prompt IDs</li>
+                <li>📚 <b>Skill Import Compatibility:</b> Added an in-project Markdown/YAML frontmatter parser for <code>SKILL.md</code> imports to improve compatibility and reduce coupling to AgentScope parsing internals</li>
+                <li>🎨 <b>Prompt Icon Refresh:</b> Added a dedicated prompt manager icon and regenerated prompt toolbar icons with consistent sizing plus dark-theme variants</li>
+                <li>📝 <b>系统提示词管理：</b>对话面板新增系统提示词选择器和管理入口，支持维护默认/自定义提示词并按会话切换</li>
+                <li>🔒 <b>提示词保护与同步：</b>默认提示词显式只读，保存/删除按钮按状态禁用；提示词改为按稳定 ID 持久化和同步</li>
+                <li>📚 <b>Skills 导入兼容性：</b>新增项目内 Markdown/YAML frontmatter 解析器，用于提升 <code>SKILL.md</code> 导入兼容性，并减少对 AgentScope 解析实现的耦合</li>
+                <li>🎨 <b>图标主题补齐：</b>新增系统提示词管理入口图标，并统一弹窗工具栏图标尺寸与留白，补齐深色主题资源</li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.4</h2>
             <ul>
                 <li>📋 <b>Clipboard Attachment Handling:</b> Tightened clipboard detection so only real file URIs are treated as attachments, while plain-text paste cleanly falls back to the input box</li>
                 <li>🧠 <b>Streaming Text Fidelity:</b> Preserved whitespace-only streaming deltas so replies keep spaces and line breaks that previously vanished during incremental rendering</li>

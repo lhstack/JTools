@@ -18,6 +18,7 @@ class AgentSessionState {
     var id: String = ""
     var projectKey: String = ""
     var providerId: String = ""
+    var systemPromptId: String = ""
     var title: String = ""
     var autoTitle: Boolean = true
     var model: String = ""

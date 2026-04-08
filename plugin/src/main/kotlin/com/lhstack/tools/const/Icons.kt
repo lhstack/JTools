@@ -20,6 +20,8 @@ class Icons {
 
         fun providerConfigIcon() = findIcon("icons/provider_config.svg")
 
+        fun promptManageIcon() = findIcon("icons/prompt_manage.svg")
+
         fun mcpConfigIcon() = findIcon("icons/mcp_config.svg")
 
         fun addIcon() = findIcon("icons/add.svg")
