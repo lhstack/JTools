@@ -1,6 +1,5 @@
 package com.lhstack.tools.agent
 
-import com.anthropic.core.ClientOptions
 import com.google.genai.types.ProxyOptions
 import com.google.genai.types.ProxyType
 import io.agentscope.core.formatter.anthropic.AnthropicChatFormatter
@@ -48,7 +47,14 @@ class AgentScopeModelFactory(
             AgentProviderCatalog.TYPE_ANTHROPIC -> createAnthropic(normalized, modelName, defaultOptions, modelSettings)
             AgentProviderCatalog.TYPE_GEMINI -> createGemini(normalized, modelName, defaultOptions, modelSettings)
             AgentProviderCatalog.TYPE_OLLAMA -> createOllama(normalized, modelName, defaultOptions, modelSettings)
-            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE -> createOpenAI(normalized, vendorTemplate, modelName, defaultOptions, modelSettings)
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE -> createOpenAI(
+                normalized,
+                vendorTemplate,
+                modelName,
+                defaultOptions,
+                modelSettings
+            )
+
             else -> error("Unsupported provider type: $providerType")
         }
     }
@@ -66,10 +72,10 @@ class AgentScopeModelFactory(
             .modelName(modelName)
             .stream(streamingEnabled)
             .httpTransport(OkHttpTransport(HttpTransportConfig.builder().also {
-                if(provider.proxyEnabled){
-                    if(provider.proxyType == AgentProxyType.HTTP.id){
+                if (provider.proxyEnabled) {
+                    if (provider.proxyType == AgentProxyType.HTTP.id) {
                         it.proxy(ProxyConfig.http(provider.proxyHost, provider.proxyPort))
-                    }else {
+                    } else {
                         it.proxy(ProxyConfig.socks5(provider.proxyHost, provider.proxyPort))
                     }
                 }
@@ -111,10 +117,10 @@ class AgentScopeModelFactory(
             .apiKey(provider.apiKey)
             .modelName(modelName)
             .httpTransport(OkHttpTransport(HttpTransportConfig.builder().also {
-                if(provider.proxyEnabled){
-                    if(provider.proxyType == AgentProxyType.HTTP.id){
+                if (provider.proxyEnabled) {
+                    if (provider.proxyType == AgentProxyType.HTTP.id) {
                         it.proxy(ProxyConfig.http(provider.proxyHost, provider.proxyPort))
-                    }else {
+                    } else {
                         it.proxy(ProxyConfig.socks5(provider.proxyHost, provider.proxyPort))
                     }
                 }
@@ -151,7 +157,6 @@ class AgentScopeModelFactory(
         val model = AnthropicChatModel.builder()
             .baseUrl(provider.baseUrl)
             .apiKey(provider.apiKey)
-            .agentProviderState(provider)
             .modelName(modelName)
             .stream(streamingEnabled)
             .defaultOptions(defaultOptions)
@@ -185,22 +190,28 @@ class AgentScopeModelFactory(
             .modelName(modelName)
             .streamEnabled(streamingEnabled)
             .defaultOptions(defaultOptions)
-            .clientOptions(com.google.genai.types.ClientOptions.builder()
+            .clientOptions(
+                com.google.genai.types.ClientOptions.builder()
                 .also {
-                    if(provider.proxyEnabled){
-                        if(provider.proxyType == AgentProxyType.HTTP.id){
-                            it.proxyOptions(ProxyOptions.builder()
-                                .type(ProxyType.Known.HTTP)
-                                .host(provider.proxyHost)
-                                .port(provider.proxyPort))
-                        }else {
-                            it.proxyOptions(ProxyOptions.builder()
-                                .type(ProxyType.Known.SOCKS)
-                                .host(provider.proxyHost)
-                                .port(provider.proxyPort))
+                    if (provider.proxyEnabled) {
+                        if (provider.proxyType == AgentProxyType.HTTP.id) {
+                            it.proxyOptions(
+                                ProxyOptions.builder()
+                                    .type(ProxyType.Known.HTTP)
+                                    .host(provider.proxyHost)
+                                    .port(provider.proxyPort)
+                            )
+                        } else {
+                            it.proxyOptions(
+                                ProxyOptions.builder()
+                                    .type(ProxyType.Known.SOCKS)
+                                    .host(provider.proxyHost)
+                                    .port(provider.proxyPort)
+                            )
                         }
                     }
-                }.build())
+                }.build()
+            )
             .build()
         return AgentScopeModelSpec(
             providerType = provider.providerType,
