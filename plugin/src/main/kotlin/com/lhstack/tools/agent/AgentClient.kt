@@ -1,20 +1,11 @@
 package com.lhstack.tools.agent
 
-import com.github.weisj.jsvg.bl
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.google.gson.*
+import com.jetbrains.rd.framework.base.deepClonePolymorphic
 import io.agentscope.core.ReActAgent
 import io.agentscope.core.agent.EventType
 import io.agentscope.core.agent.StreamOptions
-import io.agentscope.core.message.Msg
-import io.agentscope.core.message.MsgRole
-import io.agentscope.core.message.TextBlock
-import io.agentscope.core.message.ThinkingBlock
-import io.agentscope.core.message.ToolResultBlock
-import io.agentscope.core.message.ToolUseBlock
+import io.agentscope.core.message.*
 import io.agentscope.core.session.InMemorySession
 import io.agentscope.core.tool.Toolkit
 import java.net.InetSocketAddress
@@ -24,7 +15,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
-import java.util.UUID
+import java.util.*
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -71,6 +62,7 @@ data class ModelListResult(
 class AgentClient {
     private val runtimeFactory = AgentScopeRuntime()
     private val runtimeCache = ConcurrentHashMap<String, RuntimeHandle>()
+
     private data class ToolCallStreamState(
         var name: String = "",
         var arguments: String = "",
@@ -109,6 +101,7 @@ class AgentClient {
         val agent: ReActAgent,
         val session: InMemorySession,
         var primed: Boolean,
+        val provider: AgentProviderState
     )
 
     fun complete(
@@ -150,7 +143,9 @@ class AgentClient {
                 reasoningContent = null,
                 errorMessage = "当前消息为空"
             )
-            cancelToken?.registerInterrupt { handle.agent.interrupt() }
+            cancelToken?.registerInterrupt {
+                handle.agent.interrupt()
+            }
             var finalAssistant: Msg? = null
             val options = StreamOptions.builder()
                 .eventTypes(
@@ -169,7 +164,7 @@ class AgentClient {
                 .doOnNext { event ->
                     val message = event.message
                     for (block in message.content) {
-                        if(block is ThinkingBlock){
+                        if (block is ThinkingBlock) {
                             AgentReasoningSupport.extractThinking(block)?.let { text ->
                                 emitTextDelta(
                                     eventKey = "reasoning",
@@ -179,7 +174,7 @@ class AgentClient {
                                 )
                             }
                         }
-                        if(block is ToolUseBlock){
+                        if (block is ToolUseBlock) {
                             val state = toolCallStatesById.getOrPut(block.id) { ToolCallStreamState() }
                             val rawName = block.name.trim()
                             if (rawName.isNotBlank() && rawName != TOOL_CALL_FRAGMENT_NAME) {
@@ -217,11 +212,13 @@ class AgentClient {
                                         )
                                     }
                                 }
+
                                 arguments.isBlank() -> {
                                     if (resolvedName.isNotBlank() && block.id !in toolCallsById) {
                                         toolCallsById[block.id] = resolvedName to ""
                                     }
                                 }
+
                                 state.hasFragments -> {
                                     state.arguments = arguments
                                     toolCallsById[block.id] = resolvedName.ifBlank { rawName } to arguments
@@ -232,6 +229,7 @@ class AgentClient {
                                             arguments = arguments,
                                         )
                                 }
+
                                 else -> {
                                     val previous = state.arguments
                                     state.arguments = arguments
@@ -261,7 +259,7 @@ class AgentClient {
                             }
                         }
 
-                        if(block is TextBlock) {
+                        if (block is TextBlock) {
                             finalAssistant = message
                             emitTextDelta(
                                 eventKey = "assistant",
@@ -271,7 +269,7 @@ class AgentClient {
                             )
                         }
 
-                        if(block is ToolResultBlock){
+                        if (block is ToolResultBlock) {
                             val call = toolCallsById[block.id]
                             val resultText = toolResultText(block)
                             toolLogsById[block.id] = ToolCallLog(
@@ -363,6 +361,7 @@ class AgentClient {
             val models = when (provider.providerType) {
                 AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
                 AgentProviderCatalog.TYPE_DASHSCOPE -> fetchOpenAICompatibleModels(provider)
+
                 AgentProviderCatalog.TYPE_ANTHROPIC -> fetchAnthropicModels(provider)
                 AgentProviderCatalog.TYPE_OLLAMA -> fetchOllamaModels(provider)
                 else -> provider.models.filter { it.isNotBlank() }
@@ -410,7 +409,7 @@ class AgentClient {
         )
         val agent = runtimeSpec.builder.build()
         val session = InMemorySession()
-        val handle = RuntimeHandle(signature, runtimeSpec, agent, session, primed = false)
+        val handle = RuntimeHandle(signature, runtimeSpec, agent, session, primed = false, provider.deepClonePolymorphic())
         runtimeCache[key] = handle
         return handle
     }
@@ -537,7 +536,8 @@ class AgentClient {
             }
         }
         if (role == MsgRole.TOOL) {
-            val toolId = message.get("tool_call_id")?.takeIf { !it.isJsonNull }?.asString ?: UUID.randomUUID().toString()
+            val toolId =
+                message.get("tool_call_id")?.takeIf { !it.isJsonNull }?.asString ?: UUID.randomUUID().toString()
             val text = message.get("content")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
             contentBlocks.clear()
             contentBlocks.add(
@@ -690,9 +690,11 @@ class AgentClient {
                     }
                 }
             }
+
             is Iterable<*> -> JsonArray().apply {
                 value.forEach { add(toJsonElement(it)) }
             }
+
             else -> com.google.gson.JsonPrimitive(value.toString())
         }
     }
@@ -709,9 +711,20 @@ class AgentClient {
                     else -> primitive.asString
                 }
             }
+
             element.isJsonArray -> element.asJsonArray.map { gsonToAny(it) }
             element.isJsonObject -> element.asJsonObject.entrySet().associate { it.key to gsonToAny(it.value) }
             else -> null
+        }
+    }
+
+    fun refreshRuntimeCache(state: AgentProviderState) {
+        for (entry in runtimeCache) {
+            val cacheProvider = entry.value.provider
+            if (cacheProvider.id == state.id) {
+                runCatching { entry.value.agent.interrupt() }
+                runtimeCache.remove(entry.key)
+            }
         }
     }
 }

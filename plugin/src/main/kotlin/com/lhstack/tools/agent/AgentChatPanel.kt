@@ -19,18 +19,17 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.ui.JBColor
 import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.JBColor
+import com.intellij.ui.LanguageTextField
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
-import com.intellij.ui.LanguageTextField
-import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.const.Icons
@@ -38,7 +37,6 @@ import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
-import kotlinx.datetime.format.DateTimeFormat
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -48,7 +46,6 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
-import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -2074,7 +2071,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun openProviderManager() {
         val dialog = object : DialogWrapper(project, false) {
-            private val panel = AgentProviderConfigPanel(project)
+            private val panel = AgentProviderConfigPanel(project){
+                client.refreshRuntimeCache(it)
+            }
 
             init {
                 title = "供应方配置"

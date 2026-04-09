@@ -5,11 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.lhstack.tools.actions.ContentPageAction
-import com.lhstack.tools.actions.AgentPageAction
-import com.lhstack.tools.actions.OpenConsolePanelAction
-import com.lhstack.tools.actions.PluginPageAction
-import com.lhstack.tools.actions.SettingAction
+import com.lhstack.tools.actions.*
 
 class ToolsMainView(private val project: Project) : SimpleToolWindowPanel(false) {
     private val toolBarActionGroup = DefaultActionGroup()

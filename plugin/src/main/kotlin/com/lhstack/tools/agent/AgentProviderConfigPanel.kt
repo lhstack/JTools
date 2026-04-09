@@ -32,7 +32,7 @@ import javax.swing.JPasswordField
 import javax.swing.ListSelectionModel
 import javax.swing.ScrollPaneConstants
 
-class AgentProviderConfigPanel(private val project: Project) {
+class AgentProviderConfigPanel(private val project: Project,private val saveCallback: (state: AgentProviderState) -> Unit)  {
     private val root = JPanel(BorderLayout())
     private val providerListModel = DefaultListModel<AgentProviderState>()
     private val providerList = JBList(providerListModel)
@@ -361,6 +361,7 @@ class AgentProviderConfigPanel(private val project: Project) {
             project.pluginState().agentActiveProviderId = provider.id
         }
         providerList.repaint()
+        saveCallback(provider)
         showInfo("供应方已保存")
     }
 

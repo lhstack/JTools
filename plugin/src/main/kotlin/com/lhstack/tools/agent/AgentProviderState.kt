@@ -24,6 +24,7 @@ enum class AgentProxyType(val id: String, val displayName: String, val javaType:
     override fun toString(): String = displayName
 
     companion object {
+        @JvmStatic
         fun fromId(id: String?): AgentProxyType {
             return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: HTTP
         }
