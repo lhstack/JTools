@@ -141,8 +141,18 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.5</h2>
+            <h2>📦 Version v1.1.3.6</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🎨 <b>Composer Card Refresh:</b> Refined the chat input area into a unified bottom composer card with neutral idle borders, focus highlighting, and clearer separation from the message stream</li>
+                <li>🔒 <b>Streaming Prompt Lock:</b> Disabled the system prompt selector and prompt manager while a response is streaming so request-time controls stay visually and behaviorally consistent</li>
+                <li>🧭 <b>Request State Consistency:</b> Centralized request-state UI toggles so selectors, actions, and the input field are enabled and disabled together more reliably</li>
+                <li>🎨 <b>输入区卡片化：</b>将底部输入区重构为统一的 composer 卡片，空闲态使用中性边框，聚焦时高亮，并与消息区拉开更清晰的层级</li>
+                <li>🔒 <b>流式提示词锁定：</b>模型输出期间禁用系统提示词选择器和管理按钮，避免请求进行中出现仍可点击编辑的提示词控件</li>
+                <li>🧭 <b>请求态一致性：</b>统一收敛请求中的 UI 开关逻辑，使选择器、操作按钮和输入框在发送中与恢复后保持一致的启停状态</li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.5</h2>
             <ul>
                 <li>📝 <b>System Prompt Management:</b> Added a prompt selector and manager directly in chat so default and custom system prompts can be maintained and switched per session</li>
                 <li>🔒 <b>Prompt Guardrails &amp; Sync:</b> Made the built-in prompt explicitly read-only, disabled invalid save/delete actions, and moved prompt persistence/synchronization to stable prompt IDs</li>

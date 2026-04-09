@@ -6,18 +6,18 @@ import kotlin.test.assertEquals
 class AgentStreamTextSupportTest {
 
     @Test
-    fun `returns chunk as is for stream delta`() {
+    fun `returns current text when previous stream state is empty`() {
         assertEquals(
             " 世界",
-            AgentStreamTextSupport.streamDelta(" 世界")
+            AgentStreamTextSupport.delta(previous = "", current = " 世界")
         )
     }
 
     @Test
-    fun `appends incoming chunk when accumulating stream state`() {
+    fun `returns only appended text when current stream extends previous state`() {
         assertEquals(
-            "你好 世界",
-            AgentStreamTextSupport.accumulate(existing = "你好", incoming = " 世界")
+            " 世界",
+            AgentStreamTextSupport.delta(previous = "你好", current = "你好 世界")
         )
     }
 }

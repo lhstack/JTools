@@ -60,9 +60,53 @@ import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
 import javax.swing.text.DefaultEditorKit
 
+internal data class AgentRequestUiControls(
+    val sessionSelector: JComponent,
+    val providerSelector: JComponent,
+    val systemPromptSelector: JComponent,
+    val modelSelector: JComponent,
+    val conversationModeSelector: JComponent,
+    val sendAction: AnAction,
+    val stopAction: AnAction,
+    val providerManageAction: AnAction,
+    val systemPromptManageAction: AnAction,
+    val modelManageAction: AnAction,
+    val modelSettingsAction: AnAction,
+    val skillSelectAction: AnAction,
+    val skillManageAction: AnAction,
+    val mcpManageAction: AnAction,
+) {
+    fun applyRequestInProgress(
+        requestInProgress: Boolean,
+        setActionEnabled: (AnAction, Boolean) -> Unit,
+        setInputEnabled: (Boolean) -> Unit,
+    ) {
+        val enabled = !requestInProgress
+        setActionEnabled(sendAction, enabled)
+        setActionEnabled(stopAction, requestInProgress)
+        sessionSelector.isEnabled = enabled
+        providerSelector.isEnabled = enabled
+        systemPromptSelector.isEnabled = enabled
+        modelSelector.isEnabled = enabled
+        conversationModeSelector.isEnabled = enabled
+        setActionEnabled(providerManageAction, enabled)
+        setActionEnabled(systemPromptManageAction, enabled)
+        setActionEnabled(modelManageAction, enabled)
+        setActionEnabled(modelSettingsAction, enabled)
+        setActionEnabled(skillSelectAction, enabled)
+        setActionEnabled(skillManageAction, enabled)
+        setActionEnabled(mcpManageAction, enabled)
+        setInputEnabled(enabled)
+    }
+}
+
 class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
     private companion object {
         private const val TOOL_BLOCK_VISIBLE_LINES = 10
+        private val INPUT_COMPOSER_BACKGROUND = JBColor(Color(0xFFFFFF), Color(0x2B2F34))
+        private val INPUT_COMPOSER_BORDER = JBColor(Color(0xD3D9E2), Color(0x4E545A))
+        private val INPUT_COMPOSER_DIVIDER = JBColor(Color(0xE4E8EF), Color(0x43484D))
+        private val INPUT_COMPOSER_FOCUS_BORDER = JBColor(0x4B90FF, 0x4B90FF)
     }
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -147,6 +191,23 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var activeToolPopupResultField: LanguageTextField? = createJsonViewer()
 
     private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
+
+    private val requestUiControls = AgentRequestUiControls(
+        sessionSelector = sessionSelector,
+        providerSelector = providerSelector,
+        systemPromptSelector = systemPromptSelector,
+        modelSelector = modelSelector,
+        conversationModeSelector = conversationModeSelector,
+        sendAction = sendAction,
+        stopAction = stopAction,
+        providerManageAction = providerManageAction,
+        systemPromptManageAction = systemPromptManageAction,
+        modelManageAction = modelManageAction,
+        modelSettingsAction = modelSettingsAction,
+        skillSelectAction = skillSelectAction,
+        skillManageAction = skillManageAction,
+        mcpManageAction = mcpManageAction,
+    )
 
     init {
         setupChatContainer()
@@ -2233,36 +2294,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun beginRequestUi() {
-        setActionEnabled(sendAction, false)
-        setActionEnabled(stopAction, true)
-        sessionSelector.isEnabled = false
-        providerSelector.isEnabled = false
-        modelSelector.isEnabled = false
-        conversationModeSelector.isEnabled = false
-        setActionEnabled(providerManageAction, false)
-        setActionEnabled(modelManageAction, false)
-        setActionEnabled(modelSettingsAction, false)
-        setActionEnabled(skillSelectAction, false)
-        setActionEnabled(skillManageAction, false)
-        setActionEnabled(mcpManageAction, false)
-        setInputEnabled(false)
+        requestUiControls.applyRequestInProgress(
+            requestInProgress = true,
+            setActionEnabled = ::setActionEnabled,
+            setInputEnabled = ::setInputEnabled
+        )
         updateToolbars()
     }
 
     private fun finishRequestUi() {
-        setActionEnabled(sendAction, true)
-        setActionEnabled(stopAction, false)
-        sessionSelector.isEnabled = true
-        providerSelector.isEnabled = true
-        modelSelector.isEnabled = true
-        conversationModeSelector.isEnabled = true
-        setActionEnabled(providerManageAction, true)
-        setActionEnabled(modelManageAction, true)
-        setActionEnabled(modelSettingsAction, true)
-        setActionEnabled(skillSelectAction, true)
-        setActionEnabled(skillManageAction, true)
-        setActionEnabled(mcpManageAction, true)
-        setInputEnabled(true)
+        requestUiControls.applyRequestInProgress(
+            requestInProgress = false,
+            setActionEnabled = ::setActionEnabled,
+            setInputEnabled = ::setInputEnabled
+        )
         cancelToken = null
         sending.set(false)
         updateModelSettingsAction()
@@ -2354,11 +2399,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun buildInputBar(): JComponent {
         val inputScroll = JBScrollPane(inputArea).apply {
-            border = JBUI.Borders.customLine(JBColor(0x4B90FF, 0x4B90FF), 1)
-            viewport.background = UIUtil.getTextFieldBackground()
+            border = JBUI.Borders.empty()
+            isOpaque = false
+            viewport.isOpaque = false
+            viewport.background = INPUT_COMPOSER_BACKGROUND
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
-        inputHintLabel.foreground = JBColor.GRAY
+        inputHintLabel.foreground = UIUtil.getContextHelpForeground()
         inputHintLabel.horizontalAlignment = SwingConstants.LEFT
         val providerPanel = JPanel().apply {
             isOpaque = false
@@ -2426,18 +2473,58 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             val sendToolbar = createToolbar("AgentSendToolbar", sendGroup, true, this)
             add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                isOpaque = false
                 this.add(sendToolbar)
             }, BorderLayout.SOUTH)
         }
         inputCenterPanel.removeAll()
         inputCenterPanel.add(attachmentDraftScroll, BorderLayout.NORTH)
         inputCenterPanel.add(inputScroll, BorderLayout.CENTER)
-        return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(4, 8, 8, 8)
-            add(header, BorderLayout.NORTH)
+        val inputBody = JPanel(BorderLayout(JBUI.scale(12), 0)).apply {
+            isOpaque = false
             add(inputCenterPanel, BorderLayout.CENTER)
             add(actionPanel, BorderLayout.EAST)
         }
+        val inputCard = JPanel(BorderLayout(0, JBUI.scale(8))).apply {
+            isOpaque = true
+            background = INPUT_COMPOSER_BACKGROUND
+            add(header, BorderLayout.NORTH)
+            add(inputBody, BorderLayout.CENTER)
+        }
+        updateInputComposerChrome(inputCard, actionPanel, focused = inputArea.hasFocus())
+        inputArea.addFocusListener(object : FocusAdapter() {
+            override fun focusGained(e: FocusEvent) {
+                updateInputComposerChrome(inputCard, actionPanel, focused = true)
+            }
+
+            override fun focusLost(e: FocusEvent) {
+                updateInputComposerChrome(inputCard, actionPanel, focused = false)
+            }
+        })
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(4, 8, 8, 8)
+            isOpaque = false
+            add(inputCard, BorderLayout.CENTER)
+        }
+    }
+
+    private fun updateInputComposerChrome(card: JPanel, actionPanel: JComponent, focused: Boolean) {
+        card.background = INPUT_COMPOSER_BACKGROUND
+        inputArea.background = INPUT_COMPOSER_BACKGROUND
+        card.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(
+                if (focused) INPUT_COMPOSER_FOCUS_BORDER else INPUT_COMPOSER_BORDER,
+                JBUI.scale(1),
+                true
+            ),
+            JBUI.Borders.empty(10, 12, 10, 12)
+        )
+        actionPanel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 1, 0, 0, INPUT_COMPOSER_DIVIDER),
+            JBUI.Borders.emptyLeft(12)
+        )
+        card.revalidate()
+        card.repaint()
     }
 
     private fun sendMessage() {
@@ -2478,7 +2565,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updateCurrentModel(model)
         updateCurrentProvider(provider)
         val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
-        val toolTimeoutMs = project.pluginState().agentToolTimeoutMs.takeIf { it > 0 } ?: 120_000
         val requestId = requestCounter.incrementAndGet()
         activeRequestId = requestId
         val token = AgentClient.CancelToken()
