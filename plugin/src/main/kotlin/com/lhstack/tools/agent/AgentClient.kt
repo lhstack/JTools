@@ -150,15 +150,11 @@ class AgentClient {
             val options = StreamOptions.builder()
                 .eventTypes(
                     EventType.REASONING,
-                    EventType.TOOL_RESULT,
-                    EventType.AGENT_RESULT,
+                    EventType.TOOL_RESULT
                 )
                 .incremental(false)
                 .includeReasoningChunk(true)
-                .includeReasoningResult(false)
                 .includeActingChunk(true)
-                .includeSummaryChunk(true)
-                .includeSummaryResult(false)
                 .build()
             handle.agent.stream(listOf(currentMsg), options)
                 .doOnNext { event ->
