@@ -2770,9 +2770,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun appendToBlock(block: MessageBlock?, text: String) {
         block ?: return
-        block.textArea.text = text
+        block.textArea.append(text)
         block.renderItem?.let {
-            it.content = text
+            it.content += text
             it.state?.content = it.content
         }
         if (block.contentPanel.isVisible && block.scrollPane != null) {
