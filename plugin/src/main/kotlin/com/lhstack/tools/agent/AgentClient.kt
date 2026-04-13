@@ -122,6 +122,8 @@ class AgentClient {
         val toolCallsById = linkedMapOf<String, Pair<String, String>>()
         val toolLogsById = linkedMapOf<String, ToolCallLog>()
         val toolCallStatesById = mutableMapOf<String, ToolCallStreamState>()
+        val reasoningTextsById = mutableMapOf<String, String>()
+        val assistantTextsById = mutableMapOf<String, String>()
         val toolResultTextsById = mutableMapOf<String, String>()
         val handle = getOrCreateRuntime(
             sessionState = sessionState,
@@ -153,7 +155,6 @@ class AgentClient {
                 .incremental(false)
                 .includeReasoningChunk(true)
                 .includeActingChunk(true)
-                .includeSummaryChunk(true)
                 .build()
             handle.agent.stream(listOf(currentMsg), options)
                 .doOnNext { event ->
@@ -164,6 +165,7 @@ class AgentClient {
                                 emitTextDelta(
                                     eventKey = "reasoning",
                                     currentText = text,
+                                    snapshots = reasoningTextsById,
                                     consumer = onReasoningDelta,
                                 )
                             }
@@ -258,6 +260,7 @@ class AgentClient {
                             emitTextDelta(
                                 eventKey = "assistant",
                                 currentText = block.text,
+                                snapshots = assistantTextsById,
                                 consumer = onAssistantDelta,
                             )
                         }
@@ -294,6 +297,7 @@ class AgentClient {
                 return AgentCompletionResult(
                     assistantContent = null,
                     toolCalls = toolLogsById.values.toList(),
+                    reasoningContent = reasoningTextsById.values.joinToString("\n\n").ifBlank { null },
                     errorMessage = "已取消",
                 )
             }
@@ -309,13 +313,14 @@ class AgentClient {
                 )
             }
 
-            val finalContent = finalAssistant?.textContent.orEmpty().ifBlank { null }
+            val finalContent = finalAssistant?.getTextContent().orEmpty().ifBlank { null }
             if (finalAssistant != null) {
-                messages.add(msgToAssistantJson(finalAssistant))
+                messages.add(msgToAssistantJson(finalAssistant!!))
             }
             return AgentCompletionResult(
                 assistantContent = finalContent,
                 toolCalls = toolLogsById.values.toList(),
+                reasoningContent = reasoningTextsById.values.joinToString("\n\n").ifBlank { null },
             )
         } catch (e: Throwable) {
             clearSession(sessionState.id)
@@ -327,6 +332,7 @@ class AgentClient {
             return AgentCompletionResult(
                 assistantContent = null,
                 toolCalls = toolLogsById.values.toList(),
+                reasoningContent = reasoningTextsById.values.joinToString("\n\n").ifBlank { null },
                 errorMessage = errorMessage,
             )
         }
@@ -335,9 +341,15 @@ class AgentClient {
     private fun emitTextDelta(
         eventKey: String,
         currentText: String,
+        snapshots: MutableMap<String, String>,
         consumer: ((AgentTextStreamEvent) -> Unit)?,
     ) {
-        consumer?.invoke(AgentTextStreamEvent(eventKey, currentText))
+        val delta = AgentStreamTextSupport.delta(
+            previous = snapshots[eventKey].orEmpty(),
+            current = currentText,
+        )
+        snapshots[eventKey] = currentText
+        consumer?.invoke(AgentTextStreamEvent(eventKey, delta))
     }
 
     fun listModels(provider: AgentProviderState): ModelListResult {

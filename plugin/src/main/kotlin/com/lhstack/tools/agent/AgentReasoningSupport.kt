@@ -4,7 +4,7 @@ import io.agentscope.core.message.ThinkingBlock
 
 object AgentReasoningSupport {
     fun extractThinking(block: ThinkingBlock): String? {
-        return block.thinking.takeIf { it.isNotBlank() }
+        return block.thinking.takeIf { it.isNotEmpty() }
             ?: stringifyReasoningDetails(block.metadata?.get(ThinkingBlock.METADATA_REASONING_DETAILS))
     }
 
