@@ -2547,9 +2547,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             return
         }
         val providerType = AgentProviderType.fromId(provider.type)
-        if (providerType == AgentProviderType.ANTHROPIC && provider.maxTokens <= 0) {
-            project.errorNotify("智能体", "请在供应方配置中设置 Max Tokens")
-            return
+        if (providerType == AgentProviderType.ANTHROPIC) {
+            val anthropicModel = session.model.trim().ifBlank { resolveDefaultModel(provider) }
+            val anthropicSettings = anthropicModel.takeIf { it.isNotBlank() }?.let {
+                AgentProviderSupport.findModelSettings(provider, it)
+            }
+            val effectiveMaxTokens = anthropicSettings?.anthropicMaxTokens?.trim()?.toIntOrNull()
+                ?: provider.maxTokens.takeIf { it > 0 }
+            if (effectiveMaxTokens == null || effectiveMaxTokens <= 0) {
+                project.errorNotify("智能体", "请在模型设置或供应方默认值中设置 Max Tokens")
+                return
+            }
         }
         val model = session.model.trim().ifBlank { resolveDefaultModel(provider) }
         if (model.isBlank()) {

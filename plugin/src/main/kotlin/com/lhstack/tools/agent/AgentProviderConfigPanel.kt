@@ -161,7 +161,7 @@ class AgentProviderConfigPanel(private val project: Project,private val saveCall
                 AgentFormUi.twoColumnGrid(
                     AgentFormUi.fieldTile("接口地址", baseUrlField, "接口基础地址。"),
                     AgentFormUi.fieldTile("接口路径", endpointPathField, "聊天接口路径。"),
-                    AgentFormUi.fieldTile("默认最大输出", maxTokensField, "默认输出 token 上限。"),
+                    AgentFormUi.fieldTile("默认最大输出", maxTokensField, "供应方级默认输出 token 上限，可留空；模型设置中的值会优先覆盖。"),
                     AgentFormUi.fieldTile("默认供应方", defaultCheck, "保存后将其作为聊天默认供应方。"),
                 ),
                 AgentFormUi.fieldTile("快捷 Header", buildHeaderQuickAddPanel(), "快速追加单个 Header。"),
@@ -203,7 +203,7 @@ class AgentProviderConfigPanel(private val project: Project,private val saveCall
             type = AgentFormUi.legacyTypeFor(providerType)
             baseUrl = AgentProviderCatalog.defaultBaseUrl(providerType, vendorTemplate)
             endpointPath = AgentProviderCatalog.defaultEndpointPath(providerType)
-            maxTokens = 1024
+            maxTokens = 0
         }
         AgentProviderSupport.normalizeProvider(provider)
         project.pluginState().agentProviders.add(provider)
@@ -299,7 +299,7 @@ class AgentProviderConfigPanel(private val project: Project,private val saveCall
         baseUrlField.text = provider.baseUrl
         endpointPathField.text = provider.endpointPath
         headersArea.text = provider.customHeaders
-        maxTokensField.text = provider.maxTokens.toString()
+        maxTokensField.text = provider.maxTokens.takeIf { it > 0 }?.toString().orEmpty()
         proxyEnabledCheck.isSelected = provider.proxyEnabled
         proxyTypeCombo.selectedItem = AgentProxyType.fromId(provider.proxyType)
         proxyHostField.text = provider.proxyHost
@@ -324,9 +324,10 @@ class AgentProviderConfigPanel(private val project: Project,private val saveCall
             showError("Header 格式错误: ${headerResult.invalidLines.first()}")
             return
         }
-        val maxTokens = maxTokensField.text.trim().toIntOrNull()
-        if (maxTokens == null || maxTokens <= 0) {
-            showError("默认 Max Tokens 必须是正整数")
+        val maxTokensText = maxTokensField.text.trim()
+        val maxTokens = if (maxTokensText.isBlank()) 0 else maxTokensText.toIntOrNull()
+        if (maxTokens == null || maxTokens < 0) {
+            showError("默认 Max Tokens 必须是非负整数")
             return
         }
         val proxyEnabled = proxyEnabledCheck.isSelected
