@@ -11,16 +11,8 @@ import kotlin.test.assertTrue
 class AgentSkillFunctionToolsTest {
 
     @Test
-    fun `skill add update and session enable mutate state`() {
-        val projectKey = "/demo/project"
-        val state = PluginState.State().apply {
-            agentSessions.add(AgentSessionState().apply {
-                id = "session-1"
-                this.projectKey = projectKey
-                title = "Demo"
-            })
-            agentActiveSessionIdByProject[projectKey] = "session-1"
-        }
+    fun `skill add and delete mutate state`() {
+        val state = PluginState.State()
 
         val addResult = AgentSkillFunctionTools.addSkill(
             state = state,
@@ -39,31 +31,10 @@ class AgentSkillFunctionToolsTest {
         assertEquals("分析", skill.name)
         assertEquals("references/api.md", skill.resources.single().path)
 
-        val updateResult = AgentSkillFunctionTools.updateSkill(
-            state = state,
-            input = AgentSkillUpdateInput(
-                skillId = skill.id,
-                description = "新的说明",
-                resources = listOf(
-                    AgentSkillResourceDraft(path = "examples/demo.kt", content = "fun main() = Unit")
-                )
-            )
-        )
+        val deleteResult = AgentSkillFunctionTools.deleteSkill(state, skill.id)
 
-        assertTrue(updateResult.ok)
-        assertEquals("新的说明", skill.description)
-        assertEquals("examples/demo.kt", skill.resources.single().path)
-
-        val enableResult = AgentSkillFunctionTools.setEnabled(
-            state = state,
-            scope = AgentSkillEnableScope.SESSION,
-            skillId = skill.id,
-            enabled = true,
-            projectKey = projectKey
-        )
-
-        assertTrue(enableResult.ok)
-        assertEquals(listOf(skill.id), state.agentSessions.single().enabledSkillIds)
+        assertTrue(deleteResult.ok)
+        assertTrue(state.agentSkills.isEmpty())
     }
 
     @Test

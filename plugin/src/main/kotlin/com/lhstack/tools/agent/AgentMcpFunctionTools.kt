@@ -87,7 +87,7 @@ object AgentMcpFunctionTools {
         input: AgentMcpUpdateServerInput,
         onInvalidate: (String) -> Unit = {},
     ): AgentFunctionResult<Map<String, Any?>> {
-        val server = findServer(state, input.serverId, input.name)
+        val server = findServer(state, input.serverId, input.name) ?: createServerForUpdate(state, input)
             ?: return AgentFunctionResult(false, error = "未找到 MCP 服务器")
         input.name?.let { updated ->
             val normalized = updated.trim()
@@ -134,20 +134,6 @@ object AgentMcpFunctionTools {
         return AgentFunctionResult(true, summarize(server))
     }
 
-    fun setEnabled(
-        state: PluginState.State,
-        serverIdOrName: String,
-        enabled: Boolean,
-        onInvalidate: (String) -> Unit = {},
-    ): AgentFunctionResult<Map<String, Any?>> {
-        val server = findServer(state, serverIdOrName, serverIdOrName)
-            ?: return AgentFunctionResult(false, error = "未找到 MCP 服务器")
-        server.enabled = enabled
-        McpSupport.normalizeServer(server)
-        onInvalidate(server.id)
-        return AgentFunctionResult(true, summarize(server))
-    }
-
     fun testServer(
         state: PluginState.State,
         serverIdOrName: String,
@@ -170,6 +156,40 @@ object AgentMcpFunctionTools {
             (normalizedId.isNotBlank() && server.id == normalizedId) ||
                 (normalizedName.isNotBlank() && server.name == normalizedName)
         }
+    }
+
+    private fun createServerForUpdate(state: PluginState.State, input: AgentMcpUpdateServerInput): McpServerState? {
+        val normalizedName = input.name?.trim().orEmpty()
+        if (normalizedName.isBlank()) {
+            return null
+        }
+        if (McpSupport.safeServers(state.agentMcpServers).any { it.name == normalizedName }) {
+            return null
+        }
+        val transport = input.transport ?: return null
+        val server = McpSupport.normalizeServer(McpServerState().apply {
+            name = normalizedName
+            enabled = input.enabled ?: true
+            this.transport = transport
+            stdioCommand = input.stdioCommand.orEmpty()
+            stdioArgs = input.stdioArgs.orEmpty().toMutableList()
+            stdioEnv = input.stdioEnv.orEmpty().toMutableMap()
+            url = input.url.orEmpty()
+            headers = input.headers.orEmpty().toMutableMap()
+            authType = input.authType.orEmpty()
+            authHeaderName = input.authHeaderName.orEmpty()
+            authHeaderValue = input.authHeaderValue.orEmpty()
+            authUsername = input.authUsername.orEmpty()
+            authPassword = input.authPassword.orEmpty()
+            authQueryParam = input.authQueryParam.orEmpty()
+            authQueryValue = input.authQueryValue.orEmpty()
+            disabledTools = input.disabledTools.orEmpty().toMutableList()
+        })
+        if (!validateServer(server)) {
+            return null
+        }
+        state.agentMcpServers.add(server)
+        return server
     }
 
     private fun validateServer(server: McpServerState): Boolean {
