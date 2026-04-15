@@ -42,7 +42,7 @@ class AgentProviderState {
     var baseUrl: String = ""
     var endpointPath: String = ""
     var customHeaders: String = ""
-    var maxTokens: Int = 1024
+    var maxTokens: Int = 4096
     var models: MutableList<String> = mutableListOf()
     var activeModel: String = ""
     var modelSettings: MutableList<AgentModelSettings> = mutableListOf()
