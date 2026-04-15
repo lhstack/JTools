@@ -113,9 +113,8 @@ JTools/
 
 
 ### v1.1.3.7 (当前版本)
-- ✂️ **Patch 式文件编辑** - 新增 `jtools_apply_file_patch`，支持按 `oldText/newText` 顺序执行 Codex 风格局部编辑，要求唯一命中并在确认后一次性写回
-- 🔎 **片段查找工具** - 新增 `jtools_find_file_snippet`，可先精确定位文本片段并返回字符偏移与上下文，再安全组装文件 patch
-- ✍️ **写入会话护栏** - 收紧 `jtools_append_write_session` 的 JSON 参数要求，并将单次追加限制为 `512` 个字符，降低工具调用内容损坏的概率
+- 🧰 **工具面收缩** - 收敛 MCP 管理工具为 `jtools_mcp_update_server` + `jtools_mcp_query` 的 upsert/聚合查询模型，并移除多组低频冗余工具以降低 schema/token 开销
+- ✍️ **写入会话上限统一** - `jtools_append_write_session` 的参数 schema、提示文案和运行时限制统一为单次最多 `2048` 个字符
 - 🎛️ **参数分层生效** - 重构请求参数映射链路，按“供应方默认值 -> 模型通用参数 -> 厂商定制参数”分层应用，让模型级设置可以正确覆盖供应方默认值
 - 🧭 **Max Tokens 回退语义** - 供应方 `maxTokens` 改为可选回退值，不再强制写死默认值；Anthropic 发送前校验也改为接受“模型级值或供应方默认值”任一来源
 - 📦 **版本元数据同步** - 发布版本提升至 `v1.1.3.7`，并同步 SDK Helper 版本元数据到 `1137`

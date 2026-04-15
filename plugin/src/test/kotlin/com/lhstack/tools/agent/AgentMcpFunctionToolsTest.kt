@@ -49,7 +49,13 @@ class AgentMcpFunctionToolsTest {
         assertEquals("https://example.com/mcp", server.url)
         assertEquals("Bearer demo", server.headers["Authorization"])
 
-        val setEnabledResult = AgentMcpFunctionTools.setEnabled(state, server.id, false)
+        val setEnabledResult = AgentMcpFunctionTools.updateServer(
+            state = state,
+            input = AgentMcpUpdateServerInput(
+                serverId = server.id,
+                enabled = false
+            )
+        )
         assertTrue(setEnabledResult.ok)
         assertFalse(server.enabled)
 
@@ -79,5 +85,52 @@ class AgentMcpFunctionToolsTest {
         val data = assertNotNull(result.data)
         assertEquals(true, data["reachable"])
         assertEquals("Demo", data["name"])
+    }
+
+    @Test
+    fun `update server creates new server when missing`() {
+        val state = PluginState.State()
+
+        val result = AgentMcpFunctionTools.updateServer(
+            state = state,
+            input = AgentMcpUpdateServerInput(
+                name = "created",
+                transport = "stdio",
+                stdioCommand = "npx",
+                stdioArgs = listOf("-y", "@demo/server"),
+                enabled = true
+            )
+        )
+
+        assertTrue(result.ok)
+        val server = state.agentMcpServers.single()
+        assertEquals("created", server.name)
+        assertEquals("stdio", server.transport)
+        assertEquals("npx", server.stdioCommand)
+        assertTrue(server.enabled)
+    }
+
+    @Test
+    fun `update server can toggle enabled state`() {
+        val state = PluginState.State().apply {
+            agentMcpServers.add(McpServerState().apply {
+                id = "server-1"
+                name = "Demo"
+                transport = "stdio"
+                stdioCommand = "npx"
+                enabled = true
+            })
+        }
+
+        val result = AgentMcpFunctionTools.updateServer(
+            state = state,
+            input = AgentMcpUpdateServerInput(
+                serverId = "server-1",
+                enabled = false
+            )
+        )
+
+        assertTrue(result.ok)
+        assertFalse(state.agentMcpServers.single().enabled)
     }
 }

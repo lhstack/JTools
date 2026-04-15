@@ -22,21 +22,18 @@ import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.io.FileUtils
 import java.io.BufferedReader
 import java.io.File
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import java.util.UUID
 import kotlin.math.min
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.pluginState
+import java.nio.file.StandardCopyOption
+import java.util.UUID
+import kotlin.collections.set
 
 data class AgentTool(
     val name: String,
@@ -89,8 +86,7 @@ class AgentToolRegistry private constructor(
         private const val SYSTEM_PLUGIN_NAME = "系统"
         private const val SYSTEM_PLUGIN_PATH = "<internal>"
         private const val SYSTEM_PLUGIN_TYPE = "system"
-        private const val WRITE_SESSION_MAX_CHARS_PER_APPEND = 2000
-
+        private const val WRITE_SESSION_MAX_CHARS_PER_APPEND = 2048
         private data class WriteSessionState(
             val sessionId: String,
             val resolvedPath: File,
@@ -101,10 +97,7 @@ class AgentToolRegistry private constructor(
             var totalChars: Int = 0,
         )
 
-        private data class FileContentPatch(
-            val oldText: String,
-            val newText: String,
-        )
+
 
         private val writeSessions = ConcurrentHashMap<String, WriteSessionState>()
 
@@ -282,95 +275,6 @@ class AgentToolRegistry private constructor(
             )
             registerTool(
                 AgentTool(
-                    name = "jtools_skill_add",
-                    description = "新增一个手动 skill 定义",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": { "type": "string", "description": "技能名称" },
-                            "description": { "type": "string", "description": "技能描述" },
-                            "skillContent": { "type": "string", "description": "Skill 正文内容" },
-                            "enabledByDefault": { "type": "boolean", "description": "是否默认启用" },
-                            "resources": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "path": { "type": "string" },
-                                  "content": { "type": "string" }
-                                },
-                                "required": ["path", "content"]
-                              }
-                            }
-                          },
-                          "required": ["name", "description", "skillContent"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val result = AgentSkillFunctionTools.addSkill(
-                            project.pluginState(),
-                            AgentSkillAddInput(
-                                name = payload.get("name")?.asString?.trim().orEmpty(),
-                                description = payload.get("description")?.asString?.trim().orEmpty(),
-                                skillContent = payload.get("skillContent")?.asString.orEmpty(),
-                                enabledByDefault = payload.get("enabledByDefault")?.takeIf { !it.isJsonNull }?.asBoolean ?: false,
-                                resources = parseSkillResources(payload.get("resources"))
-                            )
-                        )
-                        functionResult(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-            registerTool(
-                AgentTool(
-                    name = "jtools_skill_update",
-                    description = "按 patch 语义更新 skill 定义",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "skillId": { "type": "string", "description": "技能 ID" },
-                            "name": { "type": "string", "description": "技能名称；未提供 skillId 时用于定位" },
-                            "description": { "type": "string", "description": "新的技能描述" },
-                            "skillContent": { "type": "string", "description": "新的 Skill 正文内容" },
-                            "enabledByDefault": { "type": "boolean", "description": "是否默认启用" },
-                            "resources": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "path": { "type": "string" },
-                                  "content": { "type": "string" }
-                                },
-                                "required": ["path", "content"]
-                              }
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val result = AgentSkillFunctionTools.updateSkill(
-                            project.pluginState(),
-                            AgentSkillUpdateInput(
-                                skillId = payload.get("skillId")?.takeIf { !it.isJsonNull }?.asString?.trim(),
-                                name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim(),
-                                description = payload.get("description")?.takeIf { !it.isJsonNull }?.asString,
-                                skillContent = payload.get("skillContent")?.takeIf { !it.isJsonNull }?.asString,
-                                enabledByDefault = payload.get("enabledByDefault")?.takeIf { !it.isJsonNull }?.asBoolean,
-                                resources = payload.get("resources")?.let(::parseSkillResources)
-                            )
-                        )
-                        functionResult(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-            registerTool(
-                AgentTool(
                     name = "jtools_skill_delete",
                     description = "删除一个 skill，并自动从会话中移除",
                     parametersJson = """
@@ -390,42 +294,6 @@ class AgentToolRegistry private constructor(
                             return@AgentTool error(project, "skillId 或 name 不能为空")
                         }
                         functionResult(project, AgentSkillFunctionTools.deleteSkill(project.pluginState(), identifier))
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-            registerTool(
-                AgentTool(
-                    name = "jtools_skill_set_enabled",
-                    description = "启用或禁用 skill，可作用于默认状态或当前项目会话",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "skillId": { "type": "string", "description": "技能 ID" },
-                            "name": { "type": "string", "description": "技能名称" },
-                            "scope": { "type": "string", "enum": ["default", "session"], "description": "作用范围" },
-                            "enabled": { "type": "boolean", "description": "是否启用" },
-                            "sessionId": { "type": "string", "description": "可选会话 ID" }
-                          },
-                          "required": ["enabled"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val scope = AgentSkillEnableScope.fromId(payload.get("scope")?.takeIf { !it.isJsonNull }?.asString)
-                        val enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean
-                            ?: return@AgentTool error(project, "enabled 不能为空")
-                        val result = AgentSkillFunctionTools.setEnabled(
-                            state = project.pluginState(),
-                            scope = scope,
-                            skillId = payload.get("skillId")?.takeIf { !it.isJsonNull }?.asString?.trim(),
-                            name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim(),
-                            enabled = enabled,
-                            projectKey = resolveProjectKey(project),
-                            sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim()
-                        )
-                        functionResult(project, result)
                     },
                     pluginInfo = systemPluginInfo
                 )
@@ -505,19 +373,6 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_list_plugins_detail",
-                    description = "列出所有插件详细信息(包含实现类、路径、大小等)",
-                    parametersJson = emptyParameters(),
-                    call = {
-                        val details = collectPluginDetails(project)
-                        success(project, details)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
                     name = "jtools_get_plugin_detail",
                     description = "获取某个插件的详细信息, 需要 pluginId 或 pluginName",
                     parametersJson = """
@@ -590,73 +445,6 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_install_plugins_from_files",
-                    description = "批量安装本地插件文件或目录(支持jar/zip)",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "paths": { "type": "array", "items": { "type": "string" }, "description": "文件或目录路径列表" },
-                            "recursive": { "type": "boolean", "description": "目录是否递归搜索", "default": false }
-                          },
-                          "required": ["paths"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val pathsElement = payload.get("paths")
-                        val recursive = payload.get("recursive")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
-                        if (pathsElement == null || !pathsElement.isJsonArray) {
-                            return@AgentTool error(project, "paths 必须是数组")
-                        }
-                        val paths = pathsElement.asJsonArray.mapNotNull { item ->
-                            item.takeIf { it.isJsonPrimitive }?.asString?.trim()
-                        }.filter { it.isNotBlank() }
-                        if (paths.isEmpty()) {
-                            return@AgentTool error(project, "paths 不能为空")
-                        }
-                        val files = collectPluginFiles(paths, recursive)
-                        val results = files.map { path ->
-                            installPluginFromPath(project, path)
-                        }
-                        success(project, mapOf("total" to files.size, "results" to results))
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_install_plugin_from_url",
-                    description = "从URL下载安装插件(jar/zip)，安装完成后删除临时文件",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "url": { "type": "string", "description": "插件下载地址" },
-                            "sha256": { "type": "string", "description": "可选SHA256校验值" }
-                          },
-                          "required": ["url"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val url = payload.get("url")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val sha256 = payload.get("sha256")?.takeIf { !it.isJsonNull }?.asString?.trim()
-                        if (url.isBlank()) {
-                            return@AgentTool error(project, "url 不能为空")
-                        }
-                        val result = installPluginFromUrl(project, url, sha256)
-                        success(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
                     name = "jtools_uninstall_plugin",
                     description = "卸载插件(通过 pluginId 或 pluginName)",
                     parametersJson = """
@@ -714,30 +502,6 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_get_env_vars",
-                    description = "获取环境变量(可选前缀过滤)",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "prefix": { "type": "string", "description": "变量名前缀过滤" }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: JsonObject()
-                        val prefix = payload.get("prefix")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val env = System.getenv().filter { (k, _) ->
-                            prefix.isBlank() || k.startsWith(prefix)
-                        }
-                        success(project, env)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
                     name = "jtools_get_env_var",
                     description = "获取单个环境变量",
                     parametersJson = """
@@ -765,25 +529,6 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_list_projects",
-                    description = "获取当前打开项目列表",
-                    parametersJson = emptyParameters(),
-                    call = {
-                        val projects = ProjectManager.getInstance().openProjects.map { p ->
-                            mapOf(
-                                "name" to p.name,
-                                "locationHash" to p.locationHash,
-                                "basePath" to p.basePath
-                            )
-                        }
-                        success(project, projects)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
                     name = "jtools_get_current_project",
                     description = "获取当前用户所在项目的信息",
                     parametersJson = emptyParameters(),
@@ -802,85 +547,8 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_get_project_info",
-                    description = "获取某个项目的信息(通过 locationHash 或 name)",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "projectId": { "type": "string", "description": "项目 locationHash" },
-                            "projectName": { "type": "string", "description": "项目名称" }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val projectId = payload.get("projectId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val projectName = payload.get("projectName")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val candidates = ProjectManager.getInstance().openProjects.filter { p ->
-                            when {
-                                projectId.isNotBlank() -> p.locationHash == projectId
-                                projectName.isNotBlank() -> p.name == projectName
-                                else -> false
-                            }
-                        }
-                        if (candidates.isEmpty()) {
-                            return@AgentTool error(project, "未找到项目")
-                        }
-                        if (candidates.size > 1) {
-                            return@AgentTool error(project, "项目名称重复, 请使用 projectId")
-                        }
-                        val p = candidates.first()
-                        val moduleCount = ModuleManager.getInstance(p).modules.size
-                        val info = mapOf(
-                            "name" to p.name,
-                            "locationHash" to p.locationHash,
-                            "basePath" to p.basePath,
-                            "moduleCount" to moduleCount
-                        )
-                        success(project, info)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
                     name = "jtools_list_files",
                     description = "列出指定路径下的文件(只读,结果可能截断)",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "path": { "type": "string", "description": "目录路径" },
-                            "depth": { "type": "integer", "description": "递归深度,默认1", "default": 1 },
-                            "maxEntries": { "type": "integer", "description": "最多返回条目数,默认1000", "default": 1000 }
-                          },
-                          "required": ["path"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val depth = payload.get("depth")?.takeIf { !it.isJsonNull }?.asInt ?: 1
-                        val maxEntries = payload.get("maxEntries")?.takeIf { !it.isJsonNull }?.asInt
-                            ?: DEFAULT_MAX_LIST_ENTRIES
-                        if (path.isBlank()) {
-                            return@AgentTool error(project, "path 不能为空")
-                        }
-                        val result = listFiles(path, depth, maxEntries)
-                        success(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_read_directory",
-                    description = "读取指定目录内容(只读,结果可能截断)",
                     parametersJson = """
                         {
                           "type": "object",
@@ -968,88 +636,6 @@ class AgentToolRegistry private constructor(
                     pluginInfo = systemPluginInfo
                 )
             )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_find_file_snippet",
-                    description = "在文件中精确查找指定文本片段，返回字符偏移和前后文。适合在调用 jtools_apply_file_patch 前先确认 oldText 是否唯一命中。",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "path": { "type": "string", "description": "文件路径。相对路径会基于当前项目目录解析。" },
-                            "query": { "type": "string", "description": "要精确查找的文本片段。" },
-                            "maxMatches": { "type": "integer", "description": "最多返回多少个命中结果，默认 20。", "default": 20 },
-                            "contextChars": { "type": "integer", "description": "每个命中前后各返回多少个字符作为上下文，默认 120。", "default": 120 }
-                          },
-                          "required": ["path", "query"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val query = payload.get("query")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                        val maxMatches = payload.get("maxMatches")?.takeIf { !it.isJsonNull }?.asInt ?: 20
-                        val contextChars = payload.get("contextChars")?.takeIf { !it.isJsonNull }?.asInt ?: 120
-                        if (path.isBlank()) {
-                            return@AgentTool error(project, "path 不能为空")
-                        }
-                        if (query.isEmpty()) {
-                            return@AgentTool error(project, "query 不能为空")
-                        }
-                        val result = findFileSnippet(project, path, query, maxMatches, contextChars)
-                        success(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_apply_file_patch",
-                    description = "按 patch 方式局部编辑文件。每个 patch 使用 oldText/newText 表示一个编辑块，并按顺序在最新内容上继续匹配；每个 oldText 必须唯一命中，否则失败。全部 patch 校验通过后一次性写回，并在执行前弹窗确认。",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "path": { "type": "string", "description": "文件路径。相对路径会基于当前项目目录解析。" },
-                            "patches": {
-                              "type": "array",
-                              "description": "按顺序应用的 patch 列表。每个 oldText 都会在上一个 patch 应用后的最新内容中继续精确匹配。",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "oldText": { "type": "string", "description": "当前文件中应存在的原始文本片段，必须唯一命中。" },
-                                  "newText": { "type": "string", "description": "替换后的文本片段。" }
-                                },
-                                "required": ["oldText", "newText"],
-                                "additionalProperties": false
-                              }
-                            }
-                          },
-                          "required": ["path", "patches"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        if (path.isBlank()) {
-                            return@AgentTool error(project, "path 不能为空")
-                        }
-                        val patches = parseFileContentPatches(payload.get("patches"))
-                            ?: return@AgentTool error(project, "patches 必须是非空数组，且每个 patch 都必须包含 oldText 和 newText")
-                        if (patches.isEmpty()) {
-                            return@AgentTool error(project, "patches 不能为空")
-                        }
-                        val result = applyFilePatch(project, path, patches)
-                        success(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
             registerTool(
                 AgentTool(
                     name = "jtools_open_write_session",
@@ -1181,12 +767,22 @@ class AgentToolRegistry private constructor(
             registerTool(
                 AgentTool(
                     name = "jtools_execute_command",
-                    description = "执行脚本命令。执行前会弹出确认窗口，只有用户确认才会执行；用户拒绝时返回“用户拒绝执行”。未提供 workdir 时优先使用当前项目目录。",
+                    description = """
+                        执行系统命令。执行前会弹出确认窗口，只有用户确认才会执行；用户拒绝时返回“用户拒绝执行”。未提供 workdir 时优先使用当前项目目录。
+
+                        调用要求：
+                        1. command 必须是适配当前操作系统的可直接执行命令。
+                        2. Windows 下优先使用 PowerShell 风格命令与语法。
+                        3. macOS 下优先使用 zsh 兼容命令与语法。
+                        4. Linux 下优先使用 bash 兼容命令与语法。
+                        5. 避免混用不同系统的路径格式、环境变量写法、重定向和管道语法。
+                        6. 如果命令依赖 shell 特性，应优先使用当前系统默认推荐 shell 可识别的写法。
+                    """.trimIndent(),
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
-                            "command": { "type": "string", "description": "要执行的命令。" },
+                            "command": { "type": "string", "description": "要执行的命令。必须根据当前操作系统选择合适的 shell 风格：Windows 优先 PowerShell，macOS 优先 zsh，Linux 优先 bash。" },
                             "workdir": { "type": "string", "description": "执行目录，可选；相对路径会基于当前项目目录解析。" },
                             "timeoutMs": { "type": "integer", "description": "超时时间，单位毫秒，默认 30000。" }
                           },
@@ -1259,114 +855,55 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
-                    name = "jtools_mcp_list_resources",
-                    description = "列出指定 MCP 服务器的资源列表",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "serverId": { "type": "string", "description": "MCP 服务器 ID" }
-                          },
-                          "required": ["serverId"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
-                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
-                        val resources = McpClientManager.safeListResources(server)
-                        success(project, resources)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_mcp_read_resource",
-                    description = "读取指定 MCP 资源内容",
+                    name = "jtools_mcp_query",
+                    description = "统一查询 MCP 服务器的资源、单个资源内容、提示词、单个提示词内容或工具列表。",
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
                             "serverId": { "type": "string", "description": "MCP 服务器 ID" },
-                            "uri": { "type": "string", "description": "资源 URI" }
+                            "kind": { "type": "string", "enum": ["resources", "resource", "prompts", "prompt", "tools"], "description": "查询类型" },
+                            "uri": { "type": "string", "description": "kind=resource 时需要的资源 URI" },
+                            "name": { "type": "string", "description": "kind=prompt 时需要的提示词名称" },
+                            "arguments": { "type": "object", "description": "kind=prompt 时可选的提示词参数" }
                           },
-                          "required": ["serverId", "uri"]
+                          "required": ["serverId", "kind"],
+                          "additionalProperties": false
                         }
                     """.trimIndent(),
                     call = { args ->
                         val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
                         val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
-                        val uri = payload.get("uri")?.asString?.trim().orEmpty()
+                        val kind = payload.get("kind")?.asString?.trim().orEmpty()
                         val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
-                        if (uri.isBlank()) {
-                            return@AgentTool error(project, "uri 不能为空")
-                        }
-                        return@AgentTool try {
-                            val result = McpClientManager.getClient(server).readResource(uri)
-                            success(project, result)
-                        } catch (e: Throwable) {
-                            error(project, "MCP 读取资源失败: ${e.message ?: "unknown"}")
-                        }
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_mcp_list_prompts",
-                    description = "列出指定 MCP 服务器的提示模板",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "serverId": { "type": "string", "description": "MCP 服务器 ID" }
-                          },
-                          "required": ["serverId"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
-                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
-                        val prompts = McpClientManager.safeListPrompts(server)
-                        success(project, prompts)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_mcp_get_prompt",
-                    description = "获取 MCP 提示模板内容",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "serverId": { "type": "string", "description": "MCP 服务器 ID" },
-                            "name": { "type": "string", "description": "提示模板名称" },
-                            "arguments": { "type": "object", "description": "提示模板参数" }
-                          },
-                          "required": ["serverId", "name"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
-                        val name = payload.get("name")?.asString?.trim().orEmpty()
-                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
-                        if (name.isBlank()) {
-                            return@AgentTool error(project, "name 不能为空")
-                        }
-                        val arguments = payload.getAsJsonObject("arguments")
-                        return@AgentTool try {
-                            val result = McpClientManager.getClient(server).getPrompt(name, arguments)
-                            success(project, result)
-                        } catch (e: Throwable) {
-                            error(project, "MCP 获取提示失败: ${e.message ?: "unknown"}")
+                        return@AgentTool when (kind) {
+                            "resources" -> success(project, McpClientManager.safeListResources(server))
+                            "tools" -> success(project, McpClientManager.safeListTools(server))
+                            "prompts" -> success(project, McpClientManager.safeListPrompts(server))
+                            "resource" -> {
+                                val uri = payload.get("uri")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                                if (uri.isBlank()) {
+                                    return@AgentTool error(project, "kind=resource 时 uri 不能为空")
+                                }
+                                runCatching { McpClientManager.getClient(server).readResource(uri) }
+                                    .fold(
+                                        onSuccess = { success(project, it) },
+                                        onFailure = { error(project, "MCP 读取资源失败: ${it.message ?: "unknown"}") }
+                                    )
+                            }
+                            "prompt" -> {
+                                val name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                                if (name.isBlank()) {
+                                    return@AgentTool error(project, "kind=prompt 时 name 不能为空")
+                                }
+                                val arguments = payload.get("arguments")?.takeIf { it.isJsonObject }?.asJsonObject
+                                runCatching { McpClientManager.getClient(server).getPrompt(name, arguments) }
+                                    .fold(
+                                        onSuccess = { success(project, it) },
+                                        onFailure = { error(project, "MCP 获取提示失败: ${it.message ?: "unknown"}") }
+                                    )
+                            }
+                            else -> error(project, "kind 必须是 resources、resource、prompts、prompt 或 tools")
                         }
                     },
                     pluginInfo = systemPluginInfo
@@ -1412,64 +949,8 @@ class AgentToolRegistry private constructor(
         ) {
             registerTool(
                 AgentTool(
-                    name = "jtools_mcp_add_server",
-                    description = "新增 MCP 服务器配置",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": { "type": "string", "description": "服务器名称" },
-                            "enabled": { "type": "boolean", "description": "是否启用" },
-                            "transport": { "type": "string", "enum": ["stdio", "sse", "streamable-http"], "description": "传输方式" },
-                            "stdioCommand": { "type": "string", "description": "stdio 命令" },
-                            "stdioArgs": { "type": "array", "items": { "type": "string" } },
-                            "stdioEnv": { "type": "object", "additionalProperties": { "type": "string" } },
-                            "url": { "type": "string", "description": "HTTP/SSE 地址" },
-                            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
-                            "authType": { "type": "string", "enum": ["none", "header", "basic", "query"] },
-                            "authHeaderName": { "type": "string" },
-                            "authHeaderValue": { "type": "string" },
-                            "authUsername": { "type": "string" },
-                            "authPassword": { "type": "string" },
-                            "authQueryParam": { "type": "string" },
-                            "authQueryValue": { "type": "string" },
-                            "disabledTools": { "type": "array", "items": { "type": "string" } }
-                          },
-                          "required": ["name", "transport"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val result = AgentMcpFunctionTools.addServer(
-                            state = project.pluginState(),
-                            input = AgentMcpAddServerInput(
-                                name = payload.get("name")?.asString?.trim().orEmpty(),
-                                enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean ?: true,
-                                transport = payload.get("transport")?.asString?.trim().orEmpty(),
-                                stdioCommand = payload.get("stdioCommand")?.takeIf { !it.isJsonNull }?.asString,
-                                stdioArgs = parseStringArray(payload.get("stdioArgs")),
-                                stdioEnv = parseStringMap(payload.get("stdioEnv")),
-                                url = payload.get("url")?.takeIf { !it.isJsonNull }?.asString,
-                                headers = parseStringMap(payload.get("headers")),
-                                authType = payload.get("authType")?.takeIf { !it.isJsonNull }?.asString,
-                                authHeaderName = payload.get("authHeaderName")?.takeIf { !it.isJsonNull }?.asString,
-                                authHeaderValue = payload.get("authHeaderValue")?.takeIf { !it.isJsonNull }?.asString,
-                                authUsername = payload.get("authUsername")?.takeIf { !it.isJsonNull }?.asString,
-                                authPassword = payload.get("authPassword")?.takeIf { !it.isJsonNull }?.asString,
-                                authQueryParam = payload.get("authQueryParam")?.takeIf { !it.isJsonNull }?.asString,
-                                authQueryValue = payload.get("authQueryValue")?.takeIf { !it.isJsonNull }?.asString,
-                                disabledTools = parseStringArray(payload.get("disabledTools"))
-                            )
-                        )
-                        functionResult(project, result)
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-            registerTool(
-                AgentTool(
                     name = "jtools_mcp_update_server",
-                    description = "按 patch 语义更新 MCP 服务器配置",
+                    description = "按 upsert 语义新增或更新 MCP 服务器配置；同时可修改 enabled 状态。",
                     parametersJson = """
                         {
                           "type": "object",
@@ -1547,40 +1028,6 @@ class AgentToolRegistry private constructor(
                         functionResult(
                             project,
                             AgentMcpFunctionTools.deleteServer(project.pluginState(), identifier) {
-                                McpClientManager.invalidate(it)
-                            }
-                        )
-                    },
-                    pluginInfo = systemPluginInfo
-                )
-            )
-            registerTool(
-                AgentTool(
-                    name = "jtools_mcp_set_enabled",
-                    description = "启用或禁用 MCP 服务器",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "serverId": { "type": "string" },
-                            "name": { "type": "string" },
-                            "enabled": { "type": "boolean" }
-                          },
-                          "required": ["enabled"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val identifier = payload.get("serverId")?.takeIf { !it.isJsonNull }?.asString?.trim()
-                            ?: payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        if (identifier.isBlank()) {
-                            return@AgentTool error(project, "serverId 或 name 不能为空")
-                        }
-                        val enabled = payload.get("enabled")?.takeIf { !it.isJsonNull }?.asBoolean
-                            ?: return@AgentTool error(project, "enabled 不能为空")
-                        functionResult(
-                            project,
-                            AgentMcpFunctionTools.setEnabled(project.pluginState(), identifier, enabled) {
                                 McpClientManager.invalidate(it)
                             }
                         )
@@ -1719,66 +1166,6 @@ class AgentToolRegistry private constructor(
 
         private fun emptyParameters(): String {
             return """{"type":"object","properties":{}}"""
-        }
-
-        private fun collectPluginFiles(paths: List<String>, recursive: Boolean): List<String> {
-            val results = mutableListOf<String>()
-            paths.forEach { path ->
-                val file = File(path)
-                if (file.isFile) {
-                    if (isPluginArchive(file)) {
-                        results.add(file.absolutePath)
-                    }
-                } else if (file.isDirectory) {
-                    val files = if (recursive) {
-                        file.walkTopDown().filter { it.isFile }.toList()
-                    } else {
-                        file.listFiles()?.filter { it.isFile } ?: emptyList()
-                    }
-                    files.filter { isPluginArchive(it) }.forEach { results.add(it.absolutePath) }
-                }
-            }
-            return results.distinct()
-        }
-
-        private fun isPluginArchive(file: File): Boolean {
-            val ext = file.extension.lowercase()
-            return ext == "jar" || ext == "zip"
-        }
-
-        private fun installPluginFromUrl(project: Project, url: String, sha256: String?): Map<String, Any?> {
-            val suffix = extractArchiveSuffix(url)
-            val tempFile = Files.createTempFile("jtools-plugin-", suffix).toFile()
-            return try {
-                val request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .GET()
-                    .build()
-                val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofFile(tempFile.toPath()))
-                if (response.statusCode() !in 200..299) {
-                    return mapOf("ok" to false, "error" to "下载失败: ${response.statusCode()}")
-                }
-                if (!sha256.isNullOrBlank()) {
-                    val actual = DigestUtils.sha256Hex(tempFile.readBytes())
-                    if (!sha256.equals(actual, ignoreCase = true)) {
-                        return mapOf("ok" to false, "error" to "SHA256 校验失败")
-                    }
-                }
-                installPluginFromPath(project, tempFile.absolutePath)
-            } catch (e: Throwable) {
-                mapOf("ok" to false, "error" to (e.message ?: "下载失败"))
-            } finally {
-                tempFile.delete()
-            }
-        }
-
-        private fun extractArchiveSuffix(url: String): String {
-            val lower = url.lowercase()
-            return when {
-                lower.endsWith(".jar") -> ".jar"
-                lower.endsWith(".zip") -> ".zip"
-                else -> ".jar"
-            }
         }
 
         private fun installPluginFromPath(project: Project, path: String): Map<String, Any?> {
@@ -1958,144 +1345,6 @@ class AgentToolRegistry private constructor(
                 "totalChars" to totalChars,
                 "sizeBytes" to file.length(),
                 "content" to content.toString()
-            )
-        }
-
-        private fun findFileSnippet(project: Project, path: String, query: String, maxMatches: Int, contextChars: Int): Map<String, Any?> {
-            val file = resolveProjectAwareFile(project, path)
-            if (!file.exists() || !file.isFile) {
-                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "文件不存在")
-            }
-            if (maxMatches <= 0) {
-                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "maxMatches 必须大于 0")
-            }
-            if (contextChars < 0) {
-                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "contextChars 不能小于 0")
-            }
-            val content = Files.readString(file.toPath(), StandardCharsets.UTF_8)
-            val matches = mutableListOf<Map<String, Any?>>()
-            var totalMatches = 0
-            var searchIndex = 0
-            while (true) {
-                val matchIndex = content.indexOf(query, searchIndex)
-                if (matchIndex < 0) {
-                    break
-                }
-                totalMatches++
-                if (matches.size < maxMatches) {
-                    val start = matchIndex
-                    val end = matchIndex + query.length
-                    val beforeStart = maxOf(0, start - contextChars)
-                    val afterEnd = min(content.length, end + contextChars)
-                    matches.add(
-                        mapOf(
-                            "start" to start,
-                            "end" to end,
-                            "beforeContext" to content.substring(beforeStart, start),
-                            "matchText" to content.substring(start, end),
-                            "afterContext" to content.substring(end, afterEnd)
-                        )
-                    )
-                }
-                searchIndex = matchIndex + query.length
-            }
-            return mapOf(
-                "ok" to true,
-                "path" to file.absolutePath,
-                "queryLength" to query.length,
-                "totalMatches" to totalMatches,
-                "returnedMatches" to matches.size,
-                "truncated" to (totalMatches > matches.size),
-                "maxMatches" to maxMatches,
-                "contextChars" to contextChars,
-                "matches" to matches
-            )
-        }
-
-        private fun applyFilePatch(
-            project: Project,
-            path: String,
-            patches: List<FileContentPatch>,
-        ): Map<String, Any?> {
-            val file = resolveProjectAwareFile(project, path)
-            if (!file.exists() || !file.isFile) {
-                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "文件不存在")
-            }
-            if (patches.isEmpty()) {
-                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "patches 不能为空")
-            }
-            val originalContent = Files.readString(file.toPath(), StandardCharsets.UTF_8)
-            var updatedContent = originalContent
-            val patchSummaries = mutableListOf<Map<String, Any?>>()
-            patches.forEachIndexed { index, patch ->
-                if (patch.oldText.isEmpty()) {
-                    return mapOf(
-                        "ok" to false,
-                        "path" to file.absolutePath,
-                        "patchIndex" to index,
-                        "error" to "第 ${index + 1} 个 patch 的 oldText 不能为空"
-                    )
-                }
-                val matches = countOccurrences(updatedContent, patch.oldText)
-                if (matches <= 0) {
-                    return mapOf(
-                        "ok" to false,
-                        "path" to file.absolutePath,
-                        "patchIndex" to index,
-                        "error" to "第 ${index + 1} 个 patch 未命中任何内容"
-                    )
-                }
-                if (matches > 1) {
-                    return mapOf(
-                        "ok" to false,
-                        "path" to file.absolutePath,
-                        "patchIndex" to index,
-                        "matches" to matches,
-                        "error" to "第 ${index + 1} 个 patch 命中多处内容，要求 oldText 唯一匹配"
-                    )
-                }
-                val matchIndex = updatedContent.indexOf(patch.oldText)
-                updatedContent = buildString(updatedContent.length - patch.oldText.length + patch.newText.length) {
-                    append(updatedContent, 0, matchIndex)
-                    append(patch.newText)
-                    append(updatedContent, matchIndex + patch.oldText.length, updatedContent.length)
-                }
-                patchSummaries.add(
-                    mapOf(
-                        "index" to (index + 1),
-                        "oldLength" to patch.oldText.length,
-                        "newLength" to patch.newText.length,
-                        "oldPreview" to previewContent(patch.oldText),
-                        "newPreview" to previewContent(patch.newText)
-                    )
-                )
-            }
-            if (updatedContent == originalContent) {
-                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "patch 未产生任何实际改动")
-            }
-            val approved = confirmApplyFilePatch(project, file, patchSummaries)
-            if (!approved) {
-                return mapOf(
-                    "ok" to false,
-                    "path" to file.absolutePath,
-                    "patchCount" to patches.size,
-                    "error" to "用户拒绝写入"
-                )
-            }
-            Files.writeString(
-                file.toPath(),
-                updatedContent,
-                StandardCharsets.UTF_8,
-                java.nio.file.StandardOpenOption.CREATE,
-                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
-                java.nio.file.StandardOpenOption.WRITE
-            )
-            return mapOf(
-                "ok" to true,
-                "path" to file.absolutePath,
-                "patchCount" to patches.size,
-                "patches" to patchSummaries,
-                "sizeBytes" to file.length()
             )
         }
 
@@ -2345,7 +1594,6 @@ class AgentToolRegistry private constructor(
             }
             return resolveProjectAwareFile(project, path)
         }
-
         private fun confirmWriteSessionOpen(project: Project, path: File, mode: String): Boolean {
             val accepted = booleanArrayOf(false)
             ApplicationManager.getApplication().invokeAndWait {
@@ -2366,46 +1614,6 @@ class AgentToolRegistry private constructor(
             }
             return accepted[0]
         }
-
-        private fun confirmApplyFilePatch(
-            project: Project,
-            path: File,
-            patchSummaries: List<Map<String, Any?>>,
-        ): Boolean {
-            val accepted = booleanArrayOf(false)
-            ApplicationManager.getApplication().invokeAndWait {
-                val message = buildString {
-                    appendLine("即将按 patch 编辑文件：")
-                    append(path.absolutePath)
-                    appendLine()
-                    appendLine()
-                    append("patch 数量：")
-                    appendLine(patchSummaries.size.toString())
-                    appendLine()
-                    patchSummaries.take(3).forEach { patch ->
-                        append("Patch #")
-                        appendLine(patch["index"].toString())
-                        append("oldText：")
-                        appendLine(patch["oldPreview"].toString())
-                        append("newText：")
-                        appendLine(patch["newPreview"].toString())
-                        appendLine()
-                    }
-                    if (patchSummaries.size > 3) {
-                        append("其余 patch 数量：")
-                        append(patchSummaries.size - 3)
-                    }
-                }
-                accepted[0] = Messages.showYesNoDialog(
-                    project,
-                    message,
-                    "确认应用文件 Patch",
-                    Messages.getQuestionIcon()
-                ) == Messages.YES
-            }
-            return accepted[0]
-        }
-
         private fun confirmCommandExecution(project: Project, command: String, workdir: File): Boolean {
             val accepted = booleanArrayOf(false)
             ApplicationManager.getApplication().invokeAndWait {
@@ -2439,46 +1647,6 @@ class AgentToolRegistry private constructor(
                 }
             }
             return total
-        }
-
-        private fun countOccurrences(content: String, target: String): Int {
-            var count = 0
-            var index = 0
-            while (true) {
-                index = content.indexOf(target, index)
-                if (index < 0) {
-                    break
-                }
-                count++
-                index += target.length
-            }
-            return count
-        }
-
-        private fun parseFileContentPatches(element: com.google.gson.JsonElement?): List<FileContentPatch>? {
-            if (element == null || element.isJsonNull || !element.isJsonArray) {
-                return null
-            }
-            val patches = mutableListOf<FileContentPatch>()
-            for (item in element.asJsonArray) {
-                val obj = item.takeIf { it.isJsonObject }?.asJsonObject ?: return null
-                val oldText = obj.get("oldText")?.takeIf { !it.isJsonNull }?.asString ?: return null
-                val newText = obj.get("newText")?.takeIf { !it.isJsonNull }?.asString ?: return null
-                if (oldText.isEmpty()) {
-                    return null
-                }
-                patches.add(FileContentPatch(oldText = oldText, newText = newText))
-            }
-            return patches
-        }
-
-        private fun previewContent(content: String, maxLength: Int = 200): String {
-            val normalized = content.replace("\r", "\\r").replace("\n", "\\n")
-            return if (normalized.length <= maxLength) {
-                normalized
-            } else {
-                normalized.take(maxLength) + "..."
-            }
         }
 
         private fun collectPluginDetails(project: Project): List<Map<String, Any?>> {
@@ -2617,11 +1785,6 @@ class AgentToolRegistry private constructor(
             }
         }
 
-        private fun resolveProjectKey(project: Project): String {
-            val basePath = project.basePath?.replace("\\", "/")?.trim().orEmpty()
-            return if (basePath.isNotEmpty()) basePath else project.name
-        }
-
         private fun parseStringArray(element: com.google.gson.JsonElement?): List<String> {
             if (element == null || element.isJsonNull || !element.isJsonArray) {
                 return emptyList()
@@ -2642,22 +1805,6 @@ class AgentToolRegistry private constructor(
             }.toMap()
         }
 
-        private fun parseSkillResources(element: com.google.gson.JsonElement?): List<AgentSkillResourceDraft> {
-            if (element == null || element.isJsonNull || !element.isJsonArray) {
-                return emptyList()
-            }
-            return element.asJsonArray.mapNotNull { item ->
-                val obj = item.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-                val path = obj.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                if (path.isBlank()) {
-                    return@mapNotNull null
-                }
-                AgentSkillResourceDraft(
-                    path = path,
-                    content = obj.get("content")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
-                )
-            }
-        }
 
         private fun parseArgs(arguments: String): JsonObject? {
             if (arguments.isBlank()) {
@@ -2665,6 +1812,7 @@ class AgentToolRegistry private constructor(
             }
             return JsonParser.parseString(arguments) as JsonObject?
         }
+
 
         private fun success(project: Project, data: Any): String {
             return project.gson.toJson(mapOf("ok" to true, "data" to data))
