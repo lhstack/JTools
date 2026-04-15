@@ -1093,7 +1093,7 @@ class AgentToolRegistry private constructor(
                         1. 必须严格按照参数 schema 传入完整 JSON。
                         2. 必须同时提供 sessionId 和 content，不能省略，不能为 null。
                         3. content 必须是本次要追加的纯文本内容，不要包装成 JSON，不要添加解释。
-                        4. 单次 content 最多 512 个字符；如果内容超过 512 个字符，必须拆分为多次调用，不能截断成非法内容。
+                        4. 单次 content 最多 2048 个字符；如果内容超过 2048 个字符，必须拆分为多次调用，不能截断成非法内容。
                         5. 输出工具参数时，不能出现任何额外文本、注释、markdown 或不完整 JSON。
                         6. 所有字符串必须完整闭合并正确转义。
                         7. 如果当前内容无法一次写完，优先分段多次调用，保证每次调用都是合法、完整、可解析的 JSON。
@@ -1103,7 +1103,7 @@ class AgentToolRegistry private constructor(
                           "type": "object",
                           "properties": {
                             "sessionId": { "type": "string", "description": "写入会话 ID。" },
-                            "content": { "type": "string", "description": "本次追加的纯文本内容。必须是完整字符串，不能为 null，单次最多 512 个字符；超过时必须拆分多次调用。","minLength": 1,"maxLength": 512 }
+                            "content": { "type": "string", "description": "本次追加的纯文本内容。必须是完整字符串，不能为 null，单次最多 2048 个字符；超过时必须拆分多次调用。","minLength": 1,"maxLength": 2048 }
                           },
                           "required": ["sessionId", "content"],
                           "additionalProperties": false
