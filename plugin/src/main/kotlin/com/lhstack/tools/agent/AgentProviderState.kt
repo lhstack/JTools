@@ -42,7 +42,7 @@ class AgentProviderState {
     var baseUrl: String = ""
     var endpointPath: String = ""
     var customHeaders: String = ""
-    var maxTokens: Int = 1024
+    var maxTokens: Int = 0
     var models: MutableList<String> = mutableListOf()
     var activeModel: String = ""
     var modelSettings: MutableList<AgentModelSettings> = mutableListOf()
@@ -124,8 +124,8 @@ object AgentProviderSupport {
         provider.endpointPath = provider.endpointPath.trim().ifBlank {
             AgentProviderCatalog.defaultEndpointPath(provider.providerType)
         }
-        if (provider.maxTokens <= 0) {
-            provider.maxTokens = 1024
+        if (provider.maxTokens < 0) {
+            provider.maxTokens = 0
         }
         provider.proxyType = AgentProxyType.fromId(provider.proxyType).id
         provider.models = provider.models.filter { it.isNotBlank() }.toMutableList()

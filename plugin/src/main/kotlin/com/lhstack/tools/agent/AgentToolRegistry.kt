@@ -101,6 +101,11 @@ class AgentToolRegistry private constructor(
             var totalChars: Int = 0,
         )
 
+        private data class FileContentPatch(
+            val oldText: String,
+            val newText: String,
+        )
+
         private val writeSessions = ConcurrentHashMap<String, WriteSessionState>()
 
         fun build(project: Project, selectedSkills: List<AgentSkillState> = emptyList()): AgentToolRegistry {
@@ -966,6 +971,87 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
+                    name = "jtools_find_file_snippet",
+                    description = "在文件中精确查找指定文本片段，返回字符偏移和前后文。适合在调用 jtools_apply_file_patch 前先确认 oldText 是否唯一命中。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "文件路径。相对路径会基于当前项目目录解析。" },
+                            "query": { "type": "string", "description": "要精确查找的文本片段。" },
+                            "maxMatches": { "type": "integer", "description": "最多返回多少个命中结果，默认 20。", "default": 20 },
+                            "contextChars": { "type": "integer", "description": "每个命中前后各返回多少个字符作为上下文，默认 120。", "default": 120 }
+                          },
+                          "required": ["path", "query"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val query = payload.get("query")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                        val maxMatches = payload.get("maxMatches")?.takeIf { !it.isJsonNull }?.asInt ?: 20
+                        val contextChars = payload.get("contextChars")?.takeIf { !it.isJsonNull }?.asInt ?: 120
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        if (query.isEmpty()) {
+                            return@AgentTool error(project, "query 不能为空")
+                        }
+                        val result = findFileSnippet(project, path, query, maxMatches, contextChars)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_apply_file_patch",
+                    description = "按 patch 方式局部编辑文件。每个 patch 使用 oldText/newText 表示一个编辑块，并按顺序在最新内容上继续匹配；每个 oldText 必须唯一命中，否则失败。全部 patch 校验通过后一次性写回，并在执行前弹窗确认。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": { "type": "string", "description": "文件路径。相对路径会基于当前项目目录解析。" },
+                            "patches": {
+                              "type": "array",
+                              "description": "按顺序应用的 patch 列表。每个 oldText 都会在上一个 patch 应用后的最新内容中继续精确匹配。",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "oldText": { "type": "string", "description": "当前文件中应存在的原始文本片段，必须唯一命中。" },
+                                  "newText": { "type": "string", "description": "替换后的文本片段。" }
+                                },
+                                "required": ["oldText", "newText"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["path", "patches"]
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args)
+                            ?: return@AgentTool error(project, "参数解析失败")
+                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (path.isBlank()) {
+                            return@AgentTool error(project, "path 不能为空")
+                        }
+                        val patches = parseFileContentPatches(payload.get("patches"))
+                            ?: return@AgentTool error(project, "patches 必须是非空数组，且每个 patch 都必须包含 oldText 和 newText")
+                        if (patches.isEmpty()) {
+                            return@AgentTool error(project, "patches 不能为空")
+                        }
+                        val result = applyFilePatch(project, path, patches)
+                        success(project, result)
+                    },
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
                     name = "jtools_open_write_session",
                     description = "打开一个文件写入会话。调用前会弹窗让用户确认目标路径和写入模式；只有确认后才会创建会话。后续通过 sessionId 追加内容，最后再 commit。",
                     parametersJson = """
@@ -1000,15 +1086,27 @@ class AgentToolRegistry private constructor(
             registerTool(
                 AgentTool(
                     name = "jtools_append_write_session",
-                    description = "向已打开的写入会话追加一段内容。内容会先写入临时文件，不会立即修改正式文件。单次最多 2000 个字符。",
+                    description = """
+                        向已打开的写入会话追加一段内容。内容会先写入临时文件，不会立即修改正式文件。
+
+                        调用要求：
+                        1. 必须严格按照参数 schema 传入完整 JSON。
+                        2. 必须同时提供 sessionId 和 content，不能省略，不能为 null。
+                        3. content 必须是本次要追加的纯文本内容，不要包装成 JSON，不要添加解释。
+                        4. 单次 content 最多 512 个字符；如果内容超过 512 个字符，必须拆分为多次调用，不能截断成非法内容。
+                        5. 输出工具参数时，不能出现任何额外文本、注释、markdown 或不完整 JSON。
+                        6. 所有字符串必须完整闭合并正确转义。
+                        7. 如果当前内容无法一次写完，优先分段多次调用，保证每次调用都是合法、完整、可解析的 JSON。
+                    """.trimIndent(),
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
                             "sessionId": { "type": "string", "description": "写入会话 ID。" },
-                            "content": { "type": "string", "description": "本次追加的文本内容，单次最多 2000 个字符。" }
+                            "content": { "type": "string", "description": "本次追加的纯文本内容。必须是完整字符串，不能为 null，单次最多 512 个字符；超过时必须拆分多次调用。","minLength": 1,"maxLength": 512 }
                           },
-                          "required": ["sessionId", "content"]
+                          "required": ["sessionId", "content"],
+                          "additionalProperties": false
                         }
                     """.trimIndent(),
                     call = { args ->
@@ -1863,6 +1961,144 @@ class AgentToolRegistry private constructor(
             )
         }
 
+        private fun findFileSnippet(project: Project, path: String, query: String, maxMatches: Int, contextChars: Int): Map<String, Any?> {
+            val file = resolveProjectAwareFile(project, path)
+            if (!file.exists() || !file.isFile) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "文件不存在")
+            }
+            if (maxMatches <= 0) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "maxMatches 必须大于 0")
+            }
+            if (contextChars < 0) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "contextChars 不能小于 0")
+            }
+            val content = Files.readString(file.toPath(), StandardCharsets.UTF_8)
+            val matches = mutableListOf<Map<String, Any?>>()
+            var totalMatches = 0
+            var searchIndex = 0
+            while (true) {
+                val matchIndex = content.indexOf(query, searchIndex)
+                if (matchIndex < 0) {
+                    break
+                }
+                totalMatches++
+                if (matches.size < maxMatches) {
+                    val start = matchIndex
+                    val end = matchIndex + query.length
+                    val beforeStart = maxOf(0, start - contextChars)
+                    val afterEnd = min(content.length, end + contextChars)
+                    matches.add(
+                        mapOf(
+                            "start" to start,
+                            "end" to end,
+                            "beforeContext" to content.substring(beforeStart, start),
+                            "matchText" to content.substring(start, end),
+                            "afterContext" to content.substring(end, afterEnd)
+                        )
+                    )
+                }
+                searchIndex = matchIndex + query.length
+            }
+            return mapOf(
+                "ok" to true,
+                "path" to file.absolutePath,
+                "queryLength" to query.length,
+                "totalMatches" to totalMatches,
+                "returnedMatches" to matches.size,
+                "truncated" to (totalMatches > matches.size),
+                "maxMatches" to maxMatches,
+                "contextChars" to contextChars,
+                "matches" to matches
+            )
+        }
+
+        private fun applyFilePatch(
+            project: Project,
+            path: String,
+            patches: List<FileContentPatch>,
+        ): Map<String, Any?> {
+            val file = resolveProjectAwareFile(project, path)
+            if (!file.exists() || !file.isFile) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "文件不存在")
+            }
+            if (patches.isEmpty()) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "patches 不能为空")
+            }
+            val originalContent = Files.readString(file.toPath(), StandardCharsets.UTF_8)
+            var updatedContent = originalContent
+            val patchSummaries = mutableListOf<Map<String, Any?>>()
+            patches.forEachIndexed { index, patch ->
+                if (patch.oldText.isEmpty()) {
+                    return mapOf(
+                        "ok" to false,
+                        "path" to file.absolutePath,
+                        "patchIndex" to index,
+                        "error" to "第 ${index + 1} 个 patch 的 oldText 不能为空"
+                    )
+                }
+                val matches = countOccurrences(updatedContent, patch.oldText)
+                if (matches <= 0) {
+                    return mapOf(
+                        "ok" to false,
+                        "path" to file.absolutePath,
+                        "patchIndex" to index,
+                        "error" to "第 ${index + 1} 个 patch 未命中任何内容"
+                    )
+                }
+                if (matches > 1) {
+                    return mapOf(
+                        "ok" to false,
+                        "path" to file.absolutePath,
+                        "patchIndex" to index,
+                        "matches" to matches,
+                        "error" to "第 ${index + 1} 个 patch 命中多处内容，要求 oldText 唯一匹配"
+                    )
+                }
+                val matchIndex = updatedContent.indexOf(patch.oldText)
+                updatedContent = buildString(updatedContent.length - patch.oldText.length + patch.newText.length) {
+                    append(updatedContent, 0, matchIndex)
+                    append(patch.newText)
+                    append(updatedContent, matchIndex + patch.oldText.length, updatedContent.length)
+                }
+                patchSummaries.add(
+                    mapOf(
+                        "index" to (index + 1),
+                        "oldLength" to patch.oldText.length,
+                        "newLength" to patch.newText.length,
+                        "oldPreview" to previewContent(patch.oldText),
+                        "newPreview" to previewContent(patch.newText)
+                    )
+                )
+            }
+            if (updatedContent == originalContent) {
+                return mapOf("ok" to false, "path" to file.absolutePath, "error" to "patch 未产生任何实际改动")
+            }
+            val approved = confirmApplyFilePatch(project, file, patchSummaries)
+            if (!approved) {
+                return mapOf(
+                    "ok" to false,
+                    "path" to file.absolutePath,
+                    "patchCount" to patches.size,
+                    "error" to "用户拒绝写入"
+                )
+            }
+            Files.writeString(
+                file.toPath(),
+                updatedContent,
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                java.nio.file.StandardOpenOption.WRITE
+            )
+            return mapOf(
+                "ok" to true,
+                "path" to file.absolutePath,
+                "patchCount" to patches.size,
+                "patches" to patchSummaries,
+                "sizeBytes" to file.length()
+            )
+        }
+
         private fun openWriteSession(project: Project, path: String, mode: String): Map<String, Any?> {
             val normalizedMode = mode.trim().lowercase()
             if (normalizedMode !in setOf("create", "overwrite", "append")) {
@@ -2131,6 +2367,45 @@ class AgentToolRegistry private constructor(
             return accepted[0]
         }
 
+        private fun confirmApplyFilePatch(
+            project: Project,
+            path: File,
+            patchSummaries: List<Map<String, Any?>>,
+        ): Boolean {
+            val accepted = booleanArrayOf(false)
+            ApplicationManager.getApplication().invokeAndWait {
+                val message = buildString {
+                    appendLine("即将按 patch 编辑文件：")
+                    append(path.absolutePath)
+                    appendLine()
+                    appendLine()
+                    append("patch 数量：")
+                    appendLine(patchSummaries.size.toString())
+                    appendLine()
+                    patchSummaries.take(3).forEach { patch ->
+                        append("Patch #")
+                        appendLine(patch["index"].toString())
+                        append("oldText：")
+                        appendLine(patch["oldPreview"].toString())
+                        append("newText：")
+                        appendLine(patch["newPreview"].toString())
+                        appendLine()
+                    }
+                    if (patchSummaries.size > 3) {
+                        append("其余 patch 数量：")
+                        append(patchSummaries.size - 3)
+                    }
+                }
+                accepted[0] = Messages.showYesNoDialog(
+                    project,
+                    message,
+                    "确认应用文件 Patch",
+                    Messages.getQuestionIcon()
+                ) == Messages.YES
+            }
+            return accepted[0]
+        }
+
         private fun confirmCommandExecution(project: Project, command: String, workdir: File): Boolean {
             val accepted = booleanArrayOf(false)
             ApplicationManager.getApplication().invokeAndWait {
@@ -2164,6 +2439,46 @@ class AgentToolRegistry private constructor(
                 }
             }
             return total
+        }
+
+        private fun countOccurrences(content: String, target: String): Int {
+            var count = 0
+            var index = 0
+            while (true) {
+                index = content.indexOf(target, index)
+                if (index < 0) {
+                    break
+                }
+                count++
+                index += target.length
+            }
+            return count
+        }
+
+        private fun parseFileContentPatches(element: com.google.gson.JsonElement?): List<FileContentPatch>? {
+            if (element == null || element.isJsonNull || !element.isJsonArray) {
+                return null
+            }
+            val patches = mutableListOf<FileContentPatch>()
+            for (item in element.asJsonArray) {
+                val obj = item.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+                val oldText = obj.get("oldText")?.takeIf { !it.isJsonNull }?.asString ?: return null
+                val newText = obj.get("newText")?.takeIf { !it.isJsonNull }?.asString ?: return null
+                if (oldText.isEmpty()) {
+                    return null
+                }
+                patches.add(FileContentPatch(oldText = oldText, newText = newText))
+            }
+            return patches
+        }
+
+        private fun previewContent(content: String, maxLength: Int = 200): String {
+            val normalized = content.replace("\r", "\\r").replace("\n", "\\n")
+            return if (normalized.length <= maxLength) {
+                normalized
+            } else {
+                normalized.take(maxLength) + "..."
+            }
         }
 
         private fun collectPluginDetails(project: Project): List<Map<String, Any?>> {

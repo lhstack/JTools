@@ -38,8 +38,8 @@ class AgentScopeModelFactory(
         }
         require(modelName.isNotBlank()) { "Agent provider must define an active model" }
 
-        val defaultOptions = optionMapper.map(normalized)
         val modelSettings = AgentProviderSupport.findModelSettings(normalized, modelName)
+        val defaultOptions = optionMapper.map(normalized, modelSettings)
         val providerType = normalized.providerType
         val vendorTemplate = normalized.vendorTemplate
         return when (providerType) {
@@ -238,7 +238,7 @@ class AgentScopeModelFactory(
         val model = OllamaChatModel.builder()
             .modelName(modelName)
             .baseUrl(provider.baseUrl)
-            .defaultOptions(optionMapper.mapOllama(provider))
+            .defaultOptions(optionMapper.mapOllama(provider, settings))
             .formatter(formatter)
             .build()
         return AgentScopeModelSpec(

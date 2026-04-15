@@ -141,8 +141,24 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.6</h2>
+            <h2>📦 Version v1.1.3.7</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>✂️ <b>Patch-Based File Editing:</b> Added <code>jtools_apply_file_patch</code> for Codex-style local edits with ordered <code>oldText/newText</code> blocks, unique-match validation, and one-shot confirmed writeback</li>
+                <li>🔎 <b>Snippet Search Tool:</b> Added <code>jtools_find_file_snippet</code> to locate exact text fragments with offsets and surrounding context before applying file patches</li>
+                <li>✍️ <b>Write Session Guardrails:</b> Tightened <code>jtools_append_write_session</code> with stricter JSON payload requirements and a 512-character per-append limit to reduce malformed tool writes</li>
+                <li>🎛️ <b>Layered Model Parameters:</b> Reworked request option mapping so provider defaults, common model parameters, and vendor-specific model parameters are applied in layers, allowing model-level settings to override provider defaults correctly</li>
+                <li>🧭 <b>Max Tokens Fallback Semantics:</b> Changed provider <code>maxTokens</code> into an optional fallback value instead of a hardcoded default, with Anthropic validation now accepting either a model-level value or a provider default</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.3.7</code> and aligned SDK helper version metadata to <code>1137</code></li>
+                <li>✂️ <b>Patch 式文件编辑：</b>新增 <code>jtools_apply_file_patch</code>，支持按 <code>oldText/newText</code> 顺序执行 Codex 风格局部编辑，要求唯一命中并在确认后一次性写回</li>
+                <li>🔎 <b>片段查找工具：</b>新增 <code>jtools_find_file_snippet</code>，可先精确定位文本片段并返回字符偏移与上下文，再安全组装文件 patch</li>
+                <li>✍️ <b>写入会话护栏：</b>收紧 <code>jtools_append_write_session</code> 的 JSON 参数要求，并将单次追加限制为 512 个字符，降低工具调用内容损坏的概率</li>
+                <li>🎛️ <b>参数分层生效：</b>重构请求参数映射链路，按“供应方默认值 -> 模型通用参数 -> 厂商定制参数”分层应用，让模型级设置可以正确覆盖供应方默认值</li>
+                <li>🧭 <b>Max Tokens 回退语义：</b>供应方 <code>maxTokens</code> 改为可选回退值，不再强制写死默认值；Anthropic 发送前校验也改为接受“模型级值或供应方默认值”任一来源</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.3.7</code>，并同步 SDK Helper 版本元数据到 <code>1137</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.6</h2>
             <ul>
                 <li>🎨 <b>Composer Card Refresh:</b> Refined the chat input area into a unified bottom composer card with neutral idle borders, focus highlighting, and clearer separation from the message stream</li>
                 <li>🔒 <b>Streaming Prompt Lock:</b> Disabled the system prompt selector and prompt manager while a response is streaming so request-time controls stay visually and behaviorally consistent</li>
