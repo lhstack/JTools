@@ -44,6 +44,7 @@
         <li><b>🧠 Skill Management:</b> Import or edit local SKILL.md skills, attach them per session, and expose skill resources directly to the agent runtime.</li>
         <li><b>📚 Skill Resources:</b> references/examples/scripts resources can be mounted into agent sessions and read through dedicated resource tools.</li>
         <li><b>🛠️ Built-in Agent Tools:</b> JTools exposes system-level tools for plugin operations, file browsing, skill CRUD, session skill toggles, and MCP management.</li>
+        <li><b>🛡️ Agent Permissions:</b> Per-chat access scopes and dangerous-operation policies control file, shell, plugin, skill, MCP, and dynamically registered tools.</li>
         <li><b>🎚️ Model Tuning:</b> Configure per-model streaming, multimodal capabilities, and advanced OpenAI/Anthropic parameters from a dedicated tuning panel.</li>
         <li><b>🧾 Parameter Guidance:</b> Store provider-level default and recommended parameters to make model configuration more repeatable across sessions.</li>
         <li><b>💾 Session Persistence:</b> Restore sessions, enabled skills, draft attachments, and active context across projects for long-running conversations.</li>
@@ -106,6 +107,7 @@
         <li><b>🧠 Skills 管理：</b>支持导入或编辑本地 SKILL.md 技能，按会话挂载，并将技能资源直接暴露给智能体运行时。</li>
         <li><b>📚 Skills 资源：</b>references/examples/scripts 等资源文件可随技能挂载，并通过专用资源工具读取。</li>
         <li><b>🛠️ 内置智能体工具：</b>提供插件管理、文件浏览、技能增删改查、会话技能开关与 MCP 管理等系统工具。</li>
+        <li><b>🛡️ 智能体权限：</b>按对话配置访问范围与危险操作策略，统一管控文件、命令、插件、Skills、MCP 和动态注册工具。</li>
         <li><b>🎚️ 模型调优：</b>提供独立模型调优面板，可配置流式输出、多模态能力以及 OpenAI/Anthropic 高级参数。</li>
         <li><b>🧾 参数建议：</b>支持保存供应方默认参数与推荐参数，让模型配置在不同会话中更容易复用。</li>
         <li><b>💾 会话持久化：</b>跨项目保留会话、启用的技能、草稿附件与当前上下文，适合长会话持续协作。</li>
@@ -141,8 +143,24 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.7</h2>
+            <h2>📦 Version v1.1.3.8</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🛡️ <b>Agent Permission Controls:</b> Added per-chat access scopes and dangerous-operation policies, with notifications when tool execution is denied</li>
+                <li>🧰 <b>Tool Permission Coverage:</b> Extended permission checks across built-in tools, file operations, shell/PowerShell commands, Skills, MCP, plugin management, environment variables, and dynamically registered tools</li>
+                <li>📂 <b>Path &amp; File Read Safety:</b> Absolute Unix/Windows paths now resolve directly, project-external paths require full access, and <code>read_file</code> uses bounded offset/limit reads to avoid oversized context</li>
+                <li>🔍 <b>Live File Search:</b> <code>glob_search</code> scans the filesystem directly so externally copied files can be discovered without stale cache results</li>
+                <li>🎨 <b>Composer Permission Layout:</b> Moved prompt, access scope, and dangerous-operation controls into a compact top row with concise labels, tooltips, and a scrollable permission help dialog</li>
+                <li>🧹 <b>Runtime Cleanup:</b> Removed the unused PDF extraction path and stale helper code, and synced release metadata to <code>v1.1.3.8</code> / SDK Helper <code>1138</code></li>
+                <li>🛡️ <b>智能体权限控制：</b>对话级新增访问范围与危险操作策略，工具执行被拒绝时会发送通知提示</li>
+                <li>🧰 <b>工具权限覆盖：</b>权限检查覆盖内置工具、文件操作、Shell/PowerShell 命令、Skills、MCP、插件管理、环境变量和动态注册工具</li>
+                <li>📂 <b>路径与读取安全：</b>Unix/Windows 完整路径会直接解析，项目外路径需要完全访问；<code>read_file</code> 改为带 offset/limit 的受限读取，避免一次性撑爆上下文</li>
+                <li>🔍 <b>实时文件搜索：</b><code>glob_search</code> 直接扫描文件系统，外部复制进来的文件不再依赖过期缓存结果</li>
+                <li>🎨 <b>输入区权限布局：</b>提示词、访问范围、危险操作移到输入区顶部横向排列，并提供简短标签、完整提示和可滚动权限说明弹窗</li>
+                <li>🧹 <b>运行时清理：</b>移除未使用的 PDF 文本抽取链路和冗余辅助代码，并同步发布元数据到 <code>v1.1.3.8</code> / SDK Helper <code>1138</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.7</h2>
             <ul>
                 <li>🧰 <b>Lean Tool Surface:</b> Consolidated MCP management around <code>jtools_mcp_update_server</code> and the unified <code>jtools_mcp_query</code>, removing several low-frequency tools to reduce schema/token overhead</li>
                 <li>✍️ <b>Write Session Limit Alignment:</b> Unified <code>jtools_append_write_session</code> schema, prompt text, and runtime checks to allow up to 2048 characters per append</li>

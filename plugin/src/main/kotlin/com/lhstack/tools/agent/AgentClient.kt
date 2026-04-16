@@ -384,7 +384,7 @@ class AgentClient {
             sessionState.id = UUID.randomUUID().toString()
             sessionState.id
         }
-        val signature = buildSignature(provider, model, toolRegistry, resolvedSkills.selectedSkills)
+        val signature = buildSignature(sessionState, provider, model, toolRegistry, resolvedSkills.selectedSkills)
         val existing = runtimeCache[key]
         if (existing != null && existing.signature == signature) {
             return existing
@@ -428,6 +428,7 @@ class AgentClient {
     }
 
     private fun buildSignature(
+        sessionState: AgentSessionState,
         provider: AgentProviderState,
         model: String,
         toolRegistry: AgentToolRegistry,
@@ -451,6 +452,8 @@ class AgentClient {
             provider.endpointPath,
             provider.apiKey,
             model,
+            sessionState.runtime.permissionScope,
+            sessionState.runtime.approvalPolicy,
             toolSignature,
             skillSignature,
         ).joinToString("||")

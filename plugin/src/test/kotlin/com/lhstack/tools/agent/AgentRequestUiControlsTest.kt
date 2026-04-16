@@ -16,6 +16,8 @@ class AgentRequestUiControlsTest {
         val systemPromptSelector = JComboBox<String>()
         val modelSelector = JComboBox<String>()
         val conversationModeSelector = JComboBox<String>()
+        val permissionScopeSelector = JComboBox<String>()
+        val approvalPolicySelector = JComboBox<String>()
         val sendAction = noopAction()
         val stopAction = noopAction()
         val providerManageAction = noopAction()
@@ -34,6 +36,8 @@ class AgentRequestUiControlsTest {
             systemPromptSelector = systemPromptSelector,
             modelSelector = modelSelector,
             conversationModeSelector = conversationModeSelector,
+            permissionScopeSelector = permissionScopeSelector,
+            approvalPolicySelector = approvalPolicySelector,
             sendAction = sendAction,
             stopAction = stopAction,
             providerManageAction = providerManageAction,
@@ -52,6 +56,8 @@ class AgentRequestUiControlsTest {
         })
 
         assertFalse(systemPromptSelector.isEnabled)
+        assertFalse(permissionScopeSelector.isEnabled)
+        assertFalse(approvalPolicySelector.isEnabled)
         assertEquals(false, actionState[systemPromptManageAction])
         assertFalse(inputEnabled)
 
@@ -62,6 +68,8 @@ class AgentRequestUiControlsTest {
         })
 
         assertTrue(systemPromptSelector.isEnabled)
+        assertTrue(permissionScopeSelector.isEnabled)
+        assertTrue(approvalPolicySelector.isEnabled)
         assertEquals(true, actionState[systemPromptManageAction])
         assertTrue(inputEnabled)
     }
