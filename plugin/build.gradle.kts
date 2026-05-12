@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.3.8"
+version = "1.1.4.0"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -21,7 +21,7 @@ repositories {
 
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
-    implementation("io.agentscope:agentscope:1.0.11")
+    implementation("io.agentscope:agentscope:1.0.12")
     implementation("com.anthropic:anthropic-java:2.16.1")
     implementation("com.google.genai:google-genai:1.43.0")
     implementation("cn.hutool:hutool-core:5.8.37")
@@ -245,7 +245,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("251")
-        untilBuild.set("261.*")
+        untilBuild.set("263.*")
     }
 
     signPlugin {

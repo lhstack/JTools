@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent
 
+import io.agentscope.core.tool.Toolkit
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -23,7 +24,7 @@ class AgentSkillSupportTest {
             })
         }
 
-        val resolved = AgentSkillSupport.resolve(listOf(skill), listOf("skill-1"))
+        val resolved = AgentSkillSupport.resolve(listOf(skill), listOf("skill-1"), Toolkit())
 
         assertEquals(1, resolved.selectedSkills.size)
         assertNotNull(resolved.skillBox)

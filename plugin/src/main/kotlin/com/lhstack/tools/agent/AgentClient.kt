@@ -111,6 +111,7 @@ class AgentClient {
         provider: AgentProviderState,
         model: String,
         resolvedSkills: AgentResolvedSkills = AgentResolvedSkills(emptyList(), null),
+        toolkit: Toolkit? = null,
         onAssistantDelta: ((AgentTextStreamEvent) -> Unit)? = null,
         onReasoningDelta: ((AgentTextStreamEvent) -> Unit)? = null,
         onToolCall: ((ToolCallStreamEvent) -> Unit)? = null,
@@ -131,6 +132,7 @@ class AgentClient {
             model = model,
             resolvedSkills = resolvedSkills,
             toolRegistry = toolRegistry,
+            toolkit = toolkit,
             maxToolIterations = maxToolIterations,
         )
 
@@ -378,6 +380,7 @@ class AgentClient {
         model: String,
         resolvedSkills: AgentResolvedSkills,
         toolRegistry: AgentToolRegistry,
+        toolkit: Toolkit?,
         maxToolIterations: Int,
     ): RuntimeHandle {
         val key = sessionState.id.ifBlank {
@@ -390,7 +393,7 @@ class AgentClient {
             return existing
         }
 
-        val toolkit = Toolkit().apply {
+        val runtimeToolkit = (toolkit ?: Toolkit()).apply {
             AgentScopeToolAdapter.wrapAll(toolRegistry).forEach { registerAgentTool(it) }
         }
         val runtimeSpec = runtimeFactory.create(
@@ -398,7 +401,7 @@ class AgentClient {
             session = sessionState,
             config = AgentScopeRuntimeConfig(
                 maxIterations = maxToolIterations,
-                toolkit = toolkit,
+                toolkit = runtimeToolkit,
                 skillBox = resolvedSkills.skillBox,
                 hooks = emptyList(),
             )

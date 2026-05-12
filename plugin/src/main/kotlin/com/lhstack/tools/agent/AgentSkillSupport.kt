@@ -1,6 +1,7 @@
 package com.lhstack.tools.agent
 
 import io.agentscope.core.skill.SkillBox
+import io.agentscope.core.tool.Toolkit
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -18,6 +19,7 @@ object AgentSkillSupport {
     fun resolve(
         allSkills: List<AgentSkillState>,
         selectedIds: Collection<String>,
+        toolkit: Toolkit,
     ): AgentResolvedSkills {
         val selectedIdSet = selectedIds.map { it.trim() }.filter { it.isNotBlank() }.toSet()
         if (selectedIdSet.isEmpty()) {
@@ -38,7 +40,7 @@ object AgentSkillSupport {
         if (selected.isEmpty()) {
             return AgentResolvedSkills(emptyList(), null, warnings)
         }
-        val skillBox = SkillBox("", "")
+        val skillBox = SkillBox(toolkit)
         selected.forEach { state ->
             runCatching { state.toSdkSkill() }
                 .onSuccess { skill ->

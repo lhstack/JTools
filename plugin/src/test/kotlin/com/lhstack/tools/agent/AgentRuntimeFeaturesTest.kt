@@ -74,7 +74,7 @@ class AgentRuntimeFeaturesTest {
     fun `runtime binds toolkit into skill box when both are configured`() {
         val provider = sampleProvider()
         val toolkit = Toolkit()
-        val skillBox = SkillBox("", "")
+        val skillBox = SkillBox(toolkit)
 
         AgentScopeRuntime().create(
             provider = provider,

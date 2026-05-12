@@ -37,6 +37,7 @@ import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
+import io.agentscope.core.tool.Toolkit as AgentScopeToolkit
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -2755,9 +2756,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         syncSessionMessages(session)
 
         ApplicationManager.getApplication().executeOnPooledThread {
+            val toolkit = AgentScopeToolkit()
             val resolvedSkills = AgentSkillSupport.resolve(
                 project.pluginState().agentSkills,
-                session.state.enabledSkillIds
+                session.state.enabledSkillIds,
+                toolkit
             )
             val toolRegistry = AgentToolRegistry.build(project, resolvedSkills.selectedSkills, session.state.runtime)
             if (resolvedSkills.warnings.isNotEmpty()) {
@@ -2773,6 +2776,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 provider,
                 model,
                 resolvedSkills = resolvedSkills,
+                toolkit = toolkit,
                 onAssistantDelta = { event ->
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
