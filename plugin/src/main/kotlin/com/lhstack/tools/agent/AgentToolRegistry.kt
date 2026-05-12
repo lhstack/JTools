@@ -1257,7 +1257,7 @@ class AgentToolRegistry private constructor(
             if (!file.exists() || !file.isFile) {
                 throw IllegalArgumentException("文件不存在")
             }
-            val rawContent = Files.readString(file.toPath(), StandardCharsets.UTF_8).replace("\r\n", "\n")
+            val rawContent = Files.readString(file.toPath(), StandardCharsets.UTF_8)
             val lines = rawContent.split('\n')
             val totalLines = if (rawContent.isBlank()) 0 else lines.size
             val startOffset = (offset ?: 0).coerceAtLeast(0)
