@@ -145,8 +145,26 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.4.0</h2>
+            <h2>📦 Version v1.1.4.1</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🌐 <b>Rendered Web Fetch:</b> <code>fetch</code> now uses HtmlUnit to render pages, extract JavaScript-populated text, and return final URL, content type, rendered HTML, and truncation metadata</li>
+                <li>🔍 <b>Search Engine Fallback:</b> Web search now falls back across Bing, Baidu, and Google with Jsoup-based result parsing instead of relying on a single DuckDuckGo HTML endpoint</li>
+                <li>🧭 <b>Domain Filtering:</b> Search allow/block filters now normalize domains, support subdomain matching, and drop noisy search, script, mail, and phone links</li>
+                <li>🧠 <b>Skill Code Execution:</b> SkillBox enables a temporary workspace, script/data resource upload, and a restricted shell tool so <code>scripts/</code> and <code>data/</code> resources are available at runtime</li>
+                <li>🧹 <b>Tool Surface Cleanup:</b> Removed custom Skill resource reader tools and the environment-variable reader tool; Skill resources are handled by built-in SkillBox capabilities to reduce sensitive-data exposure</li>
+                <li>🧾 <b>Copyable Tool Details:</b> Tool-call detail popups now focus read-only JSON editors so arguments and results can be quickly selected and copied with keyboard shortcuts</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.1</code> and aligned SDK helper version metadata to <code>1141</code></li>
+                <li>🌐 <b>网页读取增强：</b><code>fetch</code> 改为基于 HtmlUnit 渲染页面，支持 JavaScript 后的正文提取，并返回最终 URL、内容类型、渲染 HTML 与截断状态</li>
+                <li>🔍 <b>搜索引擎回退：</b>网页搜索从 DuckDuckGo 单一路径升级为 Bing、Baidu、Google 多引擎回退，并使用 Jsoup 解析真实结果</li>
+                <li>🧭 <b>域名过滤优化：</b>搜索结果按规范化域名执行 allow/block 过滤，支持子域名匹配并过滤搜索页、脚本链接等噪声结果</li>
+                <li>🧠 <b>Skill 代码执行支持：</b>SkillBox 启用临时工作目录、脚本/数据资源上传和受限 Shell 工具，<code>scripts/</code>、<code>data/</code> 等资源可直接进入技能运行时</li>
+                <li>🧹 <b>工具面收敛：</b>移除自定义 Skill 资源读取工具和环境变量读取工具，资源读取改由 SkillBox 内置能力承接，减少敏感信息暴露面</li>
+                <li>🧾 <b>工具详情可复制：</b>工具调用详情弹窗改为聚焦只读 JSON 编辑器，参数和返回值支持快捷键快速选中与复制</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.1</code>，并同步 SDK Helper 版本元数据到 <code>1141</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.0</h2>
             <ul>
                 <li>🔗 <b>SkillBox Toolkit Wiring:</b> SkillBox is now constructed with the upper-level AgentScope Toolkit so skill tools and runtime tools share the same tool container</li>
                 <li>🧠 <b>Skill Runtime Alignment:</b> Agent chat creates one Toolkit per request, resolves selected Skills with that Toolkit, and then registers plugin/system tools into the same instance</li>

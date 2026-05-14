@@ -1,9 +1,13 @@
 package com.lhstack.tools.agent
 
 import io.agentscope.core.skill.SkillBox
+import io.agentscope.core.skill.util.SkillFileSystemHelper
 import io.agentscope.core.tool.Toolkit
+import io.agentscope.core.tool.coding.ShellCommandTool
+import io.agentscope.core.tool.coding.UnixCommandValidator
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.function.Function
 import java.util.UUID
 import kotlin.io.path.isDirectory
 
@@ -52,6 +56,7 @@ object AgentSkillSupport {
                     warnings.add("${state.name.ifBlank { state.id }} 无法加载: ${error.message ?: "未知错误"}")
                 }
         }
+        enableCodeExecution(skillBox)
         return AgentResolvedSkills(
             selectedSkills = selected,
             skillBox = skillBox.takeIf { selected.isNotEmpty() },
@@ -115,4 +120,24 @@ object AgentSkillSupport {
     }
 
     private fun normalize(state: AgentSkillState?): AgentSkillState? = normalizeSkill(state)
+
+    private fun enableCodeExecution(skillBox: SkillBox) {
+        val workDir = Files.createTempDirectory("jtools-agent-skill-code-").toAbsolutePath().normalize()
+        val uploadDir = workDir.resolve("skills").normalize()
+        SkillFileSystemHelper.registerTempDirectoryCleanup(workDir)
+        val shellTool = ShellCommandTool(
+            setOf("bash", "sh", "python", "python3", "node","java","javac","go", "bun", "ls", "pwd")
+        )
+        skillBox.codeExecution()
+            .workDir(workDir.toString())
+            .uploadDir(uploadDir.toString())
+            .withShell(shellTool)
+            .includeFolders(setOf("scripts/","data/"))
+            .includeExtensions(setOf(".py", ".js",".sh",".json",".txt",".java",".go"))
+            .withWrite()
+            .withRead()
+            .enable()
+        skillBox.isAutoUploadSkill = false
+        skillBox.uploadSkillFiles()
+    }
 }

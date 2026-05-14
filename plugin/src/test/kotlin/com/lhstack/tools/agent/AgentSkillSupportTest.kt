@@ -22,14 +22,23 @@ class AgentSkillSupportTest {
                 path = "references/api.md"
                 content = "# api"
             })
+            resources.add(AgentSkillResourceState().apply {
+                path = "scripts/hello.sh"
+                content = "printf 'hello\\n'"
+            })
         }
 
-        val resolved = AgentSkillSupport.resolve(listOf(skill), listOf("skill-1"), Toolkit())
+        val toolkit = Toolkit()
+        val resolved = AgentSkillSupport.resolve(listOf(skill), listOf("skill-1"), toolkit)
 
         assertEquals(1, resolved.selectedSkills.size)
         assertNotNull(resolved.skillBox)
         assertTrue(resolved.warnings.isEmpty())
         assertTrue(resolved.skillBox!!.skillPrompt.contains("代码审查"))
+        assertTrue("execute_shell_command" in toolkit.getToolNames())
+        assertTrue(resolved.skillBox!!.skillPrompt.contains("Code Execution"))
+        val uploadDir = assertNotNull(resolved.skillBox!!.uploadDir)
+        assertTrue(Files.isRegularFile(uploadDir.resolve("skill-1/scripts/hello.sh")))
         assertTrue(skill.toSdkSkill().resources.containsKey("references/api.md"))
     }
 

@@ -100,7 +100,8 @@ object AgentToolPermissionHelp {
             - 用于读取网页或搜索网页信息，不写入本地文件。
 
             Skills 工具
-            - jtools_skill_list、jtools_skill_list_resources、jtools_skill_read_resource：只读。
+            - jtools_skill_list：只读。
+            - SkillBox 内置 load_skill_through_path：用于读取已注册 skill 的 SKILL.md 与资源内容。
             - jtools_skill_delete：项目，删除 skill 配置，受危险操作策略控制。
             - jtools_skill_import_from_path：项目，从本地路径导入并写入 skill 配置，受危险操作策略控制。
 
@@ -111,7 +112,6 @@ object AgentToolPermissionHelp {
 
             插件与系统工具
             - jtools_list_plugins、jtools_get_plugin_detail、jtools_get_system_info、jtools_get_current_project：只读。
-            - jtools_get_env_var：项目。环境变量可能包含密钥或系统敏感信息，受危险操作策略控制。
             - jtools_install_plugin_from_file / jtools_uninstall_plugin：项目，安装或卸载插件，受危险操作策略控制。
             - 外部插件工具：项目。插件工具没有权限元数据时默认受危险操作策略控制。
         """.trimIndent()

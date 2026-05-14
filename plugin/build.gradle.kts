@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.4.0"
+version = "1.1.4.1"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -27,6 +27,8 @@ dependencies {
     implementation("cn.hutool:hutool-core:5.8.37")
     implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
+    implementation("org.jsoup:jsoup:1.22.2")
+    implementation("org.htmlunit:htmlunit:4.21.0")
     implementation(project(":sdk"))
     testImplementation(kotlin("test"))
     testImplementation(platform("org.junit:junit-bom:5.12.2"))

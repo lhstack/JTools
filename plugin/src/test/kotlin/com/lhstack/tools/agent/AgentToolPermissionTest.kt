@@ -42,9 +42,9 @@ class AgentToolPermissionTest {
         assertTrue(help.contains("需要项目或完全访问的工具调用会被视为危险操作"))
         assertTrue(help.contains("项目内写入、编辑、创建目录也会受危险操作策略控制"))
         assertTrue(help.contains("jtools_skill_delete"))
+        assertTrue(help.contains("load_skill_through_path"))
         assertTrue(help.contains("jtools_mcp_update_server / jtools_mcp_delete_server"))
         assertTrue(help.contains("jtools_install_plugin_from_file / jtools_uninstall_plugin"))
-        assertTrue(help.contains("jtools_get_env_var"))
         assertTrue(help.contains("动态 MCP 工具"))
         assertTrue(help.contains("外部插件工具"))
     }

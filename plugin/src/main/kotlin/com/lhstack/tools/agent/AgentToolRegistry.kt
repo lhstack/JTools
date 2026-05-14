@@ -30,6 +30,8 @@ import kotlin.math.min
 import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.pluginState
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import kotlin.collections.set
 
 data class AgentTool(
@@ -176,81 +178,12 @@ class AgentToolRegistry private constructor(
                 pluginInfosByName = pluginInfosByName,
             )
 
-            registerSkillResourceTools(project, selectedSkills, systemPluginInfo, ::registerTool)
             registerJtoolsFunctions(project, registry, systemPluginInfo, ::registerTool)
             registerSkillManagementTools(project, systemPluginInfo, ::registerTool)
             registerMcpManagementTools(project, systemPluginInfo, ::registerTool)
             registerMcpTools(project, ::registerTool)
 
             return registry
-        }
-
-        private fun registerSkillResourceTools(
-            project: Project,
-            selectedSkills: List<AgentSkillState>,
-            systemPluginInfo: PluginInfo,
-            registerTool: (AgentTool) -> Unit,
-        ) {
-            if (selectedSkills.isEmpty()) {
-                return
-            }
-            registerTool(
-                AgentTool(
-                    name = "jtools_skill_list_resources",
-                    description = "列出当前会话已启用 skills 的资源列表",
-                    parametersJson = emptyParameters(),
-                    call = {
-                        success(project, AgentSkillResourceSupport.listResources(selectedSkills))
-                    },
-                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
-                    pluginInfo = systemPluginInfo
-                )
-            )
-            registerTool(
-                AgentTool(
-                    name = "jtools_skill_read_resource",
-                    description = "读取当前会话已启用 skill 的资源内容，可按 skillName 和 path 读取",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "skillName": { "type": "string", "description": "技能名称，可选" },
-                            "path": { "type": "string", "description": "资源路径，支持完整路径或文件名" }
-                          },
-                          "required": ["path"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val path = payload.get("path")?.asString?.trim().orEmpty()
-                        val skillName = payload.get("skillName")?.asString?.trim()
-                        val result = AgentSkillResourceSupport.readResource(selectedSkills, skillName, path)
-                        if (result.error != null) {
-                            return@AgentTool error(
-                                project,
-                                buildString {
-                                    append(result.error)
-                                    if (result.suggestions.isNotEmpty()) {
-                                        append("，可选资源: ")
-                                        append(result.suggestions.joinToString(", "))
-                                    }
-                                }
-                            )
-                        }
-                        success(
-                            project,
-                            mapOf(
-                                "skillId" to result.skillId,
-                                "skillName" to result.skillName,
-                                "path" to result.path,
-                                "content" to result.content
-                            )
-                        )
-                    },
-                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
-                    pluginInfo = systemPluginInfo
-                )
-            )
         }
 
         private fun registerSkillManagementTools(
@@ -504,33 +437,6 @@ class AgentToolRegistry private constructor(
                 )
             )
 
-            registerTool(
-                AgentTool(
-                    name = "jtools_get_env_var",
-                    description = "获取单个环境变量",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": { "type": "string", "description": "变量名" }
-                          },
-                          "required": ["name"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        if (name.isBlank()) {
-                            return@AgentTool error(project, "name 不能为空")
-                        }
-                        val value = System.getenv(name)
-                        success(project, mapOf("name" to name, "value" to value))
-                    },
-                    requiredPermission = AgentToolPermissionScope.WORKSPACE_WRITE,
-                    pluginInfo = systemPluginInfo
-                )
-            )
 
             registerTool(
                 AgentTool(
@@ -1239,6 +1145,7 @@ class AgentToolRegistry private constructor(
                 "javaVendor" to System.getProperty("java.vendor"),
                 "javaHome" to System.getProperty("java.home"),
                 "jtoolsVersion" to Helper.JTOOLS_VERSION,
+                "currentTime" to LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
                 "ide" to mapOf(
                     "apiVersion" to ideInfo.apiVersion,
                     "fullVersion" to ideInfo.fullVersion,

@@ -87,7 +87,6 @@ class AgentToolRegistryFileToolsTest {
             "write_file",
             "edit_file",
             "jtools_create_directory",
-            "jtools_get_env_var",
             "jtools_install_plugin_from_file",
             "jtools_uninstall_plugin",
             "jtools_skill_delete",
@@ -99,22 +98,6 @@ class AgentToolRegistryFileToolsTest {
         listOf(
             "bash",
         ).forEach { assertPermission(it, AgentToolPermissionScope.DANGER_FULL_ACCESS) }
-    }
-
-    @Test
-    fun `skill resource tools declare read only permission`() {
-        val tools = registerSkillResourceTools(
-            fakeProject(Files.createTempDirectory("agent-tool-registry-skill-resource-permissions").toString())
-        ).associateBy { it.name }
-
-        assertEquals(
-            AgentToolPermissionScope.READ_ONLY,
-            assertNotNull(tools["jtools_skill_list_resources"]).requiredPermission
-        )
-        assertEquals(
-            AgentToolPermissionScope.READ_ONLY,
-            assertNotNull(tools["jtools_skill_read_resource"]).requiredPermission
-        )
     }
 
     @Test
@@ -258,6 +241,8 @@ class AgentToolRegistryFileToolsTest {
 
         assertTrue("jtools_skill_list" in toolNames)
         assertTrue("jtools_skill_delete" in toolNames)
+        assertFalse("jtools_skill_list_resources" in toolNames)
+        assertFalse("jtools_skill_read_resource" in toolNames)
         assertFalse("jtools_skill_update" in toolNames)
         assertFalse("jtools_skill_add" in toolNames)
         assertFalse("jtools_skill_set_enabled" in toolNames)
@@ -323,32 +308,6 @@ class AgentToolRegistryFileToolsTest {
             project,
             pluginInfo,
             tools
-        )
-        return tools
-    }
-
-    private fun registerSkillResourceTools(project: Project): List<AgentTool> {
-        val tools = mutableListOf<AgentTool>()
-        val skill = AgentSkillState().apply {
-            id = "skill-1"
-            name = "demo"
-            description = "demo"
-            skillContent = "# Demo"
-        }
-        AgentToolRegistry.Companion::class.java.getDeclaredMethod(
-            "registerSkillResourceTools",
-            Project::class.java,
-            List::class.java,
-            PluginInfo::class.java,
-            Function1::class.java
-        ).apply {
-            isAccessible = true
-        }.invoke(
-            AgentToolRegistry.Companion,
-            project,
-            listOf(skill),
-            PluginInfo("system", "<internal>", "system", "test", 0L, "system"),
-            { tool: AgentTool -> tools += tool }
         )
         return tools
     }

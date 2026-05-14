@@ -209,9 +209,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
     private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
-    private var activeToolPopupArgumentField: LanguageTextField? = createJsonViewer()
-    private var activeToolPopupResultField: LanguageTextField? = createJsonViewer()
-
     private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
 
     private val requestUiControls = AgentRequestUiControls(
@@ -3211,22 +3208,26 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun showToolDetailPopup(card: ToolEntryCard, anchor: JComponent, e: MouseEvent) {
-        activeToolPopupResultField?.text = runCatching {
+        val resultText = runCatching {
             gson.toJson(JsonParser.parseString(card.state.result))
         }.getOrElse { card.state.result }
-        activeToolPopupArgumentField?.text = runCatching {
+        val argumentText = runCatching {
             gson.toJson(JsonParser.parseString(card.state.arguments))
         }.getOrElse { card.state.arguments }
+        val argumentField = createJsonViewer(argumentText)
+        val resultField = createJsonViewer(resultText)
         val content = JPanel(GridLayout(2, 1, 0, JBUI.scale(6))).apply {
             isOpaque = true
             background = UIUtil.getPanelBackground()
             border = JBUI.Borders.empty(8)
-            add(createToolJsonSection("参数", activeToolPopupArgumentField!!, 60))
-            add(createToolJsonSection("返回值", activeToolPopupResultField!!, 200))
+            add(createToolJsonSection("参数", argumentField, 60))
+            add(createToolJsonSection("返回值", resultField, 200))
         }
-        JBPopupFactory.getInstance().createComponentPopupBuilder(content,null)
+        JBPopupFactory.getInstance().createComponentPopupBuilder(content, argumentField)
             .setMovable(true)
             .setResizable(true)
+            .setFocusable(true)
+            .setRequestFocus(true)
             .setTitle(card.titleLabel.text)
             .createPopup()
             .show(RelativePoint(e))
@@ -3248,9 +3249,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun createJsonViewer(): LanguageTextField {
+    private fun createJsonViewer(text: String = ""): LanguageTextField {
         val jsonLanguage = Language.findLanguageByID("JSON5") ?: Language.ANY
-        return object : LanguageTextField(jsonLanguage, project, "", false) {
+        return object : LanguageTextField(jsonLanguage, project, text, false) {
             override fun createEditor(): EditorEx {
                 val editor = super.createEditor()
                 editor.isViewer = true
