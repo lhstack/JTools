@@ -1,19 +1,25 @@
 package com.lhstack.tools.agent
 
 import org.htmlunit.BrowserVersion
+import org.htmlunit.ProxyConfig
 import org.htmlunit.Page
 import org.htmlunit.TextPage
 import org.htmlunit.UnexpectedPage
 import org.htmlunit.WebClient
 import org.htmlunit.html.HtmlPage
+import com.lhstack.tools.plugins.PluginState
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.ProxySelector
 import java.net.URI
-import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.SocketAddress
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import kotlin.math.min
@@ -24,11 +30,6 @@ object AgentWebTools {
     private const val DEFAULT_USER_AGENT =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-
-    private val client: HttpClient = HttpClient.newBuilder()
-        .followRedirects(HttpClient.Redirect.NORMAL)
-        .connectTimeout(Duration.ofSeconds(20))
-        .build()
 
     fun fetch(url: String, prompt: String): Map<String, Any?> {
         val normalizedUrl = normalizeUrl(url)
@@ -44,15 +45,15 @@ object AgentWebTools {
     }
 
     fun search(query: String, allowedDomains: List<String>, blockedDomains: List<String>): Map<String, Any?> {
+        val engines = configuredSearchEngines()
         val filters = DomainFilters(allowedDomains.normalizeDomains(), blockedDomains.normalizeDomains())
         val attempts = mutableListOf<Map<String, Any?>>()
-        SearchEngine.entries.forEach { engine ->
+        engines.forEach { engine ->
             val attempt = runCatching {
                 val response = request(engine.searchUrl(query), Duration.ofSeconds(20))
                 val body = response.body().take(MAX_SEARCH_BODY_LENGTH)
                 val document = Jsoup.parse(body, response.uri().toString())
                 val parsed = engine.parse(document)
-                    .map { result -> normalizeResult(engine, result) }
                     .distinctBy { it.url }
                     .filter { filters.accepts(it.url) }
                     .take(8)
@@ -88,12 +89,13 @@ object AgentWebTools {
             "engine" to null,
             "results" to emptyList<Map<String, String>>(),
             "attempts" to attempts,
-            "error" to "未从 Bing、Baidu 或 Google 获取到可用搜索结果"
+            "error" to "未从 ${AgentWebToolSupport.searchEngineDisplayNames(engines.map { it.state })} 获取到可用搜索结果"
         )
     }
 
     private fun fetchRendered(url: String, prompt: String): Map<String, Any?> {
         WebClient(BrowserVersion.CHROME).use { webClient ->
+            applyProxyIfNeeded(webClient.options)
             webClient.options.isJavaScriptEnabled = true
             webClient.options.isCssEnabled = false
             webClient.options.isThrowExceptionOnScriptError = false
@@ -140,6 +142,10 @@ object AgentWebTools {
     }
 
     private fun request(url: String, timeout: Duration): HttpResponse<String> {
+        val clientBuilder = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .connectTimeout(Duration.ofSeconds(20))
+        buildProxySelector()?.let { clientBuilder.proxy(it) }
         val request = HttpRequest.newBuilder(URI.create(url))
             .timeout(timeout)
             .header("User-Agent", DEFAULT_USER_AGENT)
@@ -147,30 +153,7 @@ object AgentWebTools {
             .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .GET()
             .build()
-        return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-    }
-
-    private fun normalizeResult(engine: SearchEngine, result: SearchResult): SearchResult {
-        val cleanedUrl = when (engine) {
-            SearchEngine.GOOGLE -> unwrapGoogleUrl(result.url)
-            else -> result.url
-        }
-        return result.copy(url = cleanedUrl)
-    }
-
-    private fun unwrapGoogleUrl(url: String): String {
-        return runCatching {
-            val uri = URI.create(url)
-            if (uri.path != "/url") {
-                return@runCatching url
-            }
-            uri.rawQuery.orEmpty()
-                .split('&')
-                .firstOrNull { it.startsWith("q=") }
-                ?.substringAfter("q=")
-                ?.let { java.net.URLDecoder.decode(it, StandardCharsets.UTF_8) }
-                ?: url
-        }.getOrDefault(url)
+        return clientBuilder.build().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
     }
 
     private fun classifyContent(contentType: String, body: String): String {
@@ -209,6 +192,56 @@ object AgentWebTools {
             .trim()
     }
 
+    private fun configuredSearchEngines(): List<SearchEngine> {
+        val state = PluginState.getInstance().state
+        return AgentWebToolSupport.normalizeSearchEngines(state.webSearchEngineConfigs, state.webSearchEngines)
+            .map { SearchEngine(it) }
+    }
+
+    private fun buildProxySelector(): ProxySelector? {
+        val proxyState = PluginState.getInstance().state
+        if (!proxyState.webToolProxyEnabled) {
+            return null
+        }
+        val host = proxyState.webToolProxyHost.trim()
+        val port = proxyState.webToolProxyPort
+        if (host.isBlank() || port !in 1..65535) {
+            return null
+        }
+        val proxyType = AgentProxyType.fromId(proxyState.webToolProxyType)
+        val proxy = Proxy(
+            if (proxyType == AgentProxyType.SOCKS) Proxy.Type.SOCKS else Proxy.Type.HTTP,
+            InetSocketAddress(host, port)
+        )
+        return object : ProxySelector() {
+            override fun select(uri: URI): MutableList<Proxy> {
+                return mutableListOf(proxy)
+            }
+
+            override fun connectFailed(uri: URI, sa: SocketAddress, ioe: IOException) {
+            }
+        }
+    }
+
+    private fun applyProxyIfNeeded(options: org.htmlunit.WebClientOptions) {
+        val proxyState = PluginState.getInstance().state
+        if (!proxyState.webToolProxyEnabled) {
+            return
+        }
+        val host = proxyState.webToolProxyHost.trim()
+        val port = proxyState.webToolProxyPort
+        if (host.isBlank() || port !in 1..65535) {
+            return
+        }
+        val proxyType = AgentProxyType.fromId(proxyState.webToolProxyType)
+        options.proxyConfig = ProxyConfig(
+            host,
+            port,
+            if (proxyType == AgentProxyType.SOCKS) "socks" else "http",
+            proxyType == AgentProxyType.SOCKS
+        )
+    }
+
     private data class DomainFilters(
         val allowedDomains: Set<String>,
         val blockedDomains: Set<String>,
@@ -225,64 +258,46 @@ object AgentWebTools {
         }
     }
 
-    private enum class SearchEngine(val id: String) {
-        BING("bing") {
-            override fun searchUrl(query: String): String {
-                return "https://www.bing.com/search?q=${query.encode()}&setlang=zh-CN"
-            }
+    private class SearchEngine(val state: AgentWebSearchEngineState) {
+        val id: String = state.name
+        private val normalizedName = state.name.trim().lowercase()
+        fun searchUrl(query: String): String {
+            return AgentWebToolSupport.buildSearchUrl(state.address, query)
+        }
 
-            override fun parse(document: Document): List<SearchResult> {
-                val primary = document.select("li.b_algo").mapNotNull { item ->
-                    val link = item.selectFirst("h2 a[href]") ?: return@mapNotNull null
-                    SearchResult(
-                        title = link.cleanText(),
-                        url = link.absUrl("href"),
-                        snippet = item.selectFirst(".b_caption p, p")?.cleanText().orEmpty(),
-                        source = id
-                    )
-                }
-                return primary.ifEmpty { parseGeneric(document, id) }
+        fun parse(document: Document): List<SearchResult> {
+            return when {
+                normalizedName == "bing" || state.address.contains("bing.com", ignoreCase = true) -> parseBing(document)
+                normalizedName == "baidu" || state.address.contains("baidu.com", ignoreCase = true) -> parseBaidu(document)
+                else -> parseGeneric(document, id)
             }
-        },
-        BAIDU("baidu") {
-            override fun searchUrl(query: String): String {
-                return "https://www.baidu.com/s?wd=${query.encode()}"
-            }
+        }
 
-            override fun parse(document: Document): List<SearchResult> {
-                val primary = document.select("h3 a[href], .result a[href]").mapNotNull { link ->
-                    SearchResult(
-                        title = link.cleanText(),
-                        url = link.absUrl("href"),
-                        snippet = link.parent()?.parent()?.cleanText().orEmpty().take(300),
-                        source = id
-                    ).takeIf { it.title.isNotBlank() && it.url.isNotBlank() }
-                }
-                return primary.ifEmpty { parseGeneric(document, id) }
+        private fun parseBing(document: Document): List<SearchResult> {
+            val primary = document.select("li.b_algo").mapNotNull { item ->
+                val link = item.selectFirst("h2 a[href]") ?: return@mapNotNull null
+                SearchResult(
+                    title = link.cleanText(),
+                    url = link.absUrl("href"),
+                    snippet = item.selectFirst(".b_caption p, p")?.cleanText().orEmpty(),
+                    source = id
+                )
             }
-        },
-        GOOGLE("google") {
-            override fun searchUrl(query: String): String {
-                return "https://www.google.com/search?q=${query.encode()}&hl=zh-CN&num=10"
-            }
+            return primary.ifEmpty { parseGeneric(document, id) }
+        }
 
-            override fun parse(document: Document): List<SearchResult> {
-                val primary = document.select("a[href]").mapNotNull { link ->
-                    val href = link.absUrl("href")
-                    val title = link.selectFirst("h3")?.cleanText().orEmpty()
-                    SearchResult(
-                        title = title,
-                        url = href,
-                        snippet = link.parent()?.parent()?.cleanText().orEmpty().take(300),
-                        source = id
-                    ).takeIf { it.title.isNotBlank() && it.url.isNotBlank() }
-                }
-                return primary.ifEmpty { parseGeneric(document, id) }
+        private fun parseBaidu(document: Document): List<SearchResult> {
+            val primary = document.select("h3 a[href], .result a[href]").mapNotNull { link ->
+                SearchResult(
+                    title = link.cleanText(),
+                    url = link.absUrl("href"),
+                    snippet = link.parent()?.parent()?.cleanText().orEmpty().take(300),
+                    source = id
+                ).takeIf { it.title.isNotBlank() && it.url.isNotBlank() }
             }
-        };
+            return primary.ifEmpty { parseGeneric(document, id) }
+        }
 
-        abstract fun searchUrl(query: String): String
-        abstract fun parse(document: Document): List<SearchResult>
     }
 
     private data class SearchResult(
@@ -324,12 +339,10 @@ object AgentWebTools {
             "mailto:",
             "tel:",
             "https://www.bing.com/search",
-            "https://www.baidu.com/s?",
-            "https://www.google.com/search"
+            "https://www.baidu.com/s?"
         ).any { lower.startsWith(it) }
     }
 
     private fun Element.cleanText(): String = normalizeText(text())
 
-    private fun String.encode(): String = URLEncoder.encode(this, StandardCharsets.UTF_8)
 }

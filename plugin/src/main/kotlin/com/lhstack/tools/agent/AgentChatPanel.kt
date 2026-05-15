@@ -2153,7 +2153,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 val rightPanel = AgentFormUi.sectionCard(
                     "SDK 模型列表",
                     "从 SDK 拉取并筛选可添加到当前供应方的模型。",
-                    JPanel(BorderLayout(0, 10)).apply {
+                    JPanel().apply {
                         isOpaque = false
                         add(rightHeaderPanel, BorderLayout.NORTH)
                         add(JBScrollPane(sdkList), BorderLayout.CENTER)
@@ -2181,7 +2181,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
             init {
                 title = "供应方配置"
-                setSize(JBUI.scale(1000), JBUI.scale(520))
+                setSize(JBUI.scale(1000), JBUI.scale(500))
                 init()
             }
 
@@ -3001,7 +3001,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val headerLabel = JLabel(title).apply {
             foreground = if (title == "推理") textColor else UIUtil.getLabelForeground()
-            font = font.deriveFont(font.style or Font.BOLD)
+//            font = font.deriveFont(font.style or Font.BOLD)
         }
         val contentArea = JBTextArea().apply {
             isEditable = false
@@ -3084,7 +3084,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val headerLabel = JLabel("工具调用").apply {
             foreground = UIUtil.getLabelForeground()
-            font = font.deriveFont(font.style or Font.BOLD)
+//            font = font.deriveFont(font.style or Font.BOLD)
         }
         val contentPanel = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -3173,7 +3173,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun createToolEntryCard(state: AgentToolRenderEntryState): ToolEntryCard {
         val titleLabel = JLabel().apply {
             foreground = UIUtil.getLabelForeground()
-            font = font.deriveFont(font.style or Font.BOLD)
+//            font = font.deriveFont(font.style or Font.BOLD)
         }
         val previewButton = JButton("查看").apply {
             isFocusable = false
@@ -3239,7 +3239,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             isOpaque = false
             add(JLabel(title).apply {
                 foreground = UIUtil.getContextHelpForeground()
-                font = font.deriveFont(font.style or Font.BOLD, font.size2D - 1f)
+//                font = font.deriveFont(font.style or Font.BOLD, font.size2D - 1f)
             }, BorderLayout.NORTH)
             add(field.apply {
                 minimumSize = Dimension(0, height)

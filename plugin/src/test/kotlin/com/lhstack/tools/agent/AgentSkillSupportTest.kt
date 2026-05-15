@@ -26,6 +26,14 @@ class AgentSkillSupportTest {
                 path = "scripts/hello.sh"
                 content = "printf 'hello\\n'"
             })
+            resources.add(AgentSkillResourceState().apply {
+                path = "scripts/hello.ps1"
+                content = "Write-Output 'hello'"
+            })
+            resources.add(AgentSkillResourceState().apply {
+                path = "scripts/hello.cmd"
+                content = "@echo hello"
+            })
         }
 
         val toolkit = Toolkit()
@@ -37,9 +45,15 @@ class AgentSkillSupportTest {
         assertTrue(resolved.skillBox!!.skillPrompt.contains("代码审查"))
         assertTrue("execute_shell_command" in toolkit.getToolNames())
         assertTrue(resolved.skillBox!!.skillPrompt.contains("Code Execution"))
+        assertTrue(resolved.skillBox!!.skillPrompt.contains("Windows cmd example"))
+        assertTrue(resolved.skillBox!!.skillPrompt.contains("powershell -NoProfile -ExecutionPolicy Bypass -File"))
+        assertTrue(resolved.skillBox!!.skillPrompt.contains(".bat, .cmd"))
         val uploadDir = assertNotNull(resolved.skillBox!!.uploadDir)
-        assertTrue(Files.isRegularFile(uploadDir.resolve("skill-1/scripts/hello.sh")))
-        assertTrue(skill.toSdkSkill().resources.containsKey("references/api.md"))
+        val sdkSkill = skill.toSdkSkill()
+        assertTrue(Files.isRegularFile(uploadDir.resolve("${sdkSkill.skillId}/scripts/hello.sh")))
+        assertTrue(Files.isRegularFile(uploadDir.resolve("${sdkSkill.skillId}/scripts/hello.ps1")))
+        assertTrue(Files.isRegularFile(uploadDir.resolve("${sdkSkill.skillId}/scripts/hello.cmd")))
+        assertTrue(sdkSkill.resources.containsKey("references/api.md"))
     }
 
     @Test

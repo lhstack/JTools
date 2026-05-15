@@ -145,8 +145,28 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.4.1</h2>
+            <h2>📦 Version v1.1.4.2</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🎨 <b>Settings UI Refresh:</b> Reworked the settings page into grouped card sections with scrolling, separating general settings from Web tool configuration for clearer plugin directory, logging, repository, proxy, and search-engine controls</li>
+                <li>🌐 <b>Web Tool Proxy:</b> Added dedicated HTTP/SOCKS proxy settings for WebFetch and WebSearch, with persisted host, port, and type applied to rendered fetches and search requests</li>
+                <li>🔍 <b>Search Engine Configuration:</b> Added WebSearch engine management with add, edit, delete, drag-to-reorder, <code>{query}</code> URL placeholders, and legacy engine ID normalization</li>
+                <li>🧭 <b>Search Engine Scope:</b> Removed the built-in Google search engine, made Bing the default search engine, kept Baidu as fallback, and automatically drops legacy Google engine configs during normalization</li>
+                <li>🕒 <b>Current Time Tool:</b> Added the read-only <code>jtools_get_current_time</code> tool to return <code>yyyy-MM-dd HH:mm:ss</code> time, requested timezone, and system timezone for an IANA timezone or UTC offset</li>
+                <li>🧠 <b>Skill Code Execution:</b> Expanded uploaded Skill resource types, added assets and Windows script support, and improved cross-platform command whitelists and code-execution instructions</li>
+                <li>🧹 <b>Search Parser Cleanup:</b> Removed Google-specific result parsing and debug output to reduce CAPTCHA-triggering traffic and stale search-page parsing paths</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.2</code> and aligned SDK helper version metadata to <code>1142</code></li>
+                <li>🎨 <b>设置页重构：</b>设置页改为分组卡片与滚动布局，拆分基础设置和 Web 工具设置，提升插件目录、日志、仓库、代理和搜索引擎配置的可读性</li>
+                <li>🌐 <b>Web 工具代理配置：</b>新增 WebFetch / WebSearch 专用 HTTP/SOCKS 代理设置，代理主机、端口和类型会持久化并在网页抓取、搜索请求中生效</li>
+                <li>🔍 <b>搜索引擎配置：</b>新增 WebSearch 搜索引擎管理，可新增、编辑、删除和拖拽排序搜索引擎，地址支持 <code>{query}</code> 占位符并兼容旧引擎 ID</li>
+                <li>🧭 <b>搜索引擎收敛：</b>移除内置 Google 搜索引擎，默认使用 Bing，并保留 Baidu 作为回退；旧配置中的 Google 引擎会在归一化时自动清理</li>
+                <li>🕒 <b>当前时间工具：</b>新增只读 <code>jtools_get_current_time</code> 工具，可按 IANA 时区或 UTC 偏移返回 <code>yyyy-MM-dd HH:mm:ss</code> 时间、查询时区和系统时区</li>
+                <li>🧠 <b>Skill 代码执行增强：</b>Skill 运行时扩展上传资源类型、assets 目录和 Windows 脚本支持，补充跨平台命令白名单与代码执行提示</li>
+                <li>🧹 <b>搜索解析清理：</b>移除 Google 专用结果解析与调试输出，减少触发人机识别和无效搜索页解析的可能</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.2</code>，并同步 SDK Helper 版本元数据到 <code>1142</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.1</h2>
             <ul>
                 <li>🌐 <b>Rendered Web Fetch:</b> <code>fetch</code> now uses HtmlUnit to render pages, extract JavaScript-populated text, and return final URL, content type, rendered HTML, and truncation metadata</li>
                 <li>🔍 <b>Search Engine Fallback:</b> Web search now falls back across Bing, Baidu, and Google with Jsoup-based result parsing instead of relying on a single DuckDuckGo HTML endpoint</li>

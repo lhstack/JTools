@@ -31,6 +31,8 @@ import com.lhstack.tools.listener.PluginListener
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.pluginState
 import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.collections.set
 
@@ -87,6 +89,7 @@ class AgentToolRegistry private constructor(
         private const val SYSTEM_PLUGIN_TYPE = "system"
         private const val DEFAULT_READ_FILE_LIMIT = 200
         private const val MAX_READ_FILE_LIMIT = 1000
+        private val TOOL_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
         fun build(
             project: Project,
@@ -431,6 +434,33 @@ class AgentToolRegistry private constructor(
                     call = {
                         val info = buildSystemInfo()
                         success(project, info)
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "jtools_get_current_time",
+                    description = "获取指定时区的当前实时时间，返回 yyyy-MM-dd HH:mm:ss 格式时间、查询时区和系统时区；timezone 为空时使用系统默认时区。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "timezone": { "type": "string", "description": "IANA 时区 ID 或 UTC 偏移，例如 Asia/Shanghai、UTC、America/New_York、+08:00。为空时使用系统默认时区。" }
+                          },
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val timezone = payload.get("timezone")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                        runCatching { buildCurrentTimeInfo(timezone) }
+                            .fold(
+                                onSuccess = { ok(project, it) },
+                                onFailure = { error(project, it.message ?: "获取时间失败") }
+                            )
                     },
                     requiredPermission = AgentToolPermissionScope.READ_ONLY,
                     pluginInfo = systemPluginInfo
@@ -1145,7 +1175,7 @@ class AgentToolRegistry private constructor(
                 "javaVendor" to System.getProperty("java.vendor"),
                 "javaHome" to System.getProperty("java.home"),
                 "jtoolsVersion" to Helper.JTOOLS_VERSION,
-                "currentTime" to LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                "currentTime" to LocalDateTime.now().format(TOOL_TIME_FORMATTER),
                 "ide" to mapOf(
                     "apiVersion" to ideInfo.apiVersion,
                     "fullVersion" to ideInfo.fullVersion,
@@ -1156,6 +1186,21 @@ class AgentToolRegistry private constructor(
                     "versionName" to ideInfo.versionName,
                     "fullApplicationName" to ideInfo.fullApplicationName
                 )
+            )
+        }
+
+        private fun buildCurrentTimeInfo(timezone: String?): Map<String, Any?> {
+            val systemZone = ZoneId.systemDefault()
+            val queryZone = timezone.orEmpty().trim().takeIf { it.isNotBlank() }
+                ?.let { value ->
+                    runCatching { ZoneId.of(value) }
+                        .getOrElse { throw IllegalArgumentException("无效时区: $value") }
+                }
+                ?: systemZone
+            return mapOf(
+                "time" to ZonedDateTime.now(queryZone).format(TOOL_TIME_FORMATTER),
+                "queryTimeZone" to queryZone.id,
+                "systemTimeZone" to systemZone.id
             )
         }
 

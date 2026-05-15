@@ -29,6 +29,7 @@ class AgentToolRegistryFileToolsTest {
         assertTrue("grep_search" in toolNames)
         assertTrue("WebFetch" in toolNames)
         assertTrue("WebSearch" in toolNames)
+        assertTrue("jtools_get_current_time" in toolNames)
 
         assertFalse("jtools_list_files" in toolNames)
         assertFalse("jtools_get_file_char_count" in toolNames)
@@ -76,6 +77,7 @@ class AgentToolRegistryFileToolsTest {
             "jtools_list_plugins",
             "jtools_get_plugin_detail",
             "jtools_get_system_info",
+            "jtools_get_current_time",
             "jtools_get_current_project",
             "jtools_mcp_list_servers",
             "jtools_mcp_query",
@@ -254,6 +256,32 @@ class AgentToolRegistryFileToolsTest {
         assertFalse("jtools_list_projects" in toolNames)
         assertFalse("jtools_get_project_info" in toolNames)
         assertFalse("jtools_read_directory" in toolNames)
+    }
+
+    @Test
+    fun `get time returns requested timezone and formatted current time`() {
+        val result = invokeTool(
+            fakeProject(Files.createTempDirectory("agent-tool-registry-time").toString()),
+            "jtools_get_current_time",
+            """{"timezone":"Asia/Shanghai"}"""
+        )
+
+        assertEquals(true, result["ok"])
+        assertEquals("Asia/Shanghai", result["queryTimeZone"])
+        assertNotNull(result["systemTimeZone"])
+        assertTrue((result["time"] as String).matches(Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}")))
+    }
+
+    @Test
+    fun `get time rejects invalid timezone`() {
+        val result = invokeTool(
+            fakeProject(Files.createTempDirectory("agent-tool-registry-time-invalid").toString()),
+            "jtools_get_current_time",
+            """{"timezone":"Invalid/Zone"}"""
+        )
+
+        assertEquals(false, result["ok"])
+        assertTrue((result["error"] as String).contains("无效时区"))
     }
 
     private fun registerJtools(project: Project): List<AgentTool> {

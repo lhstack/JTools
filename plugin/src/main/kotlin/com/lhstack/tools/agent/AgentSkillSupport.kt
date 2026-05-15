@@ -4,15 +4,100 @@ import io.agentscope.core.skill.SkillBox
 import io.agentscope.core.skill.util.SkillFileSystemHelper
 import io.agentscope.core.tool.Toolkit
 import io.agentscope.core.tool.coding.ShellCommandTool
-import io.agentscope.core.tool.coding.UnixCommandValidator
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.function.Function
 import java.util.UUID
 import kotlin.io.path.isDirectory
 
 object AgentSkillSupport {
-    private const val skillFileName = "SKILL.md"
+    private val codeExecutionIncludeFolders = setOf("scripts/", "data/","assets/")
+    private val codeExecutionIncludeExtensions = setOf(
+        ".py",
+        ".js",
+        ".mjs",
+        ".cjs",
+        ".sh",
+        ".json",
+        ".txt",
+        ".go",
+        ".bat",
+        ".cmd",
+        ".ps1"
+    )
+    private val codeExecutionAllowedCommands = setOf(
+        "bash",
+        "sh",
+        "python",
+        "python3",
+        "node",
+        "nodejs",
+        "go",
+        "bun",
+        "ls",
+        "cat",
+        "cmd",
+        "powershell",
+        "pwsh",
+        "dir",
+        "type"
+    )
+    private val codeExecutionInstruction = """
+        
+        ## Code Execution
+        
+        <code_execution>
+        You have access to these code-execution tools:
+        - execute_shell_command: run one shell command in the temporary skill workspace.
+        - read_file: read files from the temporary skill workspace.
+        - write_file: write files into the temporary skill workspace.
+        
+        Skills root directory: %s
+        Each skill is uploaded under a subdirectory named by its <skill-id>.
+        Uploaded skill resources are limited to these folders and file extensions:
+        - folders: scripts/, data/
+        - extensions: .py, .js, .mjs, .cjs, .sh, .json, .txt, .go, .bat, .cmd, .ps1
+        
+        Available shell command whitelist:
+        - Unix/macOS/Linux: bash, sh, python, python3, node, nodejs, go, bun, ls, cat
+        - Windows: cmd, powershell, pwsh, python, python3, node, nodejs, go, bun, dir, type
+        
+        Workflow:
+        1. After loading a skill, inspect its uploaded directory before choosing a file.
+        2. Prefer existing scripts over rewriting their logic inline.
+        3. Use read_file for structured or text inputs when you need their content before execution.
+        4. Execute with absolute paths under %s/<skill-id>/... whenever possible.
+        5. If a command fails, diagnose from stdout/stderr and retry with an OS-appropriate command.
+        
+        Command selection by file type:
+        - .py: use python3 on Unix/macOS/Linux, or python on Windows when python3 is unavailable.
+          Example: python3 "%s/<skill-id>/scripts/task.py"
+        - .js, .mjs, .cjs: use node or nodejs.
+          Example: node "%s/<skill-id>/scripts/task.js"
+        - .sh: use bash first, or sh if bash is unavailable.
+          Example: bash "%s/<skill-id>/scripts/task.sh"
+        - .go: use go run for source files.
+          Example: go run "%s/<skill-id>/scripts/task.go"
+        - .json, .txt: use read_file for content; use cat on Unix/macOS/Linux or type on Windows only for quick inspection.
+          Unix example: cat "%s/<skill-id>/data/input.json"
+          Windows cmd example: type "%s\<skill-id>\data\input.json"
+        - .bat, .cmd: on Windows use cmd /c.
+          Example: cmd /c "%s\<skill-id>\scripts\task.cmd"
+        - .ps1: on Windows use powershell or pwsh with -NoProfile and -ExecutionPolicy Bypass.
+          Example: powershell -NoProfile -ExecutionPolicy Bypass -File "%s\<skill-id>\scripts\task.ps1"
+        
+        Directory inspection examples:
+        - Unix/macOS/Linux: ls "%s/<skill-id>/scripts/"
+        - Windows cmd: dir "%s\<skill-id>\scripts"
+        - Windows PowerShell: powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%s\<skill-id>\scripts'"
+        
+        Rules:
+        - Run the command yourself when a script can answer the user's request.
+        - Quote absolute paths in shell commands so paths containing spaces still work.
+        - Use a single command per execute_shell_command call; command separators such as &, |, ;, and newlines may be rejected.
+        - Do not assume Unix-only commands on Windows. Use cmd, powershell, or pwsh examples for Windows paths and scripts.
+        - Do not recreate uploaded data/assets when they already exist under the skill directory.
+        </code_execution>
+    """.trimIndent()
 
     fun normalizeSkills(skills: List<AgentSkillState>): MutableList<AgentSkillState> {
         return skills.mapNotNull { normalize(it) }
@@ -79,23 +164,6 @@ object AgentSkillSupport {
             sourceType = AgentSkillSourceType.MANUAL.id
         })!!
     }
-
-    fun cloneSkill(source: AgentSkillState): AgentSkillState {
-        return normalize(AgentSkillState().apply {
-            id = UUID.randomUUID().toString()
-            name = "${source.name} Copy"
-            description = source.description
-            skillContent = source.skillContent
-            sourceType = AgentSkillSourceType.MANUAL.id
-            resources = source.resources.map {
-                AgentSkillResourceState().apply {
-                    path = it.path
-                    content = it.content
-                }
-            }.toMutableList()
-        })!!
-    }
-
     internal fun normalizeSkill(state: AgentSkillState?): AgentSkillState? {
         state ?: return null
         if (state.id.isBlank()) {
@@ -125,15 +193,14 @@ object AgentSkillSupport {
         val workDir = Files.createTempDirectory("jtools-agent-skill-code-").toAbsolutePath().normalize()
         val uploadDir = workDir.resolve("skills").normalize()
         SkillFileSystemHelper.registerTempDirectoryCleanup(workDir)
-        val shellTool = ShellCommandTool(
-            setOf("bash", "sh", "python", "python3","node","go","bun", "ls", "pwd")
-        )
+        val shellTool = ShellCommandTool(codeExecutionAllowedCommands)
         skillBox.codeExecution()
             .workDir(workDir.toString())
             .uploadDir(uploadDir.toString())
+            .codeExecutionInstruction(codeExecutionInstruction)
             .withShell(shellTool)
-            .includeFolders(setOf("scripts/","data/"))
-            .includeExtensions(setOf(".py", ".js",".sh",".json",".txt",".go"))
+            .includeFolders(codeExecutionIncludeFolders)
+            .includeExtensions(codeExecutionIncludeExtensions)
             .withWrite()
             .withRead()
             .enable()

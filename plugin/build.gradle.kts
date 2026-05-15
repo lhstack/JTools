@@ -1,3 +1,6 @@
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -9,7 +12,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.4.1"
+version = "1.1.4.2"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -226,6 +229,15 @@ val applyObfuscationOutputs by tasks.registering {
 
 tasks {
     // Set the JVM compatibility versions
+    withType<Copy> {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+    withType<Jar> {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+    withType<Zip> {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
     withType<JavaCompile> {
         sourceCompatibility = "17"
         targetCompatibility = "17"
