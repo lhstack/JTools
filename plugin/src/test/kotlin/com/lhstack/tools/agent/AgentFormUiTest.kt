@@ -55,18 +55,6 @@ class AgentFormUiTest {
     }
 
     @Test
-    fun `centered column constrains preferred width`() {
-        val content = JPanel().apply {
-            preferredSize = Dimension(1200, 240)
-        }
-
-        val wrapper = AgentFormUi.centeredColumn(720, content)
-
-        assertEquals(720, content.maximumSize.width)
-        assertTrue(wrapper.components.contains(content))
-    }
-
-    @Test
     fun `constrain width keeps fields shrinkable`() {
         val content = JPanel().apply {
             preferredSize = Dimension(1200, 48)

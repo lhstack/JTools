@@ -111,6 +111,7 @@ class AgentClient {
         provider: AgentProviderState,
         model: String,
         resolvedSkills: AgentResolvedSkills = AgentResolvedSkills(emptyList(), null),
+        toolkit: Toolkit? = null,
         onAssistantDelta: ((AgentTextStreamEvent) -> Unit)? = null,
         onReasoningDelta: ((AgentTextStreamEvent) -> Unit)? = null,
         onToolCall: ((ToolCallStreamEvent) -> Unit)? = null,
@@ -131,6 +132,7 @@ class AgentClient {
             model = model,
             resolvedSkills = resolvedSkills,
             toolRegistry = toolRegistry,
+            toolkit = toolkit,
             maxToolIterations = maxToolIterations,
         )
 
@@ -378,19 +380,20 @@ class AgentClient {
         model: String,
         resolvedSkills: AgentResolvedSkills,
         toolRegistry: AgentToolRegistry,
+        toolkit: Toolkit?,
         maxToolIterations: Int,
     ): RuntimeHandle {
         val key = sessionState.id.ifBlank {
             sessionState.id = UUID.randomUUID().toString()
             sessionState.id
         }
-        val signature = buildSignature(provider, model, toolRegistry, resolvedSkills.selectedSkills)
+        val signature = buildSignature(sessionState, provider, model, toolRegistry, resolvedSkills.selectedSkills)
         val existing = runtimeCache[key]
         if (existing != null && existing.signature == signature) {
             return existing
         }
 
-        val toolkit = Toolkit().apply {
+        val runtimeToolkit = (toolkit ?: Toolkit()).apply {
             AgentScopeToolAdapter.wrapAll(toolRegistry).forEach { registerAgentTool(it) }
         }
         val runtimeSpec = runtimeFactory.create(
@@ -398,7 +401,7 @@ class AgentClient {
             session = sessionState,
             config = AgentScopeRuntimeConfig(
                 maxIterations = maxToolIterations,
-                toolkit = toolkit,
+                toolkit = runtimeToolkit,
                 skillBox = resolvedSkills.skillBox,
                 hooks = emptyList(),
             )
@@ -428,6 +431,7 @@ class AgentClient {
     }
 
     private fun buildSignature(
+        sessionState: AgentSessionState,
         provider: AgentProviderState,
         model: String,
         toolRegistry: AgentToolRegistry,
@@ -451,6 +455,8 @@ class AgentClient {
             provider.endpointPath,
             provider.apiKey,
             model,
+            sessionState.runtime.permissionScope,
+            sessionState.runtime.approvalPolicy,
             toolSignature,
             skillSignature,
         ).joinToString("||")

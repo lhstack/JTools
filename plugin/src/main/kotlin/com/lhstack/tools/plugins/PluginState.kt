@@ -2,8 +2,11 @@ package com.lhstack.tools.plugins
 
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.annotations.OptionTag
+import com.lhstack.tools.agent.AgentProxyType
 import com.lhstack.tools.agent.AgentSystemPromptState
 import com.lhstack.tools.agent.AgentSystemPromptSupport
+import com.lhstack.tools.agent.AgentWebSearchEngineState
+import com.lhstack.tools.agent.AgentWebToolSupport
 import com.lhstack.tools.converter.JsonConverter
 import com.lhstack.tools.agent.AgentSkillState
 import com.lhstack.tools.agent.AgentSessionState
@@ -40,6 +43,12 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         var agentToolTimeoutMs: Int = 120_000
         var agentMcpEnabled: Boolean = true
         var agentMcpServers: MutableList<com.lhstack.tools.agent.McpServerState> = mutableListOf()
+        var webToolProxyEnabled: Boolean = false
+        var webToolProxyType: String = AgentProxyType.HTTP.id
+        var webToolProxyHost: String = ""
+        var webToolProxyPort: Int = 0
+        var webSearchEngines: MutableList<String> = AgentWebToolSupport.defaultSearchEngineIds.toMutableList()
+        var webSearchEngineConfigs: MutableList<AgentWebSearchEngineState> = mutableListOf()
 
         //插件信息 key=pluginId value=插件信息
         @field:OptionTag(converter = JsonConverter::class)
@@ -58,6 +67,16 @@ class PluginState : PersistentStateComponent<PluginState.State> {
         state.agentSessions = state.agentSessions.filterIsInstance<AgentSessionState>().toMutableList()
         state.agentSystemPrompts = AgentSystemPromptSupport.normalizePrompts(state.agentSystemPrompts)
         state.agentSkills = com.lhstack.tools.agent.AgentSkillSupport.normalizeSkills(state.agentSkills)
+        state.webToolProxyType = AgentProxyType.fromId(state.webToolProxyType).id
+        state.webToolProxyHost = state.webToolProxyHost.trim()
+        if (state.webToolProxyPort !in 1..65535) {
+            state.webToolProxyPort = 0
+        }
+        state.webSearchEngines = AgentWebToolSupport.normalizeSearchEngineIds(state.webSearchEngines)
+        state.webSearchEngineConfigs = AgentWebToolSupport.normalizeSearchEngines(
+            state.webSearchEngineConfigs,
+            state.webSearchEngines
+        )
         val providers = state.agentProviders.filterIsInstance<com.lhstack.tools.agent.AgentProviderState>().toMutableList()
         if (providers.isEmpty()) {
             val legacyKey = state.agentOpenApiKey.trim()

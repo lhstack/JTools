@@ -37,6 +37,7 @@ import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
+import io.agentscope.core.tool.Toolkit as AgentScopeToolkit
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -63,6 +64,8 @@ internal data class AgentRequestUiControls(
     val systemPromptSelector: JComponent,
     val modelSelector: JComponent,
     val conversationModeSelector: JComponent,
+    val permissionScopeSelector: JComponent,
+    val approvalPolicySelector: JComponent,
     val sendAction: AnAction,
     val stopAction: AnAction,
     val providerManageAction: AnAction,
@@ -86,6 +89,8 @@ internal data class AgentRequestUiControls(
         systemPromptSelector.isEnabled = enabled
         modelSelector.isEnabled = enabled
         conversationModeSelector.isEnabled = enabled
+        permissionScopeSelector.isEnabled = enabled
+        approvalPolicySelector.isEnabled = enabled
         setActionEnabled(providerManageAction, enabled)
         setActionEnabled(systemPromptManageAction, enabled)
         setActionEnabled(modelManageAction, enabled)
@@ -104,6 +109,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         private val INPUT_COMPOSER_BORDER = JBColor(Color(0xD3D9E2), Color(0x4E545A))
         private val INPUT_COMPOSER_DIVIDER = JBColor(Color(0xE4E8EF), Color(0x43484D))
         private val INPUT_COMPOSER_FOCUS_BORDER = JBColor(0x4B90FF, 0x4B90FF)
+        private val TOP_SYSTEM_PROMPT_WIDTH = JBUI.scale(150)
+        private val TOP_PERMISSION_WIDTH = JBUI.scale(92)
+        private val TOP_APPROVAL_WIDTH = JBUI.scale(92)
     }
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -163,6 +171,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val systemPromptSelector = ComboBox<SystemPromptOption>()
     private val modelSelector = ComboBox<String>()
     private val conversationModeSelector = ComboBox<AgentConversationMode>()
+    private val permissionScopeSelector = ComboBox<AgentToolPermissionScope>()
+    private val approvalPolicySelector = ComboBox<AgentToolApprovalPolicy>()
+    private val permissionHelpButton = JButton(AllIcons.General.ContextHelp).apply {
+        toolTipText = "查看权限说明"
+        isFocusable = false
+        isContentAreaFilled = false
+        isBorderPainted = false
+        margin = JBUI.insets(0)
+        preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
+        minimumSize = preferredSize
+        maximumSize = preferredSize
+        addActionListener {
+            showPermissionHelpDialog()
+        }
+    }
     private val comboFixedWidth = JBUI.scale(180)
     private val projectKey = resolveProjectKey()
     private val client = AgentClient()
@@ -177,6 +200,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var updatingSystemPromptSelection = false
     private var updatingModelSelection = false
     private var updatingConversationModeSelection = false
+    private var updatingPermissionScopeSelection = false
+    private var updatingApprovalPolicySelection = false
 
     private var assistantBlock: MessageBlock? = null
     private val streamingTextBlocks = mutableMapOf<String, MessageBlock>()
@@ -184,9 +209,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val modelCache = mutableMapOf<String, ModelCacheEntry>()
     private val modelLoadInFlight = mutableSetOf<String>()
     private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
-    private var activeToolPopupArgumentField: LanguageTextField? = createJsonViewer()
-    private var activeToolPopupResultField: LanguageTextField? = createJsonViewer()
-
     private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
 
     private val requestUiControls = AgentRequestUiControls(
@@ -195,6 +217,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         systemPromptSelector = systemPromptSelector,
         modelSelector = modelSelector,
         conversationModeSelector = conversationModeSelector,
+        permissionScopeSelector = permissionScopeSelector,
+        approvalPolicySelector = approvalPolicySelector,
         sendAction = sendAction,
         stopAction = stopAction,
         providerManageAction = providerManageAction,
@@ -214,6 +238,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupSystemPromptSelector()
         setupModelSelector()
         setupConversationModeSelector()
+        setupPermissionScopeSelector()
+        setupApprovalPolicySelector()
         setActionEnabled(stopAction, false)
         val root = JPanel(BorderLayout())
         root.add(buildTopBar(), BorderLayout.NORTH)
@@ -342,7 +368,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun setupSystemPromptSelector() {
         systemPromptSelector.maximumRowCount = 8
         systemPromptSelector.isEditable = false
-        configureComboBox(systemPromptSelector, comboFixedWidth, {
+        configureComboBox(systemPromptSelector, TOP_SYSTEM_PROMPT_WIDTH, {
             (it as? SystemPromptOption)?.label ?: it?.toString().orEmpty()
         })
         systemPromptSelector.addActionListener {
@@ -399,15 +425,54 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private fun setupPermissionScopeSelector() {
+        permissionScopeSelector.maximumRowCount = AgentToolPermissionScope.entries.size
+        permissionScopeSelector.isEditable = false
+        configureComboBox(
+            permissionScopeSelector,
+            TOP_PERMISSION_WIDTH,
+            { (it as? AgentToolPermissionScope)?.displayName ?: it?.toString().orEmpty() },
+            tooltipProvider = { (it as? AgentToolPermissionScope)?.tooltip ?: it?.toString().orEmpty() }
+        )
+        refreshPermissionScopeSelector(currentSession?.state?.runtime?.permissionScope)
+        permissionScopeSelector.addActionListener {
+            if (updatingPermissionScopeSelection || sending.get()) {
+                return@addActionListener
+            }
+            val selected = permissionScopeSelector.selectedItem as? AgentToolPermissionScope ?: return@addActionListener
+            updateCurrentPermissionScope(selected)
+        }
+    }
+
+    private fun setupApprovalPolicySelector() {
+        approvalPolicySelector.maximumRowCount = AgentToolApprovalPolicy.entries.size
+        approvalPolicySelector.isEditable = false
+        configureComboBox(
+            approvalPolicySelector,
+            TOP_APPROVAL_WIDTH,
+            { (it as? AgentToolApprovalPolicy)?.displayName ?: it?.toString().orEmpty() },
+            tooltipProvider = { (it as? AgentToolApprovalPolicy)?.tooltip ?: it?.toString().orEmpty() }
+        )
+        refreshApprovalPolicySelector(currentSession?.state?.runtime?.approvalPolicy)
+        approvalPolicySelector.addActionListener {
+            if (updatingApprovalPolicySelection || sending.get()) {
+                return@addActionListener
+            }
+            val selected = approvalPolicySelector.selectedItem as? AgentToolApprovalPolicy ?: return@addActionListener
+            updateCurrentApprovalPolicy(selected)
+        }
+    }
+
 
     private fun configureComboBox(
         comboBox: ComboBox<*>,
         fixedWidth: Int,
         textProvider: (Any?) -> String,
+        tooltipProvider: (Any?) -> String = textProvider,
         ellipsizeEditor: Boolean = false
     ) {
         applyFixedWidth(comboBox, fixedWidth)
-        comboBox.renderer = createEllipsisRenderer(comboBox, textProvider)
+        comboBox.renderer = createEllipsisRenderer(comboBox, textProvider, tooltipProvider)
         if (ellipsizeEditor) {
             comboBox.editor = EllipsisComboBoxEditor(comboBox, textProvider)
         }
@@ -423,7 +488,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun createEllipsisRenderer(
         comboBox: ComboBox<*>,
-        textProvider: (Any?) -> String
+        textProvider: (Any?) -> String,
+        tooltipProvider: (Any?) -> String = textProvider,
     ): DefaultListCellRenderer {
         return object : DefaultListCellRenderer() {
             override fun getListCellRendererComponent(
@@ -447,7 +513,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     isSelected,
                     cellHasFocus
                 ) as JLabel
-                label.toolTipText = fullText.takeIf { it.isNotBlank() }
+                label.toolTipText = tooltipProvider(value).takeIf { it.isNotBlank() }
                 return label
             }
         }
@@ -741,6 +807,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         refreshModelSelector(resolvedModel)
         refreshConversationModeSelector(session.state.conversationMode)
+        refreshPermissionScopeSelector(session.state.runtime.permissionScope)
+        refreshApprovalPolicySelector(session.state.runtime.approvalPolicy)
         renderSession(session)
         refreshAttachmentDrafts()
         updateStatus()
@@ -880,6 +948,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val session = currentSession ?: return
         session.state.conversationMode = mode.id
         refreshConversationModeSelector(mode.id)
+        updateStatus()
+    }
+
+    private fun updateCurrentPermissionScope(scope: AgentToolPermissionScope) {
+        val session = currentSession ?: return
+        session.state.runtime.permissionScope = scope.id
+        refreshPermissionScopeSelector(scope.id)
+        client.clearSession(session.id)
+        updateStatus()
+    }
+
+    private fun updateCurrentApprovalPolicy(policy: AgentToolApprovalPolicy) {
+        val session = currentSession ?: return
+        session.state.runtime.approvalPolicy = policy.id
+        refreshApprovalPolicySelector(policy.id)
+        client.clearSession(session.id)
         updateStatus()
     }
 
@@ -1433,6 +1517,26 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         conversationModeSelector.selectedItem = resolved
         currentSession?.state?.conversationMode = resolved.id
         updatingConversationModeSelection = false
+    }
+
+    private fun refreshPermissionScopeSelector(selected: String?) {
+        updatingPermissionScopeSelection = true
+        permissionScopeSelector.removeAllItems()
+        AgentToolPermissionScope.entries.forEach { permissionScopeSelector.addItem(it) }
+        val resolved = AgentToolPermissionScope.fromId(selected)
+        permissionScopeSelector.selectedItem = resolved
+        currentSession?.state?.runtime?.permissionScope = resolved.id
+        updatingPermissionScopeSelection = false
+    }
+
+    private fun refreshApprovalPolicySelector(selected: String?) {
+        updatingApprovalPolicySelection = true
+        approvalPolicySelector.removeAllItems()
+        AgentToolApprovalPolicy.entries.forEach { approvalPolicySelector.addItem(it) }
+        val resolved = AgentToolApprovalPolicy.fromId(selected)
+        approvalPolicySelector.selectedItem = resolved
+        currentSession?.state?.runtime?.approvalPolicy = resolved.id
+        updatingApprovalPolicySelection = false
     }
 
     private fun requestModelList(
@@ -2049,7 +2153,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 val rightPanel = AgentFormUi.sectionCard(
                     "SDK 模型列表",
                     "从 SDK 拉取并筛选可添加到当前供应方的模型。",
-                    JPanel(BorderLayout(0, 10)).apply {
+                    JPanel().apply {
                         isOpaque = false
                         add(rightHeaderPanel, BorderLayout.NORTH)
                         add(JBScrollPane(sdkList), BorderLayout.CENTER)
@@ -2077,7 +2181,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
             init {
                 title = "供应方配置"
-                setSize(JBUI.scale(1000), JBUI.scale(520))
+                setSize(JBUI.scale(1000), JBUI.scale(500))
                 init()
             }
 
@@ -2422,13 +2526,33 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(Box.createHorizontalStrut(6))
             add(modelSelector)
         }
+        val permissionScopePanel = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(JLabel("访问权限: "))
+            add(Box.createHorizontalStrut(6))
+            add(permissionScopeSelector)
+        }
+        val approvalPolicyPanel = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(JLabel("危险操作: "))
+            add(Box.createHorizontalStrut(6))
+            add(approvalPolicySelector)
+        }
         val systemPromptPanel = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(Box.createHorizontalGlue())
             add(JLabel("提示词: "))
             add(Box.createHorizontalStrut(6))
             add(systemPromptSelector)
+        }
+        val topControlBar = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(10), 0)).apply {
+            isOpaque = false
+            add(systemPromptPanel)
+            add(permissionScopePanel)
+            add(approvalPolicyPanel)
+            add(permissionHelpButton)
         }
         val header = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -2440,8 +2564,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 isOpaque = false
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 add(providerPanel)
-                add(Box.createVerticalStrut(4))
-                add(systemPromptPanel)
                 add(Box.createVerticalStrut(4))
                 add(modelPanel)
                 if (AgentConversationModeSupport.selectorVisible()) {
@@ -2503,6 +2625,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)
             isOpaque = false
+            add(topControlBar, BorderLayout.NORTH)
             add(inputCard, BorderLayout.CENTER)
         }
     }
@@ -2524,6 +2647,34 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         card.revalidate()
         card.repaint()
+    }
+
+    private fun showPermissionHelpDialog() {
+        val textArea = JBTextArea(AgentToolPermissionHelp.fullText()).apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            background = UIUtil.getPanelBackground()
+            foreground = UIUtil.getLabelForeground()
+            border = JBUI.Borders.empty(8, 10)
+            caretPosition = 0
+        }
+        val dialog = object : DialogWrapper(project, false) {
+            init {
+                title = "权限说明"
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent {
+                return JBScrollPane(textArea).apply {
+                    preferredSize = Dimension(JBUI.scale(640), JBUI.scale(520))
+                    verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+                    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                    verticalScrollBar.unitIncrement = UIUtil.getLineHeight(textArea)
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun sendMessage() {
@@ -2602,11 +2753,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         syncSessionMessages(session)
 
         ApplicationManager.getApplication().executeOnPooledThread {
+            val toolkit = AgentScopeToolkit()
             val resolvedSkills = AgentSkillSupport.resolve(
                 project.pluginState().agentSkills,
-                session.state.enabledSkillIds
+                session.state.enabledSkillIds,
+                toolkit
             )
-            val toolRegistry = AgentToolRegistry.build(project, resolvedSkills.selectedSkills)
+            val toolRegistry = AgentToolRegistry.build(project, resolvedSkills.selectedSkills, session.state.runtime)
             if (resolvedSkills.warnings.isNotEmpty()) {
                 ApplicationManager.getApplication().invokeLater {
                     project.infoNotify("Skills", resolvedSkills.warnings.joinToString("\n"))
@@ -2620,6 +2773,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 provider,
                 model,
                 resolvedSkills = resolvedSkills,
+                toolkit = toolkit,
                 onAssistantDelta = { event ->
                     ApplicationManager.getApplication().invokeLater {
                         if (!isActiveRequest(requestId, token)) {
@@ -2847,7 +3001,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val headerLabel = JLabel(title).apply {
             foreground = if (title == "推理") textColor else UIUtil.getLabelForeground()
-            font = font.deriveFont(font.style or Font.BOLD)
+//            font = font.deriveFont(font.style or Font.BOLD)
         }
         val contentArea = JBTextArea().apply {
             isEditable = false
@@ -2930,7 +3084,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val headerLabel = JLabel("工具调用").apply {
             foreground = UIUtil.getLabelForeground()
-            font = font.deriveFont(font.style or Font.BOLD)
+//            font = font.deriveFont(font.style or Font.BOLD)
         }
         val contentPanel = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -3019,7 +3173,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun createToolEntryCard(state: AgentToolRenderEntryState): ToolEntryCard {
         val titleLabel = JLabel().apply {
             foreground = UIUtil.getLabelForeground()
-            font = font.deriveFont(font.style or Font.BOLD)
+//            font = font.deriveFont(font.style or Font.BOLD)
         }
         val previewButton = JButton("查看").apply {
             isFocusable = false
@@ -3054,22 +3208,26 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun showToolDetailPopup(card: ToolEntryCard, anchor: JComponent, e: MouseEvent) {
-        activeToolPopupResultField?.text = runCatching {
+        val resultText = runCatching {
             gson.toJson(JsonParser.parseString(card.state.result))
         }.getOrElse { card.state.result }
-        activeToolPopupArgumentField?.text = runCatching {
+        val argumentText = runCatching {
             gson.toJson(JsonParser.parseString(card.state.arguments))
         }.getOrElse { card.state.arguments }
+        val argumentField = createJsonViewer(argumentText)
+        val resultField = createJsonViewer(resultText)
         val content = JPanel(GridLayout(2, 1, 0, JBUI.scale(6))).apply {
             isOpaque = true
             background = UIUtil.getPanelBackground()
             border = JBUI.Borders.empty(8)
-            add(createToolJsonSection("参数", activeToolPopupArgumentField!!, 60))
-            add(createToolJsonSection("返回值", activeToolPopupResultField!!, 200))
+            add(createToolJsonSection("参数", argumentField, 60))
+            add(createToolJsonSection("返回值", resultField, 200))
         }
-        JBPopupFactory.getInstance().createComponentPopupBuilder(content,null)
+        JBPopupFactory.getInstance().createComponentPopupBuilder(content, argumentField)
             .setMovable(true)
             .setResizable(true)
+            .setFocusable(true)
+            .setRequestFocus(true)
             .setTitle(card.titleLabel.text)
             .createPopup()
             .show(RelativePoint(e))
@@ -3081,7 +3239,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             isOpaque = false
             add(JLabel(title).apply {
                 foreground = UIUtil.getContextHelpForeground()
-                font = font.deriveFont(font.style or Font.BOLD, font.size2D - 1f)
+//                font = font.deriveFont(font.style or Font.BOLD, font.size2D - 1f)
             }, BorderLayout.NORTH)
             add(field.apply {
                 minimumSize = Dimension(0, height)
@@ -3091,9 +3249,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun createJsonViewer(): LanguageTextField {
+    private fun createJsonViewer(text: String = ""): LanguageTextField {
         val jsonLanguage = Language.findLanguageByID("JSON5") ?: Language.ANY
-        return object : LanguageTextField(jsonLanguage, project, "", false) {
+        return object : LanguageTextField(jsonLanguage, project, text, false) {
             override fun createEditor(): EditorEx {
                 val editor = super.createEditor()
                 editor.isViewer = true

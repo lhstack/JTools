@@ -67,6 +67,8 @@ object AgentRuntimeFeaturesFactory {
     private fun AgentSessionRuntimeState.normalize(): AgentSessionRuntimeState {
         shortTermMemoryType = AgentShortTermMemoryType.fromId(shortTermMemoryType).id
         longTermMemoryMode = AgentLongTermMemoryModeType.fromId(longTermMemoryMode).id
+        permissionScope = AgentToolPermissionScope.fromId(permissionScope).id
+        approvalPolicy = AgentToolApprovalPolicy.fromId(approvalPolicy).id
         return this
     }
 }

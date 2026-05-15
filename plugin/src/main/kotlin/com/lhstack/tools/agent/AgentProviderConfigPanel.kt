@@ -179,10 +179,7 @@ class AgentProviderConfigPanel(private val project: Project,private val saveCall
             )
         )
 
-        return AgentFormUi.centeredColumn(
-            860,
-            AgentFormUi.verticalStack(basicCard, endpointCard, proxyCard)
-        )
+        return AgentFormUi.verticalStack(basicCard, endpointCard, proxyCard)
     }
 
     private fun buildActionsPanel(): JComponent {

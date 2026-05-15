@@ -161,11 +161,11 @@ class AgentSystemPromptConfigPanel(
         return JPanel(BorderLayout(0, JBUI.scale(2))).apply {
             isOpaque = false
             add(JLabel(title).apply {
-                font = font.deriveFont((font.style or Font.BOLD).toFloat())
+//                font = font.deriveFont((font.style or Font.BOLD).toFloat())
             }, BorderLayout.NORTH)
             add(JLabel(hint).apply {
                 foreground = UIUtil.getContextHelpForeground()
-                font = font.deriveFont(font.size2D - 1f)
+//                font = font.deriveFont(font.size2D - 1f)
             }, BorderLayout.CENTER)
         }
     }

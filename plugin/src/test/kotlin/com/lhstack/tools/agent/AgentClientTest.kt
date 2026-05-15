@@ -13,6 +13,7 @@ class AgentClientTest {
             "emitTextDelta",
             String::class.java,
             String::class.java,
+            MutableMap::class.java,
             kotlin.jvm.functions.Function1::class.java,
         ).apply {
             isAccessible = true
@@ -22,6 +23,7 @@ class AgentClientTest {
             client,
             "assistant",
             "\n",
+            mutableMapOf<String, String>(),
             { event: AgentTextStreamEvent ->
                 captured = event
                 Unit

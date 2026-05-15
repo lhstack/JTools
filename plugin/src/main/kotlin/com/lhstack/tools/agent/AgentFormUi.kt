@@ -3,19 +3,8 @@ package com.lhstack.tools.agent
 import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
-import java.awt.BorderLayout
-import java.awt.Color
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.GridLayout
-import java.awt.FlowLayout
-import java.awt.Dimension
-import javax.swing.BorderFactory
-import javax.swing.Box
-import javax.swing.BoxLayout
-import javax.swing.JComponent
-import javax.swing.JLabel
-import javax.swing.JPanel
+import java.awt.*
+import javax.swing.*
 
 data class AgentSelectOption(
     val id: String,
@@ -30,21 +19,65 @@ object AgentFormUi {
 
     val providerTypes = listOf(
         AgentSelectOption(AgentProviderCatalog.TYPE_DASHSCOPE, "DashScope", "阿里云百炼原生接入。"),
-        AgentSelectOption(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, "OpenAI-Compatible", "兼容 OpenAI Chat Completions 的供应商。"),
+        AgentSelectOption(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            "OpenAI-Compatible",
+            "兼容 OpenAI Chat Completions 的供应商。"
+        ),
         AgentSelectOption(AgentProviderCatalog.TYPE_ANTHROPIC, "Anthropic", "Claude 原生接口。"),
         AgentSelectOption(AgentProviderCatalog.TYPE_GEMINI, "Gemini", "Google Gemini 原生接口。"),
         AgentSelectOption(AgentProviderCatalog.TYPE_OLLAMA, "Ollama", "本地 Ollama 服务。"),
     )
 
     private val vendorTemplates = listOf(
-        template(AgentProviderCatalog.TYPE_DASHSCOPE, AgentProviderCatalog.TEMPLATE_DASHSCOPE, "DashScope", "DashScope 原生模板。"),
-        template(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, AgentProviderCatalog.TEMPLATE_OPENAI, "OpenAI", "标准 OpenAI 兼容格式。"),
-        template(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, AgentProviderCatalog.TEMPLATE_DEEPSEEK, "DeepSeek", "DeepSeek 兼容模板。"),
-        template(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, AgentProviderCatalog.TEMPLATE_GLM, "GLM", "智谱 GLM 兼容模板。"),
-        template(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, AgentProviderCatalog.TEMPLATE_OPENROUTER, "OpenRouter", "OpenRouter 聚合网关模板。"),
-        template(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, AgentProviderCatalog.TEMPLATE_SILICONFLOW, "SiliconFlow", "硅基流动兼容模板。"),
-        template(AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE, AgentProviderCatalog.TEMPLATE_ALIBABA_OPENAI_COMPATIBLE, "Alibaba Compatible", "阿里云 OpenAI 兼容网关模板。"),
-        template(AgentProviderCatalog.TYPE_ANTHROPIC, AgentProviderCatalog.TEMPLATE_ANTHROPIC, "Anthropic", "Anthropic 原生模板。"),
+        template(
+            AgentProviderCatalog.TYPE_DASHSCOPE,
+            AgentProviderCatalog.TEMPLATE_DASHSCOPE,
+            "DashScope",
+            "DashScope 原生模板。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            AgentProviderCatalog.TEMPLATE_OPENAI,
+            "OpenAI",
+            "标准 OpenAI 兼容格式。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            AgentProviderCatalog.TEMPLATE_DEEPSEEK,
+            "DeepSeek",
+            "DeepSeek 兼容模板。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            AgentProviderCatalog.TEMPLATE_GLM,
+            "GLM",
+            "智谱 GLM 兼容模板。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            AgentProviderCatalog.TEMPLATE_OPENROUTER,
+            "OpenRouter",
+            "OpenRouter 聚合网关模板。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            AgentProviderCatalog.TEMPLATE_SILICONFLOW,
+            "SiliconFlow",
+            "硅基流动兼容模板。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_OPENAI_COMPATIBLE,
+            AgentProviderCatalog.TEMPLATE_ALIBABA_OPENAI_COMPATIBLE,
+            "Alibaba Compatible",
+            "阿里云 OpenAI 兼容网关模板。"
+        ),
+        template(
+            AgentProviderCatalog.TYPE_ANTHROPIC,
+            AgentProviderCatalog.TEMPLATE_ANTHROPIC,
+            "Anthropic",
+            "Anthropic 原生模板。"
+        ),
         template(AgentProviderCatalog.TYPE_GEMINI, AgentProviderCatalog.TEMPLATE_GEMINI, "Gemini", "Gemini 原生模板。"),
         template(AgentProviderCatalog.TYPE_OLLAMA, AgentProviderCatalog.TEMPLATE_OLLAMA, "Ollama", "Ollama 原生模板。"),
     )
@@ -95,29 +128,33 @@ object AgentFormUi {
             isOpaque = false
             add(JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
                 isOpaque = false
-                add(JLabel(title).apply {
-                    font = font.deriveFont((font.style or java.awt.Font.BOLD).toFloat())
-                })
-                hint?.takeIf { it.isNotBlank() }?.let {
-                    add(JLabel(AllIcons.General.ContextHelp).apply {
-                        toolTipText = it
-                    })
-                }
             }, BorderLayout.WEST)
         }
         val body = JPanel(BorderLayout()).apply {
             isOpaque = false
             add(content, BorderLayout.CENTER)
         }
-        return JPanel(BorderLayout(0, JBUI.scale(10))).apply {
-            isOpaque = true
-            background = cardBackground
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(cardBorderColor, 1, true),
-                JBUI.Borders.empty(14)
-            )
-            add(header, BorderLayout.NORTH)
-            add(body, BorderLayout.CENTER)
+
+        return JPanel(BorderLayout()).apply {
+            this.add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                this.border = JBUI.Borders.empty(8, 0)
+                this.add(JLabel(title))
+                hint?.takeIf { it.isNotBlank() }?.let {
+                    add(JLabel(AllIcons.General.ContextHelp).apply {
+                        toolTipText = it
+                    })
+                }
+            }, BorderLayout.NORTH)
+            this.add(JPanel(BorderLayout(0, JBUI.scale(10))).apply {
+                isOpaque = true
+                background = cardBackground
+                border = BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(cardBorderColor, 1, true),
+                    JBUI.Borders.empty(14)
+                )
+                add(header, BorderLayout.NORTH)
+                add(body, BorderLayout.CENTER)
+            }, BorderLayout.CENTER)
         }
     }
 
@@ -149,33 +186,8 @@ object AgentFormUi {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             components.forEachIndexed { index, component ->
-                if (index > 0) {
-                    add(Box.createVerticalStrut(JBUI.scale(12)))
-                }
                 add(component)
             }
-        }
-    }
-
-    fun centeredColumn(maxWidth: Int, content: JComponent): JPanel {
-        content.maximumSize = Dimension(JBUI.scale(maxWidth), Int.MAX_VALUE)
-        content.preferredSize = Dimension(
-            content.preferredSize.width.coerceAtMost(JBUI.scale(maxWidth)),
-            content.preferredSize.height
-        )
-        return JPanel(GridBagLayout()).apply {
-            isOpaque = false
-            val c = GridBagConstraints().apply {
-                gridx = 0
-                gridy = 0
-                weightx = 1.0
-                anchor = GridBagConstraints.NORTH
-                fill = GridBagConstraints.NONE
-            }
-            add(content, c)
-            c.gridy = 1
-            c.weighty = 1.0
-            add(Box.createVerticalGlue(), c)
         }
     }
 

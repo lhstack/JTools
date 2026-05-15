@@ -32,6 +32,8 @@ class AgentSessionRuntimeState {
     var shortTermMemoryType: String = AgentShortTermMemoryType.AUTO_CONTEXT.id
     var planModeEnabled: Boolean = false
     var longTermMemoryMode: String = AgentLongTermMemoryModeType.DISABLED.id
+    var permissionScope: String = AgentToolPermissionScope.WORKSPACE_WRITE.id
+    var approvalPolicy: String = AgentToolApprovalPolicy.CONFIRM_DANGEROUS.id
     var stateMemoryManaged: Boolean = true
     var stateToolkitManaged: Boolean = true
     var statePlanNotebookManaged: Boolean = true

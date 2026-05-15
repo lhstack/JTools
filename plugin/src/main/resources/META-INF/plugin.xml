@@ -43,7 +43,9 @@
         <li><b>🖼️ Multimodal Inputs:</b> Per-model capability switches for image, audio, video, and file attachments, with automatic text extraction for readable files.</li>
         <li><b>🧠 Skill Management:</b> Import or edit local SKILL.md skills, attach them per session, and expose skill resources directly to the agent runtime.</li>
         <li><b>📚 Skill Resources:</b> references/examples/scripts resources can be mounted into agent sessions and read through dedicated resource tools.</li>
+        <li><b>🔗 Skill Runtime Integration:</b> Skills share the same runtime Toolkit as built-in and plugin tools, keeping SkillBox tool groups aligned with the active agent session.</li>
         <li><b>🛠️ Built-in Agent Tools:</b> JTools exposes system-level tools for plugin operations, file browsing, skill CRUD, session skill toggles, and MCP management.</li>
+        <li><b>🛡️ Agent Permissions:</b> Per-chat access scopes and dangerous-operation policies control file, shell, plugin, skill, MCP, and dynamically registered tools.</li>
         <li><b>🎚️ Model Tuning:</b> Configure per-model streaming, multimodal capabilities, and advanced OpenAI/Anthropic parameters from a dedicated tuning panel.</li>
         <li><b>🧾 Parameter Guidance:</b> Store provider-level default and recommended parameters to make model configuration more repeatable across sessions.</li>
         <li><b>💾 Session Persistence:</b> Restore sessions, enabled skills, draft attachments, and active context across projects for long-running conversations.</li>
@@ -105,7 +107,9 @@
         <li><b>🖼️ 多模态输入：</b>可按模型开启图片、音频、视频、文件附件能力，并对可读文件自动抽取文本上下文。</li>
         <li><b>🧠 Skills 管理：</b>支持导入或编辑本地 SKILL.md 技能，按会话挂载，并将技能资源直接暴露给智能体运行时。</li>
         <li><b>📚 Skills 资源：</b>references/examples/scripts 等资源文件可随技能挂载，并通过专用资源工具读取。</li>
+        <li><b>🔗 Skill 运行时集成：</b>Skills 与内置工具、插件工具共享同一个运行时 Toolkit，使 SkillBox 工具组与当前智能体会话保持一致。</li>
         <li><b>🛠️ 内置智能体工具：</b>提供插件管理、文件浏览、技能增删改查、会话技能开关与 MCP 管理等系统工具。</li>
+        <li><b>🛡️ 智能体权限：</b>按对话配置访问范围与危险操作策略，统一管控文件、命令、插件、Skills、MCP 和动态注册工具。</li>
         <li><b>🎚️ 模型调优：</b>提供独立模型调优面板，可配置流式输出、多模态能力以及 OpenAI/Anthropic 高级参数。</li>
         <li><b>🧾 参数建议：</b>支持保存供应方默认参数与推荐参数，让模型配置在不同会话中更容易复用。</li>
         <li><b>💾 会话持久化：</b>跨项目保留会话、启用的技能、草稿附件与当前上下文，适合长会话持续协作。</li>
@@ -141,8 +145,76 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.3.7</h2>
+            <h2>📦 Version v1.1.4.2</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🎨 <b>Settings UI Refresh:</b> Reworked the settings page into grouped card sections with scrolling, separating general settings from Web tool configuration for clearer plugin directory, logging, repository, proxy, and search-engine controls</li>
+                <li>🌐 <b>Web Tool Proxy:</b> Added dedicated HTTP/SOCKS proxy settings for WebFetch and WebSearch, with persisted host, port, and type applied to rendered fetches and search requests</li>
+                <li>🔍 <b>Search Engine Configuration:</b> Added WebSearch engine management with add, edit, delete, drag-to-reorder, <code>{query}</code> URL placeholders, and legacy engine ID normalization</li>
+                <li>🧭 <b>Search Engine Scope:</b> Removed the built-in Google search engine, made Bing the default search engine, kept Baidu as fallback, and automatically drops legacy Google engine configs during normalization</li>
+                <li>🕒 <b>Current Time Tool:</b> Added the read-only <code>jtools_get_current_time</code> tool to return <code>yyyy-MM-dd HH:mm:ss</code> time, requested timezone, and system timezone for an IANA timezone or UTC offset</li>
+                <li>🧠 <b>Skill Code Execution:</b> Expanded uploaded Skill resource types, added assets and Windows script support, and improved cross-platform command whitelists and code-execution instructions</li>
+                <li>🧹 <b>Search Parser Cleanup:</b> Removed Google-specific result parsing and debug output to reduce CAPTCHA-triggering traffic and stale search-page parsing paths</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.2</code> and aligned SDK helper version metadata to <code>1142</code></li>
+                <li>🎨 <b>设置页重构：</b>设置页改为分组卡片与滚动布局，拆分基础设置和 Web 工具设置，提升插件目录、日志、仓库、代理和搜索引擎配置的可读性</li>
+                <li>🌐 <b>Web 工具代理配置：</b>新增 WebFetch / WebSearch 专用 HTTP/SOCKS 代理设置，代理主机、端口和类型会持久化并在网页抓取、搜索请求中生效</li>
+                <li>🔍 <b>搜索引擎配置：</b>新增 WebSearch 搜索引擎管理，可新增、编辑、删除和拖拽排序搜索引擎，地址支持 <code>{query}</code> 占位符并兼容旧引擎 ID</li>
+                <li>🧭 <b>搜索引擎收敛：</b>移除内置 Google 搜索引擎，默认使用 Bing，并保留 Baidu 作为回退；旧配置中的 Google 引擎会在归一化时自动清理</li>
+                <li>🕒 <b>当前时间工具：</b>新增只读 <code>jtools_get_current_time</code> 工具，可按 IANA 时区或 UTC 偏移返回 <code>yyyy-MM-dd HH:mm:ss</code> 时间、查询时区和系统时区</li>
+                <li>🧠 <b>Skill 代码执行增强：</b>Skill 运行时扩展上传资源类型、assets 目录和 Windows 脚本支持，补充跨平台命令白名单与代码执行提示</li>
+                <li>🧹 <b>搜索解析清理：</b>移除 Google 专用结果解析与调试输出，减少触发人机识别和无效搜索页解析的可能</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.2</code>，并同步 SDK Helper 版本元数据到 <code>1142</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.1</h2>
+            <ul>
+                <li>🌐 <b>Rendered Web Fetch:</b> <code>fetch</code> now uses HtmlUnit to render pages, extract JavaScript-populated text, and return final URL, content type, rendered HTML, and truncation metadata</li>
+                <li>🔍 <b>Search Engine Fallback:</b> Web search now falls back across Bing, Baidu, and Google with Jsoup-based result parsing instead of relying on a single DuckDuckGo HTML endpoint</li>
+                <li>🧭 <b>Domain Filtering:</b> Search allow/block filters now normalize domains, support subdomain matching, and drop noisy search, script, mail, and phone links</li>
+                <li>🧠 <b>Skill Code Execution:</b> SkillBox enables a temporary workspace, script/data resource upload, and a restricted shell tool so <code>scripts/</code> and <code>data/</code> resources are available at runtime</li>
+                <li>🧹 <b>Tool Surface Cleanup:</b> Removed custom Skill resource reader tools and the environment-variable reader tool; Skill resources are handled by built-in SkillBox capabilities to reduce sensitive-data exposure</li>
+                <li>🧾 <b>Copyable Tool Details:</b> Tool-call detail popups now focus read-only JSON editors so arguments and results can be quickly selected and copied with keyboard shortcuts</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.1</code> and aligned SDK helper version metadata to <code>1141</code></li>
+                <li>🌐 <b>网页读取增强：</b><code>fetch</code> 改为基于 HtmlUnit 渲染页面，支持 JavaScript 后的正文提取，并返回最终 URL、内容类型、渲染 HTML 与截断状态</li>
+                <li>🔍 <b>搜索引擎回退：</b>网页搜索从 DuckDuckGo 单一路径升级为 Bing、Baidu、Google 多引擎回退，并使用 Jsoup 解析真实结果</li>
+                <li>🧭 <b>域名过滤优化：</b>搜索结果按规范化域名执行 allow/block 过滤，支持子域名匹配并过滤搜索页、脚本链接等噪声结果</li>
+                <li>🧠 <b>Skill 代码执行支持：</b>SkillBox 启用临时工作目录、脚本/数据资源上传和受限 Shell 工具，<code>scripts/</code>、<code>data/</code> 等资源可直接进入技能运行时</li>
+                <li>🧹 <b>工具面收敛：</b>移除自定义 Skill 资源读取工具和环境变量读取工具，资源读取改由 SkillBox 内置能力承接，减少敏感信息暴露面</li>
+                <li>🧾 <b>工具详情可复制：</b>工具调用详情弹窗改为聚焦只读 JSON 编辑器，参数和返回值支持快捷键快速选中与复制</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.1</code>，并同步 SDK Helper 版本元数据到 <code>1141</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.0</h2>
+            <ul>
+                <li>🔗 <b>SkillBox Toolkit Wiring:</b> SkillBox is now constructed with the upper-level AgentScope Toolkit so skill tools and runtime tools share the same tool container</li>
+                <li>🧠 <b>Skill Runtime Alignment:</b> Agent chat creates one Toolkit per request, resolves selected Skills with that Toolkit, and then registers plugin/system tools into the same instance</li>
+                <li>🔌 <b>Dependency Alignment:</b> AgentScope runtime dependency is aligned to <code>1.0.12</code></li>
+                <li>🎯 <b>IDE Compatibility:</b> Raised the maximum supported IntelliJ Platform build to <code>263.*</code></li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.0</code> and aligned SDK helper version metadata to <code>1140</code></li>
+                <li>🔗 <b>SkillBox Toolkit 透传：</b>SkillBox 构造时改为接收上层 AgentScope Toolkit，使技能工具与运行时工具共享同一个工具容器</li>
+                <li>🧠 <b>Skill 运行时对齐：</b>智能体对话每次请求创建一个 Toolkit，用它解析已启用 Skills，再将插件/系统工具注册到同一实例中</li>
+                <li>🔌 <b>依赖版本对齐：</b>AgentScope 运行时依赖同步到 <code>1.0.12</code></li>
+                <li>🎯 <b>IDE 兼容范围：</b>最大支持的 IntelliJ Platform build 提升至 <code>263.*</code></li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.0</code>，并同步 SDK Helper 版本元数据到 <code>1140</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.8</h2>
+            <ul>
+                <li>🛡️ <b>Agent Permission Controls:</b> Added per-chat access scopes and dangerous-operation policies, with notifications when tool execution is denied</li>
+                <li>🧰 <b>Tool Permission Coverage:</b> Extended permission checks across built-in tools, file operations, shell/PowerShell commands, Skills, MCP, plugin management, environment variables, and dynamically registered tools</li>
+                <li>📂 <b>Path &amp; File Read Safety:</b> Absolute Unix/Windows paths now resolve directly, project-external paths require full access, and <code>read_file</code> uses bounded offset/limit reads to avoid oversized context</li>
+                <li>🔍 <b>Live File Search:</b> <code>glob_search</code> scans the filesystem directly so externally copied files can be discovered without stale cache results</li>
+                <li>🎨 <b>Composer Permission Layout:</b> Moved prompt, access scope, and dangerous-operation controls into a compact top row with concise labels, tooltips, and a scrollable permission help dialog</li>
+                <li>🧹 <b>Runtime Cleanup:</b> Removed the unused PDF extraction path and stale helper code, and synced release metadata to <code>v1.1.3.8</code> / SDK Helper <code>1138</code></li>
+                <li>🛡️ <b>智能体权限控制：</b>对话级新增访问范围与危险操作策略，工具执行被拒绝时会发送通知提示</li>
+                <li>🧰 <b>工具权限覆盖：</b>权限检查覆盖内置工具、文件操作、Shell/PowerShell 命令、Skills、MCP、插件管理、环境变量和动态注册工具</li>
+                <li>📂 <b>路径与读取安全：</b>Unix/Windows 完整路径会直接解析，项目外路径需要完全访问；<code>read_file</code> 改为带 offset/limit 的受限读取，避免一次性撑爆上下文</li>
+                <li>🔍 <b>实时文件搜索：</b><code>glob_search</code> 直接扫描文件系统，外部复制进来的文件不再依赖过期缓存结果</li>
+                <li>🎨 <b>输入区权限布局：</b>提示词、访问范围、危险操作移到输入区顶部横向排列，并提供简短标签、完整提示和可滚动权限说明弹窗</li>
+                <li>🧹 <b>运行时清理：</b>移除未使用的 PDF 文本抽取链路和冗余辅助代码，并同步发布元数据到 <code>v1.1.3.8</code> / SDK Helper <code>1138</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.3.7</h2>
             <ul>
                 <li>🧰 <b>Lean Tool Surface:</b> Consolidated MCP management around <code>jtools_mcp_update_server</code> and the unified <code>jtools_mcp_query</code>, removing several low-frequency tools to reduce schema/token overhead</li>
                 <li>✍️ <b>Write Session Limit Alignment:</b> Unified <code>jtools_append_write_session</code> schema, prompt text, and runtime checks to allow up to 2048 characters per append</li>
@@ -457,7 +529,7 @@
     <depends optional="true" config-file="maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="gradle.xml">com.intellij.gradle</depends>
     <depends optional="true" config-file="gradle-dsl.xml">org.jetbrains.idea.gradle.dsl</depends>
-    <idea-version since-build="251" until-build="261.*" />
+    <idea-version since-build="251" until-build="263.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

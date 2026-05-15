@@ -1,3 +1,6 @@
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -9,7 +12,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.3.7"
+version = "1.1.4.2"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -21,12 +24,14 @@ repositories {
 
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
-    implementation("io.agentscope:agentscope:1.0.11")
+    implementation("io.agentscope:agentscope:1.0.12")
     implementation("com.anthropic:anthropic-java:2.16.1")
     implementation("com.google.genai:google-genai:1.43.0")
     implementation("cn.hutool:hutool-core:5.8.37")
     implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
+    implementation("org.jsoup:jsoup:1.22.2")
+    implementation("org.htmlunit:htmlunit:4.21.0")
     implementation(project(":sdk"))
     testImplementation(kotlin("test"))
     testImplementation(platform("org.junit:junit-bom:5.12.2"))
@@ -224,6 +229,15 @@ val applyObfuscationOutputs by tasks.registering {
 
 tasks {
     // Set the JVM compatibility versions
+    withType<Copy> {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+    withType<Jar> {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+    withType<Zip> {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
     withType<JavaCompile> {
         sourceCompatibility = "17"
         targetCompatibility = "17"
@@ -245,7 +259,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("251")
-        untilBuild.set("261.*")
+        untilBuild.set("263.*")
     }
 
     signPlugin {
