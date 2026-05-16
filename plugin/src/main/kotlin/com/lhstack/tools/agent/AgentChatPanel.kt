@@ -10,11 +10,11 @@ import com.intellij.lang.Language
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
@@ -42,6 +42,7 @@ import io.agentscope.core.tool.Toolkit as AgentScopeToolkit
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.awt.event.*
 import java.awt.image.BufferedImage
@@ -116,6 +117,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         private val TOP_PERMISSION_WIDTH = JBUI.scale(92)
         private val TOP_APPROVAL_WIDTH = JBUI.scale(92)
         private const val MARKDOWN_STREAM_RENDER_DELAY_MS = 80
+        private const val RAW_BLOCK_COPY_LINK_PREFIX = "jtools-copy-raw:"
+        private const val RAW_BLOCKS_CLIENT_PROPERTY = "jtools.rawBlocks"
     }
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -3083,7 +3086,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             border = JBUI.Borders.empty()
             addHyperlinkListener { event ->
                 if (event.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                    event.url?.let { BrowserUtil.browse(it) }
+                    val description = event.description.orEmpty()
+                    if (description.startsWith(RAW_BLOCK_COPY_LINK_PREFIX)) {
+                        val id = description.removePrefix(RAW_BLOCK_COPY_LINK_PREFIX)
+                        (getClientProperty(RAW_BLOCKS_CLIENT_PROPERTY) as? Map<*, *>)
+                            ?.get(id)
+                            ?.toString()
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let {
+                                CopyPasteManager.getInstance().setContents(StringSelection(it))
+                                project.infoNotify("Raw Markdown", "已复制到剪贴板")
+                            }
+                    } else {
+                        event.url?.let { BrowserUtil.browse(it) }
+                    }
                 }
             }
         }
@@ -3122,7 +3138,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         block.markdownRenderTimer?.stop()
         block.markdownRenderTimer = null
         block.pendingMarkdownContent = null
-        block.textComponent.text = AgentMarkdownRenderer.renderHtml(
+        val rendered = AgentMarkdownRenderer.render(
             markdown = content,
             textColor = block.textColor,
             backgroundColor = UIUtil.getPanelBackground(),
@@ -3132,6 +3148,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             fontFamily = UIUtil.getLabelFont().family,
             fontSize = UIUtil.getLabelFont().size,
         )
+        block.textComponent.putClientProperty(RAW_BLOCKS_CLIENT_PROPERTY, rendered.rawBlocks)
+        block.textComponent.text = rendered.html
         block.textComponent.caretPosition = 0
         block.panel.revalidate()
         block.panel.repaint()
