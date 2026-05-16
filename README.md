@@ -123,7 +123,8 @@ JTools/
 - 🧭 **搜索引擎收敛** - WebSearch 移除内置 Google 搜索，默认使用 Bing，并保留 Baidu 作为回退；旧配置中的 Google 引擎会在归一化时自动清理
 - 🕒 **当前时间工具** - 新增 `jtools_get_current_time` 只读工具，可按指定 IANA 时区或 UTC 偏移返回 `yyyy-MM-dd HH:mm:ss` 时间、查询时区和系统时区
 - 🧠 **Skill 代码执行增强** - Skill 运行时扩展上传资源类型、assets 目录和 Windows 脚本支持，补充跨平台命令白名单与代码执行提示
-- 🧾 **Raw Markdown 显示** - 新增 raw markdown 原样展示模式，长行自动软换行，并在代码块右上角提供复制按钮和复制成功提示，便于直接复用 fenced markdown 内容
+- 🧾 **Raw Markdown 显示** - 支持在智能体回复任意位置识别 fenced `markdown/md` raw 区块，保留内部嵌套的 markdown/json/yml/xml fence 而不再重新解析，长行自动软换行，右上角复制按钮会复制 raw 原文并提示成功
+- ✨ **流式渲染稳定性** - 降低 Markdown 流式输出时整段 HTML 重绘频率，并跳过未变化内容的重复渲染，减少大段内容输出时的闪烁
 - 🧹 **搜索解析清理** - 移除 Google 专用结果解析与调试输出，减少触发 Google 人机识别和无效搜索页解析的可能
 - 📦 **版本元数据同步** - 发布版本提升至 `v1.1.4.2`，并同步 SDK Helper 版本元数据到 `1142`
 - 🧩 **智能体工作台调优** - 围绕 Web 工具、技能执行和模型接入进一步打磨当前会话的交互一致性，提升日常使用时的连贯感

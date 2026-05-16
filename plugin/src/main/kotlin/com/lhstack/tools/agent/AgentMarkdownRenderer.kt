@@ -16,11 +16,28 @@ internal object AgentMarkdownRenderer {
         pattern = "<pre><code([^>]*)>(.*?)</code></pre>",
         options = setOf(RegexOption.DOT_MATCHES_ALL)
     )
-    private val rawMarkdownFencePattern = Regex("""^\s*`{3,}\s*(markdown|md)\s*\R""", RegexOption.IGNORE_CASE)
+    private val rawPlaceholderParagraphPattern = Regex("<p>(JTOOLS_RAW_MARKDOWN_BLOCK_[0-9]+)</p>")
 
     data class RenderedMarkdown(
         val html: String,
         val rawBlocks: Map<String, String>,
+    )
+
+    private data class RawMarkdownSection(
+        val id: String,
+        val placeholder: String,
+        val content: String,
+    )
+
+    private data class PreprocessedMarkdown(
+        val markdown: String,
+        val rawSections: List<RawMarkdownSection>,
+    )
+
+    private data class Fence(
+        val marker: Char,
+        val length: Int,
+        val info: String,
     )
 
     private val extensions = listOf(
@@ -69,16 +86,21 @@ internal object AgentMarkdownRenderer {
         fontFamily: String,
         fontSize: Int,
     ): RenderedMarkdown {
-        val rawMarkdown = extractRawMarkdownFence(markdown)
-        val (body, rawBlocks) = if (rawMarkdown != null) {
-            val id = "raw-0"
-            wrapRawBlock(id = id, codeAttributes = "", codeBody = escapeHtml(rawMarkdown)) to linkedMapOf(id to rawMarkdown)
-        } else {
-            val document = parser.parse(markdown)
-            val rawBlockLiterals = collectRawBlockLiterals(document)
-            val renderedBody = renderer.render(document)
-            injectRawBlockCopyControls(renderedBody, rawBlockLiterals)
+        val preprocessed = preprocessRawMarkdownSections(markdown)
+        val rawBlocks = linkedMapOf<String, String>()
+        preprocessed.rawSections.forEach { section ->
+            rawBlocks[section.id] = section.content
         }
+        val document = parser.parse(preprocessed.markdown)
+        val rawBlockLiterals = collectRawBlockLiterals(document)
+        val renderedBody = renderer.render(document)
+        val (bodyWithCodeBlocks, codeRawBlocks) = injectRawBlockCopyControls(
+            body = renderedBody,
+            literals = rawBlockLiterals,
+            startIndex = rawBlocks.size
+        )
+        rawBlocks.putAll(codeRawBlocks)
+        val body = restoreRawMarkdownSections(bodyWithCodeBlocks, preprocessed.rawSections)
         return """
             <html>
             <head>
@@ -122,19 +144,20 @@ internal object AgentMarkdownRenderer {
               word-wrap: break-word;
             }
             table { border-collapse: collapse; margin: 4px 0 8px 0; word-wrap: break-word; }
-            table.raw-block {
+            .raw-block {
               width: 100%;
               background-color: ${cssColor(codeBackgroundColor)};
               border: 1px solid ${cssColor(borderColor)};
+              padding: 6px 7px 7px 7px;
             }
-            table.raw-block td { border: 0; padding: 0; }
-            table.raw-block td.raw-toolbar {
+            .raw-toolbar {
               text-align: right;
-              padding: 2px 6px 0 6px;
+              margin: 0 0 4px 0;
             }
-            table.raw-block pre {
+            .raw-block pre {
               margin: 0;
-              border: 0;
+              border: 1px solid ${cssColor(borderColor)};
+              background-color: ${cssColor(codeBackgroundColor)};
             }
             th, td { border: 1px solid ${cssColor(borderColor)}; padding: 4px 6px; }
             a { color: ${cssColor(linkColor)}; }
@@ -170,27 +193,117 @@ internal object AgentMarkdownRenderer {
         return literals
     }
 
-    private fun extractRawMarkdownFence(markdown: String): String? {
-        val match = rawMarkdownFencePattern.find(markdown) ?: return null
-        var content = markdown.substring(match.range.last + 1)
-        val lines = content.lines()
-        if (lines.isNotEmpty() && lines.last().trim().matches(Regex("""`{3,}"""))) {
-            content = lines.dropLast(1).joinToString("\n")
+    private fun preprocessRawMarkdownSections(markdown: String): PreprocessedMarkdown {
+        val normalized = markdown.replace("\r\n", "\n").replace('\r', '\n')
+        val lines = normalized.split('\n')
+        val output = mutableListOf<String>()
+        val rawSections = mutableListOf<RawMarkdownSection>()
+        var index = 0
+        while (index < lines.size) {
+            val outerFence = parseFence(lines[index])
+            if (outerFence != null && fenceLanguage(outerFence) in setOf("markdown", "md")) {
+                val id = "raw-${rawSections.size}"
+                val placeholder = "JTOOLS_RAW_MARKDOWN_BLOCK_${rawSections.size}"
+                val contentLines = mutableListOf<String>()
+                val nestedFences = mutableListOf<Fence>()
+                index++
+                while (index < lines.size) {
+                    val line = lines[index]
+                    val fence = parseFence(line)
+                    if (fence != null) {
+                        val nestedFence = nestedFences.lastOrNull()
+                        when {
+                            nestedFence != null && isClosingFence(fence, nestedFence) -> {
+                                nestedFences.removeAt(nestedFences.lastIndex)
+                                contentLines.add(line)
+                                index++
+                                continue
+                            }
+
+                            nestedFence == null && isClosingFence(fence, outerFence) -> {
+                                index++
+                                break
+                            }
+
+                            fence.info.isNotBlank() -> {
+                                nestedFences.add(fence)
+                            }
+                        }
+                    }
+                    contentLines.add(line)
+                    index++
+                }
+                rawSections.add(RawMarkdownSection(id, placeholder, contentLines.joinToString("\n")))
+                output.add(placeholder)
+            } else {
+                output.add(lines[index])
+                index++
+            }
         }
-        return content
+        return PreprocessedMarkdown(output.joinToString("\n"), rawSections)
+    }
+
+    private fun restoreRawMarkdownSections(body: String, sections: List<RawMarkdownSection>): String {
+        if (sections.isEmpty()) {
+            return body
+        }
+        val byPlaceholder = sections.associateBy { it.placeholder }
+        var restored = rawPlaceholderParagraphPattern.replace(body) { match ->
+            val placeholder = match.groupValues[1]
+            byPlaceholder[placeholder]?.let { section ->
+                wrapRawBlock(section.id, "", escapeHtml(section.content))
+            } ?: match.value
+        }
+        sections.forEach { section ->
+            restored = restored.replace(section.placeholder, wrapRawBlock(section.id, "", escapeHtml(section.content)))
+        }
+        return restored
+    }
+
+    private fun parseFence(line: String): Fence? {
+        var offset = 0
+        while (offset < line.length && line[offset] == ' ' && offset < 4) {
+            offset++
+        }
+        if (offset > 3 || offset >= line.length) {
+            return null
+        }
+        val marker = line[offset]
+        if (marker != '`' && marker != '~') {
+            return null
+        }
+        var end = offset
+        while (end < line.length && line[end] == marker) {
+            end++
+        }
+        val length = end - offset
+        if (length < 3) {
+            return null
+        }
+        return Fence(marker, length, line.substring(end).trim())
+    }
+
+    private fun isClosingFence(candidate: Fence, opener: Fence): Boolean {
+        return candidate.marker == opener.marker && candidate.length >= opener.length && candidate.info.isBlank()
+    }
+
+    private fun fenceLanguage(fence: Fence): String {
+        return fence.info.substringBefore(' ').substringBefore('\t').lowercase()
     }
 
     private fun injectRawBlockCopyControls(
         body: String,
         literals: List<String>,
+        startIndex: Int,
     ): Pair<String, Map<String, String>> {
         if (literals.isEmpty()) {
             return body to emptyMap()
         }
-        var index = 0
+        var index = startIndex
+        var literalIndex = 0
         val rawBlocks = linkedMapOf<String, String>()
         val wrappedBody = rawBlockPattern.replace(body) { match ->
-            val literal = literals.getOrNull(index)
+            val literal = literals.getOrNull(literalIndex++)
                 ?: return@replace match.value
             val id = "raw-${index++}"
             rawBlocks[id] = literal
@@ -203,10 +316,10 @@ internal object AgentMarkdownRenderer {
 
     private fun wrapRawBlock(id: String, codeAttributes: String, codeBody: String): String {
         return """
-            <table class="raw-block" cellspacing="0" cellpadding="0">
-            <tr><td class="raw-toolbar"><a class="raw-copy-button" href="jtools-copy-raw:$id">复制</a></td></tr>
-            <tr><td><pre><code$codeAttributes>$codeBody</code></pre></td></tr>
-            </table>
+            <div class="raw-block">
+              <div class="raw-toolbar"><a class="raw-copy-button" href="jtools-copy-raw:$id">复制</a></div>
+              <pre><code$codeAttributes>$codeBody</code></pre>
+            </div>
         """.trimIndent()
     }
 

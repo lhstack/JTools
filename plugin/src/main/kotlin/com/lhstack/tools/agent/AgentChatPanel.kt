@@ -116,7 +116,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         private val TOP_SYSTEM_PROMPT_WIDTH = JBUI.scale(150)
         private val TOP_PERMISSION_WIDTH = JBUI.scale(92)
         private val TOP_APPROVAL_WIDTH = JBUI.scale(92)
-        private const val MARKDOWN_STREAM_RENDER_DELAY_MS = 80
+        private const val MARKDOWN_STREAM_RENDER_DELAY_MS = 220
         private const val RAW_BLOCK_COPY_LINK_PREFIX = "jtools-copy-raw:"
         private const val RAW_BLOCKS_CLIENT_PROPERTY = "jtools.rawBlocks"
     }
@@ -3138,6 +3138,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         block.markdownRenderTimer?.stop()
         block.markdownRenderTimer = null
         block.pendingMarkdownContent = null
+        if (content == block.lastRenderedMarkdownContent) {
+            return
+        }
         val rendered = AgentMarkdownRenderer.render(
             markdown = content,
             textColor = block.textColor,
@@ -3150,6 +3153,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         block.textComponent.putClientProperty(RAW_BLOCKS_CLIENT_PROPERTY, rendered.rawBlocks)
         block.textComponent.text = rendered.html
+        block.lastRenderedMarkdownContent = content
         block.textComponent.caretPosition = 0
         block.panel.revalidate()
         block.panel.repaint()
@@ -3747,6 +3751,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val textColor: java.awt.Color,
         var pendingMarkdownContent: String? = null,
         var markdownRenderTimer: javax.swing.Timer? = null,
+        var lastRenderedMarkdownContent: String = "",
         var rawContent: String = "",
     )
 
