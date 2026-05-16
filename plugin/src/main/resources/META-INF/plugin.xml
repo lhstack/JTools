@@ -156,6 +156,7 @@
                 <li>🧠 <b>Skill Code Execution:</b> Expanded uploaded Skill resource types, added assets and Windows script support, and improved cross-platform command whitelists and code-execution instructions</li>
                 <li>🧹 <b>Search Parser Cleanup:</b> Removed Google-specific result parsing and debug output to reduce CAPTCHA-triggering traffic and stale search-page parsing paths</li>
                 <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.2</code> and aligned SDK helper version metadata to <code>1142</code></li>
+                <li>🧩 <b>Agent Workspace Tuning:</b> Refined the IDE-native agent workflow around Web fetch/search, skill execution, and provider-driven tooling so the latest release feels more consistent in day-to-day use</li>
                 <li>🎨 <b>设置页重构：</b>设置页改为分组卡片与滚动布局，拆分基础设置和 Web 工具设置，提升插件目录、日志、仓库、代理和搜索引擎配置的可读性</li>
                 <li>🌐 <b>Web 工具代理配置：</b>新增 WebFetch / WebSearch 专用 HTTP/SOCKS 代理设置，代理主机、端口和类型会持久化并在网页抓取、搜索请求中生效</li>
                 <li>🔍 <b>搜索引擎配置：</b>新增 WebSearch 搜索引擎管理，可新增、编辑、删除和拖拽排序搜索引擎，地址支持 <code>{query}</code> 占位符并兼容旧引擎 ID</li>
@@ -164,6 +165,7 @@
                 <li>🧠 <b>Skill 代码执行增强：</b>Skill 运行时扩展上传资源类型、assets 目录和 Windows 脚本支持，补充跨平台命令白名单与代码执行提示</li>
                 <li>🧹 <b>搜索解析清理：</b>移除 Google 专用结果解析与调试输出，减少触发人机识别和无效搜索页解析的可能</li>
                 <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.2</code>，并同步 SDK Helper 版本元数据到 <code>1142</code></li>
+                <li>🧩 <b>智能体工作台调优：</b>围绕 Web 工具、技能执行和模型接入进一步打磨当前会话的交互一致性，提升日常使用时的连贯感</li>
             </ul>
 
             <h2>📦 Version v1.1.4.1</h2>

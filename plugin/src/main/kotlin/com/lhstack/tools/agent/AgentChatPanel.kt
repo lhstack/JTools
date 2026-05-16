@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.icons.AllIcons
+import com.intellij.ide.BrowserUtil
 import com.intellij.lang.Language
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -54,9 +55,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.imageio.ImageIO
 import javax.swing.*
 import javax.swing.event.DocumentEvent
+import javax.swing.event.HyperlinkEvent
 import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
 import javax.swing.text.DefaultEditorKit
+import javax.swing.text.JTextComponent
 
 internal data class AgentRequestUiControls(
     val sessionSelector: JComponent,
@@ -112,6 +115,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         private val TOP_SYSTEM_PROMPT_WIDTH = JBUI.scale(150)
         private val TOP_PERMISSION_WIDTH = JBUI.scale(92)
         private val TOP_APPROVAL_WIDTH = JBUI.scale(92)
+        private const val MARKDOWN_STREAM_RENDER_DELAY_MS = 80
     }
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -832,7 +836,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val color = if (item.role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
         val block = createMessageBlock(item.role, color, item.collapsible, item.collapsedByDefault, item)
-        block.textArea.text = item.content
+        setBlockContent(block, item.content)
         addMessageBlock(block)
     }
 
@@ -2844,7 +2848,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val item = RenderItem(role, content, collapsible, collapsedByDefault, attachments = attachments.toMutableList())
         addRenderItem(item)
         val block = createMessageBlock(role, color, collapsible, collapsedByDefault, item)
-        block.textArea.text = content
+        setBlockContent(block, content)
         addMessageBlock(block)
     }
 
@@ -2932,10 +2936,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun appendToBlock(block: MessageBlock?, text: String) {
         block ?: return
-        block.textArea.append(text)
         block.renderItem?.let {
             it.content += text
             it.state?.content = it.content
+            setBlockContent(block, it.content, immediate = false)
+        } ?: run {
+            setBlockContent(block, block.rawContent + text, immediate = false)
         }
         if (block.contentPanel.isVisible && block.scrollPane != null) {
             scrollBlockContentToBottom(block.scrollPane)
@@ -2944,6 +2950,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun clearStreamingRequestState() {
+        streamingTextBlocks.values.forEach { flushPendingMarkdownRender(it) }
         assistantBlock = null
         toolBlock = null
         streamingTextBlocks.clear()
@@ -3003,14 +3010,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             foreground = if (title == "推理") textColor else UIUtil.getLabelForeground()
 //            font = font.deriveFont(font.style or Font.BOLD)
         }
-        val contentArea = JBTextArea().apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            foreground = textColor
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(4, 12, 6, 8)
-            isOpaque = false
+        val rendersMarkdown = title == "助手"
+        val contentArea = if (rendersMarkdown) {
+            createMarkdownPane(textColor)
+        } else {
+            createPlainTextArea(textColor)
         }
         val contentPanel = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -3045,7 +3049,95 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         panel.add(header, BorderLayout.NORTH)
         panel.add(contentPanel, BorderLayout.CENTER)
 
-        return MessageBlock(panel, contentArea, contentPanel, null, renderItem)
+        return MessageBlock(panel, contentArea, contentPanel, null, renderItem, rendersMarkdown, textColor)
+    }
+
+    private fun createPlainTextArea(textColor: java.awt.Color): JTextComponent {
+        return JBTextArea().apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            foreground = textColor
+            background = UIUtil.getPanelBackground()
+            border = JBUI.Borders.empty(4, 12, 6, 8)
+            isOpaque = false
+        }
+    }
+
+    private fun createMarkdownPane(textColor: java.awt.Color): JTextComponent {
+        return object : JEditorPane() {
+            override fun getPreferredSize(): Dimension {
+                val parentWidth = parent?.width ?: 0
+                if (parentWidth > 0) {
+                    setSize(parentWidth, Short.MAX_VALUE.toInt())
+                }
+                return super.getPreferredSize()
+            }
+        }.apply {
+            contentType = "text/html"
+            isEditable = false
+            isOpaque = false
+            putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+            foreground = textColor
+            background = UIUtil.getPanelBackground()
+            border = JBUI.Borders.empty()
+            addHyperlinkListener { event ->
+                if (event.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+                    event.url?.let { BrowserUtil.browse(it) }
+                }
+            }
+        }
+    }
+
+    private fun setBlockContent(block: MessageBlock, content: String, immediate: Boolean = true) {
+        if (!block.rendersMarkdown) {
+            block.rawContent = content
+            block.textComponent.text = content
+            return
+        }
+        block.rawContent = content
+        block.pendingMarkdownContent = content
+        if (immediate) {
+            flushPendingMarkdownRender(block)
+            return
+        }
+        scheduleMarkdownRender(block)
+    }
+
+    private fun scheduleMarkdownRender(block: MessageBlock) {
+        val runningTimer = block.markdownRenderTimer?.takeIf { it.isRunning }
+        if (runningTimer != null) {
+            return
+        }
+        block.markdownRenderTimer = javax.swing.Timer(MARKDOWN_STREAM_RENDER_DELAY_MS) {
+            flushPendingMarkdownRender(block)
+        }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
+    private fun flushPendingMarkdownRender(block: MessageBlock) {
+        val content = block.pendingMarkdownContent ?: return
+        block.markdownRenderTimer?.stop()
+        block.markdownRenderTimer = null
+        block.pendingMarkdownContent = null
+        block.textComponent.text = AgentMarkdownRenderer.renderHtml(
+            markdown = content,
+            textColor = block.textColor,
+            backgroundColor = UIUtil.getPanelBackground(),
+            borderColor = JBColor.border(),
+            codeBackgroundColor = UIUtil.getTextFieldBackground(),
+            linkColor = JBColor(0x245DB3, 0x6A9BFF),
+            fontFamily = UIUtil.getLabelFont().family,
+            fontSize = UIUtil.getLabelFont().size,
+        )
+        block.textComponent.caretPosition = 0
+        block.panel.revalidate()
+        block.panel.repaint()
+        if (block.contentPanel.isVisible) {
+            scrollToBottom()
+        }
     }
 
     private fun createTrackedToolBlock(
@@ -3629,10 +3721,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private data class MessageBlock(
         val panel: JComponent,
-        val textArea: JBTextArea,
+        val textComponent: JTextComponent,
         val contentPanel: JComponent,
         val scrollPane: JScrollPane?,
-        val renderItem: RenderItem?
+        val renderItem: RenderItem?,
+        val rendersMarkdown: Boolean,
+        val textColor: java.awt.Color,
+        var pendingMarkdownContent: String? = null,
+        var markdownRenderTimer: javax.swing.Timer? = null,
+        var rawContent: String = "",
     )
 
     private data class ToolListBlock(
