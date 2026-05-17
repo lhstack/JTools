@@ -32,6 +32,7 @@
         <li><b>📂 Customizable Storage:</b> Configure your preferred plugin installation directory with automatic isolation by JetBrains product and version.</li>
         <li><b>📋 Integrated Logging:</b> Built-in logging console with soft-wrap output for easy troubleshooting during development and runtime.</li>
         <li><b>🤖 Agent Chat:</b> Built-in agent entry with streaming output, reasoning blocks, and collapsible tool logs.</li>
+        <li><b>📊 Token Usage:</b> Agent chat shows per-session token consumption in K units near the prompt selector, with input/output and last-request details in the tooltip.</li>
         <li><b>🧭 Provider Manager:</b> Multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy.</li>
         <li><b>🎛️ Provider Selector:</b> Provider selector with model lists fetched from each provider.</li>
         <li><b>🧩 Provider Templates:</b> OpenAI-compatible provider types and vendor templates with preset endpoints and parameter hints for easier third-party model integration.</li>
@@ -96,6 +97,7 @@
         <li><b>📂 自定义存储：</b>可配置首选的插件安装目录，按 JetBrains 产品和版本自动隔离。</li>
         <li><b>📋 集成日志：</b>内置日志控制台，支持软换行输出，便于开发和运行时故障排查。</li>
         <li><b>🤖 智能体对话：</b>内置智能体入口，支持流式输出、推理块展示与工具调用折叠日志。</li>
+        <li><b>📊 Token 消耗：</b>智能体对话在提示词选择器旁展示当前会话 Token 累计消耗，按 K 单位显示，并在提示中提供输入/输出与上次请求明细。</li>
         <li><b>🧭 供应方管理：</b>多供应方配置（OpenAI/Anthropic），支持 Base URL、请求头、代理。</li>
         <li><b>🎛️ 供应方选择：</b>对话中可选供应方，并维护供应方级别模型列表与默认模型。</li>
         <li><b>🧩 供应方模板：</b>支持 OpenAI Compatible 接入类型与厂商模板，预置端点和参数建议，便于接入第三方模型服务。</li>
@@ -149,9 +151,10 @@
             <p><i>Latest Fix / 最新修复</i></p>
             <ul>
                 <li>🛠️ <b>Model Manager Toolbar Fix:</b> Fixed the SDK model list panel layout so the right-side add/refresh toolbar stays visible</li>
+                <li>📊 <b>Agent Token Usage:</b> Added per-session token consumption display beside the agent prompt selector, using K-unit formatting and tooltip details for input, output, and last request usage</li>
                 <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.2-fix</code> while keeping SDK helper metadata at <code>1142</code></li>
                 <li>🛠️ <b>模型管理工具栏修复：</b>修正 SDK 模型列表面板布局，恢复右侧新增/刷新工具栏显示，避免按钮被布局挤出可视区域</li>
-                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.2-fix</code>，SDK Helper 版本元数据仍保持 <code>1142</code></li>
+                <li>📊 <b>智能体 Token 消耗：</b>在智能体提示词选择器旁新增当前会话 Token 消耗展示，按 K 单位格式化，并通过提示展示输入、输出和上次请求用量</li>
             </ul>
 
             <h2>📦 Version v1.1.4.2</h2>

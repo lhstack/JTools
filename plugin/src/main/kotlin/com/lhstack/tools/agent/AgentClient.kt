@@ -51,6 +51,7 @@ data class AgentCompletionResult(
     val assistantContent: String?,
     val toolCalls: List<ToolCallLog>,
     val reasoningContent: String? = null,
+    val usage: io.agentscope.core.model.ChatUsage? = null,
     val errorMessage: String? = null,
 )
 
@@ -143,12 +144,14 @@ class AgentClient {
                 assistantContent = null,
                 toolCalls = emptyList(),
                 reasoningContent = null,
+                usage = null,
                 errorMessage = "当前消息为空"
             )
             cancelToken?.registerInterrupt {
                 handle.agent.interrupt()
             }
             var finalAssistant: Msg? = null
+            var finalUsage: io.agentscope.core.model.ChatUsage? = null
             val options = StreamOptions.builder()
                 .eventTypes(
                     EventType.REASONING,
@@ -161,6 +164,7 @@ class AgentClient {
             handle.agent.stream(listOf(currentMsg), options)
                 .doOnNext { event ->
                     val message = event.message
+                    message.chatUsage?.let { finalUsage = it }
                     for (block in message.content) {
                         if (block is ThinkingBlock) {
                             AgentReasoningSupport.extractThinking(block)?.let { text ->
@@ -300,6 +304,7 @@ class AgentClient {
                     assistantContent = null,
                     toolCalls = toolLogsById.values.toList(),
                     reasoningContent = reasoningTextsById.values.joinToString("\n\n").ifBlank { null },
+                    usage = finalUsage,
                     errorMessage = "已取消",
                 )
             }
@@ -323,6 +328,7 @@ class AgentClient {
                 assistantContent = finalContent,
                 toolCalls = toolLogsById.values.toList(),
                 reasoningContent = reasoningTextsById.values.joinToString("\n\n").ifBlank { null },
+                usage = finalUsage,
             )
         } catch (e: Throwable) {
             clearSession(sessionState.id)
@@ -335,6 +341,7 @@ class AgentClient {
                 assistantContent = null,
                 toolCalls = toolLogsById.values.toList(),
                 reasoningContent = reasoningTextsById.values.joinToString("\n\n").ifBlank { null },
+                usage = null,
                 errorMessage = errorMessage,
             )
         }

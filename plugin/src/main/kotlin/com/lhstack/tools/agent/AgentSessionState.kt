@@ -27,6 +27,12 @@ class AgentSessionState {
     var messages: MutableList<String> = mutableListOf()
     var renders: MutableList<AgentRenderState> = mutableListOf()
     var draftAttachments: MutableList<AgentAttachmentState> = mutableListOf()
+    var inputTokensConsumed: Long = 0
+    var outputTokensConsumed: Long = 0
+    var totalTokensConsumed: Long = 0
+    var lastRequestInputTokens: Long = 0
+    var lastRequestOutputTokens: Long = 0
+    var lastRequestTotalTokens: Long = 0
     var runtime: AgentSessionRuntimeState = AgentSessionRuntimeState()
 }
 

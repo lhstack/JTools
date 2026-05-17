@@ -6,35 +6,22 @@ import com.google.gson.JsonParser
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
+import com.lhstack.tools.dev.DevPluginRegistry
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.gson
-import com.lhstack.tools.ext.logImpl
-import com.lhstack.tools.ext.openThisWindow
-import com.lhstack.tools.dev.DevPluginRegistry
-import com.lhstack.tools.plugins.FunctionCalling
-import com.lhstack.tools.plugins.Helper
-import com.lhstack.tools.plugins.IPlugin
-import com.lhstack.tools.plugins.PluginInfo
-import com.lhstack.tools.plugins.PluginType
-import com.lhstack.tools.plugins.pluginManager
+import com.lhstack.tools.plugins.*
 import org.apache.commons.codec.digest.DigestUtils
-import org.apache.commons.io.FileUtils
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
-import kotlin.math.min
-import com.lhstack.tools.listener.PluginListener
-import com.lhstack.tools.listener.ProjectPluginListener
-import com.lhstack.tools.plugins.pluginState
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import kotlin.collections.set
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import kotlin.math.min
 
 data class AgentTool(
     val name: String,
@@ -54,30 +41,8 @@ class AgentToolRegistry private constructor(
     private val pluginInfosByName: Map<String, List<PluginInfo>>,
 ) {
 
-    fun findTool(name: String): AgentTool? = toolByName[name]
-
-    fun toolsJson(): JsonArray {
-        val array = JsonArray()
-        tools.forEach { tool ->
-            val params = safeParameters(tool.parametersJson)
-            val function = JsonObject().apply {
-                addProperty("name", tool.name)
-                addProperty("description", tool.description)
-                add("parameters", params)
-            }
-            array.add(JsonObject().apply {
-                addProperty("type", "function")
-                add("function", function)
-            })
-        }
-        return array
-    }
 
     fun listPlugins(): List<PluginInfo> = pluginInfoById.values.toList()
-
-    fun listPluginToolsById(pluginId: String): List<AgentTool> = pluginTools[pluginId] ?: emptyList()
-
-    fun findPluginByName(pluginName: String): List<PluginInfo> = pluginInfosByName[pluginName] ?: emptyList()
 
     companion object {
         private const val MAX_TOOL_NAME_LENGTH = 64
@@ -303,125 +268,6 @@ class AgentToolRegistry private constructor(
                         success(project, plugins)
                     },
                     requiredPermission = AgentToolPermissionScope.READ_ONLY,
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_get_plugin_detail",
-                    description = "获取某个插件的详细信息, 需要 pluginId 或 pluginName",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "pluginId": { "type": "string", "description": "插件ID" },
-                            "pluginName": { "type": "string", "description": "插件名称" }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val pluginId = payload.get("pluginId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginName = payload.get("pluginName")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginInfo = when {
-                            pluginId.isNotBlank() -> registry.pluginInfoById[pluginId]
-                            pluginName.isNotBlank() -> {
-                                val matches = registry.findPluginByName(pluginName)
-                                if (matches.size == 1) {
-                                    matches.first()
-                                } else {
-                                    return@AgentTool error(
-                                        project,
-                                        if (matches.isEmpty()) "未找到插件: $pluginName"
-                                        else "插件名称重复, 请使用 pluginId: ${matches.map { it.id }}"
-                                    )
-                                }
-                            }
-                            else -> null
-                        } ?: return@AgentTool error(project, "需要提供 pluginId 或 pluginName")
-
-                        val detail = collectPluginDetails(project).firstOrNull { item ->
-                            item["id"] == pluginInfo.id
-                        } ?: return@AgentTool error(project, "插件信息未找到")
-
-                        success(project, detail)
-                    },
-                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_install_plugin_from_file",
-                    description = "从本地文件安装插件(jar/zip)",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "path": { "type": "string", "description": "插件文件路径" }
-                          },
-                          "required": ["path"]
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val path = payload.get("path")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        if (path.isBlank()) {
-                            return@AgentTool error(project, "path 不能为空")
-                        }
-                        val result = installPluginFromPath(project, path)
-                        success(project, result)
-                    },
-                    requiredPermission = AgentToolPermissionScope.WORKSPACE_WRITE,
-                    pluginInfo = systemPluginInfo
-                )
-            )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_uninstall_plugin",
-                    description = "卸载插件(通过 pluginId 或 pluginName)",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "pluginId": { "type": "string", "description": "插件ID" },
-                            "pluginName": { "type": "string", "description": "插件名称" }
-                          }
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args)
-                            ?: return@AgentTool error(project, "参数解析失败")
-                        val pluginId = payload.get("pluginId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginName = payload.get("pluginName")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val pluginInfo = when {
-                            pluginId.isNotBlank() -> registry.pluginInfoById[pluginId]
-                            pluginName.isNotBlank() -> {
-                                val matches = registry.findPluginByName(pluginName)
-                                if (matches.size == 1) {
-                                    matches.first()
-                                } else {
-                                    return@AgentTool error(
-                                        project,
-                                        if (matches.isEmpty()) "未找到插件: $pluginName"
-                                        else "插件名称重复, 请使用 pluginId: ${matches.map { it.id }}"
-                                    )
-                                }
-                            }
-                            else -> null
-                        } ?: return@AgentTool error(project, "需要提供 pluginId 或 pluginName")
-
-                        val plugin = findPluginInstance(project, pluginInfo.id)
-                            ?: return@AgentTool error(project, "插件实例未找到")
-                        val result = uninstallPlugin(project, pluginInfo, plugin)
-                        success(project, result)
-                    },
-                    requiredPermission = AgentToolPermissionScope.WORKSPACE_WRITE,
                     pluginInfo = systemPluginInfo
                 )
             )
@@ -801,64 +647,6 @@ class AgentToolRegistry private constructor(
                     pluginInfo = systemPluginInfo
                 )
             )
-
-            registerTool(
-                AgentTool(
-                    name = "jtools_mcp_query",
-                    description = "统一查询 MCP 服务器的资源、单个资源内容、提示词、单个提示词内容或工具列表。",
-                    parametersJson = """
-                        {
-                          "type": "object",
-                          "properties": {
-                            "serverId": { "type": "string", "description": "MCP 服务器 ID" },
-                            "kind": { "type": "string", "enum": ["resources", "resource", "prompts", "prompt", "tools"], "description": "查询类型" },
-                            "uri": { "type": "string", "description": "kind=resource 时需要的资源 URI" },
-                            "name": { "type": "string", "description": "kind=prompt 时需要的提示词名称" },
-                            "arguments": { "type": "object", "description": "kind=prompt 时可选的提示词参数" }
-                          },
-                          "required": ["serverId", "kind"],
-                          "additionalProperties": false
-                        }
-                    """.trimIndent(),
-                    call = { args ->
-                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
-                        val serverId = payload.get("serverId")?.asString?.trim().orEmpty()
-                        val kind = payload.get("kind")?.asString?.trim().orEmpty()
-                        val server = findMcpServer(project, serverId) ?: return@AgentTool error(project, "未找到 MCP 服务器")
-                        return@AgentTool when (kind) {
-                            "resources" -> success(project, McpClientManager.safeListResources(server))
-                            "tools" -> success(project, McpClientManager.safeListTools(server))
-                            "prompts" -> success(project, McpClientManager.safeListPrompts(server))
-                            "resource" -> {
-                                val uri = payload.get("uri")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                                if (uri.isBlank()) {
-                                    return@AgentTool error(project, "kind=resource 时 uri 不能为空")
-                                }
-                                runCatching { McpClientManager.getClient(server).readResource(uri) }
-                                    .fold(
-                                        onSuccess = { success(project, it) },
-                                        onFailure = { error(project, "MCP 读取资源失败: ${it.message ?: "unknown"}") }
-                                    )
-                            }
-                            "prompt" -> {
-                                val name = payload.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                                if (name.isBlank()) {
-                                    return@AgentTool error(project, "kind=prompt 时 name 不能为空")
-                                }
-                                val arguments = payload.get("arguments")?.takeIf { it.isJsonObject }?.asJsonObject
-                                runCatching { McpClientManager.getClient(server).getPrompt(name, arguments) }
-                                    .fold(
-                                        onSuccess = { success(project, it) },
-                                        onFailure = { error(project, "MCP 获取提示失败: ${it.message ?: "unknown"}") }
-                                    )
-                            }
-                            else -> error(project, "kind 必须是 resources、resource、prompts、prompt 或 tools")
-                        }
-                    },
-                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
-                    pluginInfo = systemPluginInfo
-                )
-            )
         }
 
         private fun registerMcpTools(project: Project, registerTool: (AgentTool) -> Unit) {
@@ -1119,50 +907,6 @@ class AgentToolRegistry private constructor(
 
         private fun emptyParameters(): String {
             return """{"type":"object","properties":{}}"""
-        }
-
-        private fun installPluginFromPath(project: Project, path: String): Map<String, Any?> {
-            var response: Map<String, Any?> = mapOf("ok" to false, "error" to "安装失败")
-            project.pluginManager().install(path) { plugin, pluginInfo, error ->
-                if (error != null) {
-                    response = mapOf("ok" to false, "error" to error)
-                    return@install
-                }
-                if (plugin == null || pluginInfo == null) {
-                    response = mapOf("ok" to false, "error" to "插件安装失败")
-                    return@install
-                }
-                if (plugin.installRestart()) {
-                    ApplicationManager.getApplication().restart()
-                    response = mapOf("ok" to true, "pluginId" to pluginInfo.id, "restartRequired" to true)
-                    return@install
-                }
-                ApplicationManager.getApplication().invokeLater {
-                    ProjectManager.getInstance().openProjects.forEach { openProject ->
-                        try {
-                            plugin.openProject(openProject, pluginInfo.logImpl(openProject)) {
-                                if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
-                                    openProject.openThisWindow()
-                                    openProject.messageBus.syncPublisher(ProjectPluginListener.TOPIC)
-                                        .openPanel(pluginInfo, plugin)
-                                }
-                            }
-                        } catch (_: Throwable) {
-                            // ignore per-project open errors
-                        }
-                    }
-                }
-                ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
-                    .install(plugin, pluginInfo)
-                response = mapOf(
-                    "ok" to true,
-                    "pluginId" to pluginInfo.id,
-                    "name" to pluginInfo.name,
-                    "version" to pluginInfo.version,
-                    "type" to pluginInfo.type
-                )
-            }
-            return response
         }
 
         private fun buildSystemInfo(): Map<String, Any?> {
@@ -1456,142 +1200,6 @@ class AgentToolRegistry private constructor(
                 return File(basePath)
             }
             return resolveProjectAwareFile(project, path)
-        }
-
-        private fun collectPluginDetails(project: Project): List<Map<String, Any?>> {
-            val devInfo = DevPluginRegistry.pluginInfo()
-            val devPlugin = DevPluginRegistry.plugin()
-            val result = mutableListOf<Map<String, Any?>>()
-            project.pluginManager().plugins { pluginInfo, plugin ->
-                val path = pluginInfo.path
-                val file = File(path)
-                val sizeBytes = if (file.exists()) {
-                    try {
-                        if (file.isDirectory) {
-                            FileUtils.sizeOfDirectory(file)
-                        } else {
-                            FileUtils.sizeOf(file)
-                        }
-                    } catch (_: Throwable) {
-                        0L
-                    }
-                } else {
-                    0L
-                }
-                result.add(
-                    mapOf(
-                        "id" to pluginInfo.id,
-                        "name" to pluginInfo.name,
-                        "version" to pluginInfo.version,
-                        "type" to pluginInfo.type,
-                        "source" to if (devInfo?.id == pluginInfo.id) "developer" else "installed",
-                        "created" to pluginInfo.created,
-                        "path" to path,
-                        "exists" to file.exists(),
-                        "sizeBytes" to sizeBytes,
-                        "implClass" to plugin.javaClass.name
-                    )
-                )
-            }
-            if (devInfo != null && devPlugin != null && result.none { it["id"] == devInfo.id }) {
-                val path = devInfo.path
-                val file = File(path)
-                val sizeBytes = if (file.exists()) {
-                    try {
-                        if (file.isDirectory) {
-                            FileUtils.sizeOfDirectory(file)
-                        } else {
-                            FileUtils.sizeOf(file)
-                        }
-                    } catch (_: Throwable) {
-                        0L
-                    }
-                } else {
-                    0L
-                }
-                result.add(
-                    mapOf(
-                        "id" to devInfo.id,
-                        "name" to devInfo.name,
-                        "version" to devInfo.version,
-                        "type" to devInfo.type,
-                        "source" to "developer",
-                        "created" to devInfo.created,
-                        "path" to path,
-                        "exists" to file.exists(),
-                        "sizeBytes" to sizeBytes,
-                        "implClass" to devPlugin.javaClass.name
-                    )
-                )
-            }
-            val systemPluginInfo = buildSystemPluginInfo()
-            if (result.none { it["id"] == systemPluginInfo.id }) {
-                result.add(
-                    mapOf(
-                        "id" to systemPluginInfo.id,
-                        "name" to systemPluginInfo.name,
-                        "version" to systemPluginInfo.version,
-                        "type" to systemPluginInfo.type,
-                        "source" to "system",
-                        "created" to systemPluginInfo.created,
-                        "path" to systemPluginInfo.path,
-                        "exists" to false,
-                        "sizeBytes" to 0L,
-                        "implClass" to "builtin"
-                    )
-                )
-            }
-            return result
-        }
-
-        private fun uninstallPlugin(project: Project, pluginInfo: PluginInfo, plugin: IPlugin): Map<String, Any?> {
-            val action = Runnable {
-                ApplicationManager.getApplication().messageBus.syncPublisher(PluginListener.TOPIC)
-                    .uninstall(plugin, pluginInfo)
-                ProjectManager.getInstance().openProjects.forEach { openProject ->
-                    try {
-                        plugin.closeProject(openProject)
-                    } catch (_: Throwable) {
-                        // ignore close errors
-                    }
-                }
-                try {
-                    plugin.appClose()
-                } catch (_: Throwable) {
-                    // ignore close errors
-                }
-                try {
-                    plugin.unInstall()
-                } catch (_: Throwable) {
-                    // ignore uninstall errors
-                }
-                project.pluginManager().uninstall(pluginInfo)
-            }
-            if (ApplicationManager.getApplication().isDispatchThread) {
-                action.run()
-            } else {
-                ApplicationManager.getApplication().invokeAndWait(action)
-            }
-            return mapOf(
-                "ok" to true,
-                "pluginId" to pluginInfo.id,
-                "name" to pluginInfo.name,
-                "version" to pluginInfo.version
-            )
-        }
-
-        private fun findPluginInstance(project: Project, pluginId: String): IPlugin? {
-            return project.pluginManager().pluginInstances.entries.firstOrNull { it.key.id == pluginId }?.value
-        }
-
-        private fun findMcpServer(project: Project, serverId: String): McpServerState? {
-            if (serverId.isBlank()) {
-                return null
-            }
-            return McpSupport.safeServers(project.pluginState().agentMcpServers).firstOrNull { server ->
-                McpSupport.ensureServerId(server)
-                server.id == serverId
-            }
         }
 
         private fun parseStringArray(element: com.google.gson.JsonElement?): List<String> {

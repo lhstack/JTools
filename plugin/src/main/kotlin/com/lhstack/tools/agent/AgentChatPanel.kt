@@ -38,6 +38,7 @@ import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.infoNotify
 import com.lhstack.tools.plugins.pluginState
+import io.agentscope.core.model.ChatUsage
 import io.agentscope.core.tool.Toolkit as AgentScopeToolkit
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.*
@@ -171,6 +172,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     ) { cancelCurrentRequest() }
     private val statusLabel = JLabel()
     private val inputHintLabel = JLabel(AgentInputShortcutSupport.inputHint())
+    private val tokenUsageLabel = JLabel()
     private val sessionModel = DefaultComboBoxModel<ChatSession>()
     private val providerModel = DefaultComboBoxModel<AgentProviderState>()
     private val sessionSelector = ComboBox<ChatSession>()
@@ -819,6 +821,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         renderSession(session)
         refreshAttachmentDrafts()
         updateStatus()
+        updateTokenUsageLabel()
     }
 
     private fun renderSession(session: ChatSession) {
@@ -1806,11 +1809,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         session.renders.clear()
         session.state.renders.clear()
         session.state.draftAttachments.clear()
+        resetTokenUsage(session)
         resetMessages(session)
         if (session == currentSession) {
             inputArea.text = ""
             refreshAttachmentDrafts()
             renderSession(session)
+            updateTokenUsageLabel()
         }
     }
 
@@ -2517,6 +2522,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         inputHintLabel.foreground = UIUtil.getContextHelpForeground()
         inputHintLabel.horizontalAlignment = SwingConstants.LEFT
+        tokenUsageLabel.foreground = UIUtil.getContextHelpForeground()
+        tokenUsageLabel.horizontalAlignment = SwingConstants.LEFT
         val providerPanel = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -2550,6 +2557,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val systemPromptPanel = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(tokenUsageLabel)
+            add(Box.createHorizontalStrut(JBUI.scale(10)))
             add(JLabel("提示词: "))
             add(Box.createHorizontalStrut(6))
             add(systemPromptSelector)
@@ -2620,6 +2629,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(inputBody, BorderLayout.CENTER)
         }
         updateInputComposerChrome(inputCard, actionPanel, focused = inputArea.hasFocus())
+        updateTokenUsageLabel()
         inputArea.addFocusListener(object : FocusAdapter() {
             override fun focusGained(e: FocusEvent) {
                 updateInputComposerChrome(inputCard, actionPanel, focused = true)
@@ -2834,6 +2844,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 if (result.errorMessage != null) {
                     appendMessage("错误", result.errorMessage, collapsible = false, collapsedByDefault = false)
                 }
+                recordTokenUsage(session, result.usage)
                 syncSessionMessages(session)
                 finishRequestUi()
             }
@@ -3405,6 +3416,59 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun resetMessages(session: ChatSession) {
         session.messages.clear()
         syncSessionSystemPrompt(session)
+    }
+
+    private fun recordTokenUsage(session: ChatSession, usage: ChatUsage?) {
+        if (usage == null) {
+            return
+        }
+        val input = usage.inputTokens.toLong().coerceAtLeast(0)
+        val output = usage.outputTokens.toLong().coerceAtLeast(0)
+        val total = usage.totalTokens.toLong().takeIf { it > 0 } ?: input + output
+        session.state.lastRequestInputTokens = input
+        session.state.lastRequestOutputTokens = output
+        session.state.lastRequestTotalTokens = total
+        session.state.inputTokensConsumed += input
+        session.state.outputTokensConsumed += output
+        session.state.totalTokensConsumed += total
+        if (session == currentSession) {
+            updateTokenUsageLabel()
+        }
+    }
+
+    private fun resetTokenUsage(session: ChatSession) {
+        session.state.inputTokensConsumed = 0
+        session.state.outputTokensConsumed = 0
+        session.state.totalTokensConsumed = 0
+        session.state.lastRequestInputTokens = 0
+        session.state.lastRequestOutputTokens = 0
+        session.state.lastRequestTotalTokens = 0
+    }
+
+    private fun updateTokenUsageLabel() {
+        val state = currentSession?.state
+        val input = state?.inputTokensConsumed ?: 0
+        val output = state?.outputTokensConsumed ?: 0
+        val total = state?.totalTokensConsumed?.takeIf { it > 0 } ?: input + output
+        val last = state?.lastRequestTotalTokens ?: 0
+        tokenUsageLabel.text = "Tokens: ${formatTokenCount(total)}"
+        tokenUsageLabel.toolTipText = buildString {
+            append("当前会话累计: ${formatTokenCount(total)}")
+            append(" (输入 ${formatTokenCount(input)} / 输出 ${formatTokenCount(output)})")
+            if (last > 0) {
+                append("，上次请求: ${formatTokenCount(last)}")
+            }
+        }
+    }
+
+    private fun formatTokenCount(value: Long): String {
+        return if (value < 1000) {
+            value.toString()
+        } else {
+            val scaled = value / 1000.0
+            val pattern = if (value < 10_000) "%.1fK" else "%.0fK"
+            pattern.format(Locale.US, scaled)
+        }
     }
 
     private fun updateStatus() {
