@@ -145,6 +145,15 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
+            <h2>📦 Version v1.1.4.2-fix</h2>
+            <p><i>Latest Fix / 最新修复</i></p>
+            <ul>
+                <li>🛠️ <b>Model Manager Toolbar Fix:</b> Fixed the SDK model list panel layout so the right-side add/refresh toolbar stays visible</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.2-fix</code> while keeping SDK helper metadata at <code>1142</code></li>
+                <li>🛠️ <b>模型管理工具栏修复：</b>修正 SDK 模型列表面板布局，恢复右侧新增/刷新工具栏显示，避免按钮被布局挤出可视区域</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.2-fix</code>，SDK Helper 版本元数据仍保持 <code>1142</code></li>
+            </ul>
+
             <h2>📦 Version v1.1.4.2</h2>
             <p><i>Latest Release / 最新版本</i></p>
             <ul>

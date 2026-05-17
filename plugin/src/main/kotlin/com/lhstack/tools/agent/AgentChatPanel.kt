@@ -2160,7 +2160,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 val rightPanel = AgentFormUi.sectionCard(
                     "SDK 模型列表",
                     "从 SDK 拉取并筛选可添加到当前供应方的模型。",
-                    JPanel().apply {
+                    JPanel(BorderLayout(0, 10)).apply {
                         isOpaque = false
                         add(rightHeaderPanel, BorderLayout.NORTH)
                         add(JBScrollPane(sdkList), BorderLayout.CENTER)
