@@ -29,6 +29,9 @@ class AgentToolRegistryFileToolsTest {
         assertTrue("grep_search" in toolNames)
         assertTrue("WebFetch" in toolNames)
         assertTrue("WebSearch" in toolNames)
+        assertTrue("browser_open" in toolNames)
+        assertTrue("browser_read" in toolNames)
+        assertTrue("browser_close" in toolNames)
         assertTrue("jtools_get_current_time" in toolNames)
 
         assertFalse("jtools_list_files" in toolNames)
@@ -74,6 +77,14 @@ class AgentToolRegistryFileToolsTest {
             "grep_search",
             "WebFetch",
             "WebSearch",
+            "browser_open",
+            "browser_read",
+            "browser_click",
+            "browser_type",
+            "browser_scroll",
+            "browser_show",
+            "browser_hide",
+            "browser_close",
             "jtools_list_plugins",
             "jtools_get_plugin_detail",
             "jtools_get_system_info",

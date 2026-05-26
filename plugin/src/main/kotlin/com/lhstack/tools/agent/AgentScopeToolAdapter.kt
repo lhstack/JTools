@@ -1,7 +1,11 @@
 package com.lhstack.tools.agent
 
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
+import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 import io.agentscope.core.message.TextBlock
 import io.agentscope.core.message.ToolResultBlock
 import io.agentscope.core.tool.AgentTool as AgentScopeTool
@@ -23,12 +27,7 @@ object AgentScopeToolAdapter {
                 return Mono.fromCallable {
                     val inputJson = JsonObject()
                     param.input.forEach { (key, value) ->
-                        when (value) {
-                            null -> inputJson.add(key, com.google.gson.JsonNull.INSTANCE)
-                            is Number -> inputJson.addProperty(key, value)
-                            is Boolean -> inputJson.addProperty(key, value)
-                            else -> inputJson.addProperty(key, value.toString())
-                        }
+                        inputJson.add(key, nativeToJson(value))
                     }
                     val result = runCatching { tool.call(inputJson.toString()) }
                         .getOrElse { error -> """{"error":"${error.message ?: "tool failed"}"}""" }
@@ -74,6 +73,29 @@ object AgentScopeToolAdapter {
             element.isJsonArray -> element.asJsonArray.map { gsonToAny(it) }
             element.isJsonObject -> element.asJsonObject.entrySet().associate { it.key to gsonToAny(it.value) }
             else -> null
+        }
+    }
+
+    private fun nativeToJson(value: Any?): JsonElement {
+        return when (value) {
+            null -> JsonNull.INSTANCE
+            is JsonElement -> value
+            is Number -> JsonPrimitive(value)
+            is Boolean -> JsonPrimitive(value)
+            is String -> JsonPrimitive(value)
+            is Char -> JsonPrimitive(value)
+            is Map<*, *> -> JsonObject().apply {
+                value.forEach { (key, item) ->
+                    key?.toString()?.let { add(it, nativeToJson(item)) }
+                }
+            }
+            is Iterable<*> -> JsonArray().apply {
+                value.forEach { add(nativeToJson(it)) }
+            }
+            is Array<*> -> JsonArray().apply {
+                value.forEach { add(nativeToJson(it)) }
+            }
+            else -> JsonPrimitive(value.toString())
         }
     }
 }

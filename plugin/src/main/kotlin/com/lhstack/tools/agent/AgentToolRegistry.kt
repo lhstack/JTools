@@ -541,26 +541,52 @@ class AgentToolRegistry private constructor(
             registerTool(
                 AgentTool(
                     name = "WebFetch",
-                    description = "Fetch a URL, convert it into readable text, and answer a prompt about it.",
+                    description = "通过 HTTP 请求直接获取 URL 内容，适合读取接口、JSON、XML、纯文本或无需交互的静态页面。不打开浏览器、不展示页面、不用于点击/输入/分页/观察页面操作；需要浏览器渲染、页面交互、分页点击或让用户观察 AI 操作过程时，应使用 browser_open / browser_read / browser_click 等浏览器工具。",
                     parametersJson = """
                         {
                           "type": "object",
                           "properties": {
-                            "url": { "type": "string", "description": "目标 URL。" },
-                            "prompt": { "type": "string", "description": "抓取目的或问题。" }
+                            "url": { "type": "string", "description": "要直接请求的 URL，适合接口或静态资源；缺少协议时默认使用 https。" },
+                            "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], "description": "HTTP 请求方法，默认 GET。" },
+                            "queryParams": { "type": "object", "additionalProperties": { "type": "string" }, "description": "URL 查询参数，会追加到 URL 上。" },
+                            "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "HTTP 请求头。" },
+                            "body": { "type": "string", "description": "原始请求体。传 JSON 时应传 JSON 字符串；未显式指定 Content-Type 时会根据内容自动设置。" },
+                            "formParams": { "type": "object", "additionalProperties": { "type": "string" }, "description": "表单请求参数；当 body 为空且提供 formParams 时，会以 application/x-www-form-urlencoded 发送。" },
+                            "timeoutSeconds": { "type": "integer", "description": "请求超时时间，默认 30 秒，范围 1-120。", "minimum": 1, "maximum": 120 },
+                            "prompt": { "type": "string", "description": "可选。抓取目的或问题，例如说明需要提取哪些字段、摘要哪些内容或验证什么信息。" }
                           },
-                          "required": ["url", "prompt"],
+                          "required": ["url"],
                           "additionalProperties": false
                         }
                     """.trimIndent(),
                     call = { args ->
                         val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
                         val url = payload.get("url")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        val prompt = payload.get("prompt")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-                        if (url.isBlank() || prompt.isBlank()) {
-                            return@AgentTool error(project, "url 和 prompt 不能为空")
+                        if (url.isBlank()) {
+                            return@AgentTool error(project, "url 不能为空")
                         }
-                        ok(project, AgentWebTools.fetch(url, prompt))
+                        val method = payload.get("method")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val queryParams = parseStringMap(payload.get("queryParams"))
+                        val headers = parseStringMap(payload.get("headers"))
+                        val body = payload.get("body")?.takeIf { !it.isJsonNull }?.let { element ->
+                            if (element.isJsonPrimitive) element.asString else element.toString()
+                        }
+                        val formParams = parseStringMap(payload.get("formParams"))
+                        val timeoutSeconds = payload.get("timeoutSeconds")?.takeIf { !it.isJsonNull }?.asInt ?: 30
+                        val prompt = payload.get("prompt")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                        ok(
+                            project,
+                            AgentWebTools.fetch(
+                                url = url,
+                                method = method,
+                                queryParams = queryParams,
+                                headers = headers,
+                                body = body,
+                                formParams = formParams,
+                                timeoutSeconds = timeoutSeconds,
+                                prompt = prompt
+                            )
+                        )
                     },
                     requiredPermission = AgentToolPermissionScope.READ_ONLY,
                     pluginInfo = systemPluginInfo
@@ -575,9 +601,7 @@ class AgentToolRegistry private constructor(
                         {
                           "type": "object",
                           "properties": {
-                            "query": { "type": "string", "description": "搜索词。" },
-                            "allowed_domains": { "type": "array", "items": { "type": "string" } },
-                            "blocked_domains": { "type": "array", "items": { "type": "string" } }
+                            "query": { "type": "string", "description": "搜索词。" }
                           },
                           "required": ["query"],
                           "additionalProperties": false
@@ -589,9 +613,243 @@ class AgentToolRegistry private constructor(
                         if (query.isBlank()) {
                             return@AgentTool error(project, "query 不能为空")
                         }
-                        val allowedDomains = payload.getAsJsonArray("allowed_domains")?.mapNotNull { it?.asString?.trim() }.orEmpty()
-                        val blockedDomains = payload.getAsJsonArray("blocked_domains")?.mapNotNull { it?.asString?.trim() }.orEmpty()
-                        ok(project, AgentWebTools.search(query, allowedDomains, blockedDomains))
+                        ok(project, AgentWebTools.search(query))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_open",
+                    description = "创建一个临时 AI 浏览器会话并打开 URL。调用前必须先询问用户希望“显示运行浏览器”还是“隐藏运行浏览器”；只有用户在当前对话中已经明确指定显示或隐藏时，才能直接调用。根据用户选择设置 visible：显示运行传 true，隐藏运行传 false。浏览器使用 Web 工具代理设置；由于 JCEF 代理需要在启动前初始化，如果 JCEF 已启动且代理未生效，工具会返回需要重启 IDE 的错误。visible=true 时仍会弹窗确认显示浏览器组件。任务完成后必须调用 browser_close 销毁会话。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "url": { "type": "string", "description": "要打开的 URL；缺少协议时默认使用 https。" },
+                            "visible": { "type": "boolean", "description": "是否显示运行浏览器。调用前必须先询问用户显示还是隐藏；用户选择显示时传 true，选择隐藏时传 false。" }
+                          },
+                          "required": ["url", "visible"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val url = payload.get("url")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val visibleElement = payload.get("visible")?.takeIf { !it.isJsonNull }
+                        if (visibleElement == null) {
+                            return@AgentTool error(project, "visible 不能为空；调用前必须先询问用户显示运行还是隐藏运行浏览器")
+                        }
+                        val visible = visibleElement.asBoolean
+                        if (url.isBlank()) {
+                            return@AgentTool error(project, "url 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.open(project, url, visible))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_read",
+                    description = "读取临时 AI 浏览器会话当前页面内容。mode=text 返回可读文本；mode=html 会先取源码再转换为文本。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "mode": { "type": "string", "enum": ["text", "html"], "default": "text" }
+                          },
+                          "required": ["sessionId"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val mode = payload.get("mode")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.read(project, sessionId, mode))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_click",
+                    description = "在临时 AI 浏览器会话里点击一个 CSS selector 匹配的元素。只支持受控 selector，不执行任意 JS。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "selector": { "type": "string", "description": "要点击的 CSS selector。" },
+                            "waitAfterMs": { "type": "integer", "description": "点击后等待毫秒数，默认 1000，最大 10000。", "minimum": 0, "maximum": 10000 }
+                          },
+                          "required": ["sessionId", "selector"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val selector = payload.get("selector")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val waitAfterMs = payload.get("waitAfterMs")?.takeIf { !it.isJsonNull }?.asLong ?: 1_000L
+                        if (sessionId.isBlank() || selector.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 selector 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.click(project, sessionId, selector, waitAfterMs))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_type",
+                    description = "在临时 AI 浏览器会话里向一个 CSS selector 匹配的输入元素输入文本。只触发 input/change 事件，不提交表单。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "selector": { "type": "string", "description": "输入元素的 CSS selector。" },
+                            "text": { "type": "string", "description": "要输入的文本。" },
+                            "clear": { "type": "boolean", "description": "输入前是否清空原值，默认 true。", "default": true }
+                          },
+                          "required": ["sessionId", "selector", "text"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val selector = payload.get("selector")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val text = payload.get("text")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                        val clear = payload.get("clear")?.takeIf { !it.isJsonNull }?.asBoolean ?: true
+                        if (sessionId.isBlank() || selector.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 selector 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.type(project, sessionId, selector, text, clear))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_scroll",
+                    description = "滚动临时 AI 浏览器会话当前页面。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "deltaY": { "type": "integer", "description": "垂直滚动距离；正数向下，负数向上。" }
+                          },
+                          "required": ["sessionId", "deltaY"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val deltaY = payload.get("deltaY")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.scroll(project, sessionId, deltaY))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_show",
+                    description = "请求显示临时 AI 浏览器会话窗口；显示前会弹窗询问用户是否允许。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" }
+                          },
+                          "required": ["sessionId"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.show(project, sessionId))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_hide",
+                    description = "隐藏临时 AI 浏览器会话窗口，但不销毁会话。任务完成后仍应调用 browser_close。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" }
+                          },
+                          "required": ["sessionId"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.hide(project, sessionId))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_close",
+                    description = "销毁临时 AI 浏览器会话并释放 JCEF 资源。浏览器任务完成后必须调用。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" }
+                          },
+                          "required": ["sessionId"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.close(project, sessionId))
                     },
                     requiredPermission = AgentToolPermissionScope.READ_ONLY,
                     pluginInfo = systemPluginInfo

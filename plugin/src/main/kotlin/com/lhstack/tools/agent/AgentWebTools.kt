@@ -1,12 +1,5 @@
 package com.lhstack.tools.agent
 
-import org.htmlunit.BrowserVersion
-import org.htmlunit.ProxyConfig
-import org.htmlunit.Page
-import org.htmlunit.TextPage
-import org.htmlunit.UnexpectedPage
-import org.htmlunit.WebClient
-import org.htmlunit.html.HtmlPage
 import com.lhstack.tools.plugins.PluginState
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -20,9 +13,10 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.net.SocketAddress
+import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.time.Duration
-import kotlin.math.min
 
 object AgentWebTools {
     private const val MAX_FETCH_TEXT_LENGTH = 30_000
@@ -31,22 +25,41 @@ object AgentWebTools {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
-    fun fetch(url: String, prompt: String): Map<String, Any?> {
+    fun fetch(
+        url: String,
+        method: String,
+        queryParams: Map<String, String>,
+        headers: Map<String, String>,
+        body: String?,
+        formParams: Map<String, String>,
+        timeoutSeconds: Int,
+        prompt: String?,
+    ): Map<String, Any?> {
         val normalizedUrl = normalizeUrl(url)
-        return runCatching { fetchRendered(normalizedUrl, prompt) }
+        return runCatching {
+            fetchHttp(
+                normalizedUrl,
+                method,
+                queryParams,
+                headers,
+                body,
+                formParams,
+                timeoutSeconds.coerceIn(1, 120),
+                prompt
+            )
+        }
             .getOrElse { error ->
                 mapOf(
                     "ok" to false,
                     "url" to normalizedUrl,
                     "prompt" to prompt,
-                    "error" to (error.message ?: "fetch failed")
+                    "error" to (error.message ?: "request failed")
                 )
             }
     }
 
-    fun search(query: String, allowedDomains: List<String>, blockedDomains: List<String>): Map<String, Any?> {
+    fun search(query: String): Map<String, Any?> {
         val engines = configuredSearchEngines()
-        val filters = DomainFilters(allowedDomains.normalizeDomains(), blockedDomains.normalizeDomains())
         val attempts = mutableListOf<Map<String, Any?>>()
         engines.forEach { engine ->
             val attempt = runCatching {
@@ -55,7 +68,6 @@ object AgentWebTools {
                 val document = Jsoup.parse(body, response.uri().toString())
                 val parsed = engine.parse(document)
                     .distinctBy { it.url }
-                    .filter { filters.accepts(it.url) }
                     .take(8)
                 attempts += mapOf(
                     "engine" to engine.id,
@@ -93,52 +105,91 @@ object AgentWebTools {
         )
     }
 
-    private fun fetchRendered(url: String, prompt: String): Map<String, Any?> {
-        WebClient(BrowserVersion.CHROME).use { webClient ->
-            applyProxyIfNeeded(webClient.options)
-            webClient.options.isJavaScriptEnabled = true
-            webClient.options.isCssEnabled = false
-            webClient.options.isThrowExceptionOnScriptError = false
-            webClient.options.isThrowExceptionOnFailingStatusCode = false
-            webClient.options.timeout = 30_000
-            webClient.options.isRedirectEnabled = true
-            webClient.addRequestHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-            webClient.addRequestHeader("User-Agent", DEFAULT_USER_AGENT)
-
-            val page = webClient.getPage<Page>(url)
-            webClient.waitForBackgroundJavaScript(3_000)
-            val response = page.webResponse
-            val contentType = response.contentType.orEmpty().lowercase()
-            val finalUrl = page.url.toString()
-            val statusCode = response.statusCode
-            val body = when (page) {
-                is HtmlPage -> page.asNormalizedText()
-                is TextPage -> page.content
-                is UnexpectedPage -> response.contentAsString
-                else -> response.contentAsString
-            }
-            val renderedHtml = (page as? HtmlPage)?.asXml()
-            val kind = classifyContent(contentType, body)
-            val content = when (kind) {
-                "html" -> normalizeText(body)
-                "text", "json", "xml" -> body.trim()
-                else -> ""
-            }
-            return mapOf(
-                "ok" to (statusCode in 200..399),
-                "url" to url,
-                "finalUrl" to finalUrl,
-                "prompt" to prompt,
-                "statusCode" to statusCode,
-                "contentType" to contentType,
-                "contentKind" to kind,
-                "content" to content.take(MAX_FETCH_TEXT_LENGTH),
-                "renderedHtml" to renderedHtml?.take(MAX_FETCH_TEXT_LENGTH),
-                "truncated" to (content.length > MAX_FETCH_TEXT_LENGTH),
-                "renderedHtmlTruncated" to ((renderedHtml?.length ?: 0) > MAX_FETCH_TEXT_LENGTH),
-                "byteLength" to min(response.contentAsString.length, 1_048_576)
-            )
+    private fun fetchHttp(
+        url: String,
+        method: String,
+        queryParams: Map<String, String>,
+        headers: Map<String, String>,
+        body: String?,
+        formParams: Map<String, String>,
+        timeoutSeconds: Int,
+        prompt: String?,
+    ): Map<String, Any?> {
+        val normalizedMethod = method.trim().uppercase().ifBlank { "GET" }
+        require(normalizedMethod in setOf("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS")) {
+            "不支持的 HTTP method: $method"
         }
+        val finalUrl = appendQueryParams(url, queryParams)
+        val requestBuilder = HttpRequest.newBuilder(URI.create(finalUrl))
+            .timeout(Duration.ofSeconds(timeoutSeconds.toLong()))
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Accept", "*/*")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+
+        headers.forEach { (name, value) ->
+            val trimmedName = name.trim()
+            if (trimmedName.isNotBlank()) {
+                requestBuilder.header(trimmedName, value)
+            }
+        }
+
+        val hasBody = !body.isNullOrEmpty() || formParams.isNotEmpty()
+        val requestBody = when {
+            !body.isNullOrEmpty() -> body
+            formParams.isNotEmpty() -> encodeParams(formParams)
+            else -> ""
+        }
+        if (formParams.isNotEmpty() && headers.keys.none { it.equals("Content-Type", ignoreCase = true) }) {
+            requestBuilder.header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        } else if (!body.isNullOrEmpty() && headers.keys.none { it.equals("Content-Type", ignoreCase = true) }) {
+            requestBuilder.header("Content-Type", defaultContentTypeForBody(body))
+        }
+
+        val bodyPublisher = if (hasBody) {
+            HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8)
+        } else {
+            HttpRequest.BodyPublishers.noBody()
+        }
+        if (!hasBody && normalizedMethod == "GET") {
+            requestBuilder.GET()
+        } else {
+            requestBuilder.method(normalizedMethod, bodyPublisher)
+        }
+
+        val clientBuilder = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .connectTimeout(Duration.ofSeconds(timeoutSeconds.toLong().coerceAtMost(30)))
+        buildProxySelector()?.let { clientBuilder.proxy(it) }
+        val response = clientBuilder.build().send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray())
+        val contentType = response.headers().firstValue("Content-Type").orElse("").lowercase()
+        val rawContent = decodeResponseBody(response.body(), contentType)
+        val kind = classifyContent(contentType, rawContent)
+        val content = when (kind) {
+            "html" -> normalizeText(Jsoup.parse(rawContent, response.uri().toString()).text())
+            "text", "json", "xml" -> rawContent.trim()
+            else -> ""
+        }
+        return mapOf(
+            "ok" to (response.statusCode() in 200..399),
+            "url" to finalUrl,
+            "finalUrl" to response.uri().toString(),
+            "method" to normalizedMethod,
+            "prompt" to prompt.orEmpty(),
+            "statusCode" to response.statusCode(),
+            "headers" to response.headers().map(),
+            "contentType" to contentType,
+            "contentKind" to kind,
+            "content" to content.take(MAX_FETCH_TEXT_LENGTH),
+            "truncated" to (content.length > MAX_FETCH_TEXT_LENGTH),
+            "byteLength" to response.body().size,
+            "request" to mapOf(
+                "queryParamCount" to queryParams.size,
+                "headerCount" to headers.size,
+                "bodyLength" to requestBody.length,
+                "formParamCount" to formParams.size,
+                "timeoutSeconds" to timeoutSeconds
+            )
+        )
     }
 
     private fun request(url: String, timeout: Duration): HttpResponse<String> {
@@ -172,6 +223,50 @@ object AgentWebTools {
             return trimmed
         }
         return "https://$trimmed"
+    }
+
+    private fun appendQueryParams(url: String, queryParams: Map<String, String>): String {
+        val effectiveParams = queryParams
+            .filterKeys { it.trim().isNotBlank() }
+            .takeIf { it.isNotEmpty() }
+            ?: return url
+        val separator = if (url.contains("?")) {
+            if (url.endsWith("?") || url.endsWith("&")) "" else "&"
+        } else {
+            "?"
+        }
+        return url + separator + encodeParams(effectiveParams)
+    }
+
+    private fun encodeParams(params: Map<String, String>): String {
+        return params.entries.joinToString("&") { (key, value) ->
+            "${urlEncode(key)}=${urlEncode(value)}"
+        }
+    }
+
+    private fun urlEncode(value: String): String {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8)
+    }
+
+    private fun defaultContentTypeForBody(body: String): String {
+        val trimmed = body.trimStart()
+        return if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            "application/json; charset=UTF-8"
+        } else {
+            "text/plain; charset=UTF-8"
+        }
+    }
+
+    private fun decodeResponseBody(bytes: ByteArray, contentType: String): String {
+        val charsetName = Regex("charset=([^;\\s]+)", RegexOption.IGNORE_CASE)
+            .find(contentType)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim('"', '\'')
+        val charset = charsetName
+            ?.let { runCatching { Charset.forName(it) }.getOrNull() }
+            ?: StandardCharsets.UTF_8
+        return bytes.toString(charset)
     }
 
     private fun List<String>.normalizeDomains(): Set<String> {
@@ -220,41 +315,6 @@ object AgentWebTools {
 
             override fun connectFailed(uri: URI, sa: SocketAddress, ioe: IOException) {
             }
-        }
-    }
-
-    private fun applyProxyIfNeeded(options: org.htmlunit.WebClientOptions) {
-        val proxyState = PluginState.getInstance().state
-        if (!proxyState.webToolProxyEnabled) {
-            return
-        }
-        val host = proxyState.webToolProxyHost.trim()
-        val port = proxyState.webToolProxyPort
-        if (host.isBlank() || port !in 1..65535) {
-            return
-        }
-        val proxyType = AgentProxyType.fromId(proxyState.webToolProxyType)
-        options.proxyConfig = ProxyConfig(
-            host,
-            port,
-            if (proxyType == AgentProxyType.SOCKS) "socks" else "http",
-            proxyType == AgentProxyType.SOCKS
-        )
-    }
-
-    private data class DomainFilters(
-        val allowedDomains: Set<String>,
-        val blockedDomains: Set<String>,
-    ) {
-        fun accepts(url: String): Boolean {
-            val host = runCatching {
-                URI.create(url).host.orEmpty().lowercase().removePrefix("www.")
-            }.getOrDefault("")
-            if (host.isBlank()) {
-                return false
-            }
-            return (allowedDomains.isEmpty() || allowedDomains.any { host == it || host.endsWith(".$it") }) &&
-                blockedDomains.none { host == it || host.endsWith(".$it") }
         }
     }
 
