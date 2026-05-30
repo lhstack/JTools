@@ -31,6 +31,11 @@ class AgentToolRegistryFileToolsTest {
         assertTrue("WebSearch" in toolNames)
         assertTrue("browser_open" in toolNames)
         assertTrue("browser_read" in toolNames)
+        assertTrue("browser_snapshot" in toolNames)
+        assertTrue("browser_click_ref" in toolNames)
+        assertTrue("browser_type_ref" in toolNames)
+        assertTrue("browser_wait_for_text" in toolNames)
+        assertTrue("browser_screenshot" in toolNames)
         assertTrue("browser_close" in toolNames)
         assertTrue("jtools_get_current_time" in toolNames)
 
@@ -79,9 +84,17 @@ class AgentToolRegistryFileToolsTest {
             "WebSearch",
             "browser_open",
             "browser_read",
+            "browser_snapshot",
             "browser_click",
+            "browser_click_ref",
+            "browser_click_text",
             "browser_type",
+            "browser_type_ref",
+            "browser_press",
             "browser_scroll",
+            "browser_wait_for_text",
+            "browser_wait_for_selector",
+            "browser_screenshot",
             "browser_show",
             "browser_hide",
             "browser_close",

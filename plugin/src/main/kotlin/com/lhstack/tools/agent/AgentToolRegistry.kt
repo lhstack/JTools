@@ -656,7 +656,7 @@ class AgentToolRegistry private constructor(
             registerTool(
                 AgentTool(
                     name = "browser_read",
-                    description = "读取临时 AI 浏览器会话当前页面内容。mode=text 返回可读文本；mode=html 会先取源码再转换为文本。",
+                    description = "读取临时 AI 浏览器会话当前页面文本内容，用于总结页面或确认页面状态。需要点击、输入、分页或选择页面元素时，应先调用 browser_snapshot 获取可操作元素 ref，再优先使用 browser_click_ref / browser_type_ref；mode=text 返回可读文本，mode=html 会先取源码再转换为文本。",
                     parametersJson = """
                         {
                           "type": "object",
@@ -684,8 +684,37 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
+                    name = "browser_snapshot",
+                    description = "观察临时 AI 浏览器当前页面，返回标题、URL、页面摘要文本和可见可操作元素列表。每个元素包含 ref、tag、text、href 等信息；执行点击/输入前应优先调用本工具，并使用返回的 ref 继续操作。页面跳转、滚动或 DOM 变化后 ref 可能过期，应重新 snapshot。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "maxElements": { "type": "integer", "description": "最多返回多少个可操作元素，默认 80，最大 200。", "minimum": 1, "maximum": 200, "default": 80 }
+                          },
+                          "required": ["sessionId"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val maxElements = payload.get("maxElements")?.takeIf { !it.isJsonNull }?.asInt ?: 80
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.snapshot(project, sessionId, maxElements))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
                     name = "browser_click",
-                    description = "在临时 AI 浏览器会话里点击一个 CSS selector 匹配的元素。只支持受控 selector，不执行任意 JS。",
+                    description = "在临时 AI 浏览器会话里点击一个 CSS selector 匹配的元素。优先使用 browser_snapshot + browser_click_ref；只有 snapshot 无法定位目标时才用 CSS selector 兜底。本工具不执行任意 JS，会返回 found/ok 说明是否真正找到元素。",
                     parametersJson = """
                         {
                           "type": "object",
@@ -715,8 +744,72 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
+                    name = "browser_click_ref",
+                    description = "点击 browser_snapshot 返回的元素 ref。执行页面点击、搜索结果分页、按钮确认等操作时优先使用本工具；点击后通常应调用 browser_wait_for_text / browser_wait_for_selector 或重新 browser_snapshot 确认页面变化。ref 来自最近一次 snapshot，页面变化后可能过期。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "ref": { "type": "string", "description": "browser_snapshot 返回的元素 ref，例如 e1。" },
+                            "waitAfterMs": { "type": "integer", "description": "点击后等待毫秒数，默认 1000，最大 10000。", "minimum": 0, "maximum": 10000 }
+                          },
+                          "required": ["sessionId", "ref"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val ref = payload.get("ref")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val waitAfterMs = payload.get("waitAfterMs")?.takeIf { !it.isJsonNull }?.asLong ?: 1_000L
+                        if (sessionId.isBlank() || ref.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 ref 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.clickRef(project, sessionId, ref, waitAfterMs))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_click_text",
+                    description = "按可见文本点击页面中的链接、按钮或可点击元素。优先级低于 browser_click_ref，适合 snapshot 中没有稳定 ref、但目标文本明确的页面。exact=true 表示必须完全匹配文本；exact=false 表示包含匹配。点击后应等待并重新观察页面。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "text": { "type": "string", "description": "要点击的可见文本。" },
+                            "exact": { "type": "boolean", "description": "是否要求文本完全匹配，默认 false。", "default": false },
+                            "waitAfterMs": { "type": "integer", "description": "点击后等待毫秒数，默认 1000，最大 10000。", "minimum": 0, "maximum": 10000 }
+                          },
+                          "required": ["sessionId", "text"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val text = payload.get("text")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val exact = payload.get("exact")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                        val waitAfterMs = payload.get("waitAfterMs")?.takeIf { !it.isJsonNull }?.asLong ?: 1_000L
+                        if (sessionId.isBlank() || text.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 text 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.clickText(project, sessionId, text, exact, waitAfterMs))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
                     name = "browser_type",
-                    description = "在临时 AI 浏览器会话里向一个 CSS selector 匹配的输入元素输入文本。只触发 input/change 事件，不提交表单。",
+                    description = "在临时 AI 浏览器会话里向一个 CSS selector 匹配的输入元素输入文本。优先使用 browser_snapshot + browser_type_ref；只有 snapshot 无法定位输入框时才用 CSS selector 兜底。本工具只触发 input/change 事件，不自动提交表单；需要提交时可继续 browser_press key=Enter 或点击提交按钮。",
                     parametersJson = """
                         {
                           "type": "object",
@@ -748,8 +841,70 @@ class AgentToolRegistry private constructor(
 
             registerTool(
                 AgentTool(
+                    name = "browser_type_ref",
+                    description = "向 browser_snapshot 返回的输入元素 ref 输入文本。执行搜索、登录框、表单填写等输入动作时优先使用本工具；输入后如需提交，继续调用 browser_press key=Enter 或 browser_click_ref 点击提交按钮。ref 来自最近一次 snapshot，页面变化后可能过期。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "ref": { "type": "string", "description": "browser_snapshot 返回的输入元素 ref，例如 e2。" },
+                            "text": { "type": "string", "description": "要输入的文本。" },
+                            "clear": { "type": "boolean", "description": "输入前是否清空原值，默认 true。", "default": true }
+                          },
+                          "required": ["sessionId", "ref", "text"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val ref = payload.get("ref")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val text = payload.get("text")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                        val clear = payload.get("clear")?.takeIf { !it.isJsonNull }?.asBoolean ?: true
+                        if (sessionId.isBlank() || ref.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 ref 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.typeRef(project, sessionId, ref, text, clear))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_press",
+                    description = "在临时 AI 浏览器会话中向当前焦点元素发送键盘按键事件，例如 Enter、Escape、Tab。常用于 browser_type_ref / browser_type 输入后按 Enter 提交搜索或表单。该工具通过页面 JS 触发 keyboard event，少数需要原生键盘事件的网站可能无效，失败时改用点击提交按钮。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "key": { "type": "string", "description": "按键名称，例如 Enter、Escape、Tab。" }
+                          },
+                          "required": ["sessionId", "key"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val key = payload.get("key")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank() || key.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 key 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.press(project, sessionId, key))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
                     name = "browser_scroll",
-                    description = "滚动临时 AI 浏览器会话当前页面。",
+                    description = "滚动临时 AI 浏览器会话当前页面。滚动后应重新调用 browser_snapshot，因为可见元素和 ref 会变化。",
                     parametersJson = """
                         {
                           "type": "object",
@@ -769,6 +924,95 @@ class AgentToolRegistry private constructor(
                             return@AgentTool error(project, "sessionId 不能为空")
                         }
                         ok(project, AgentBrowserTools.scroll(project, sessionId, deltaY))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_wait_for_text",
+                    description = "等待临时 AI 浏览器当前页面出现指定文本，适合点击、输入、翻页或提交后等待结果加载。等待成功或超时后应继续调用 browser_snapshot 或 browser_read 获取最新页面状态。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "text": { "type": "string", "description": "要等待出现的页面文本。" },
+                            "timeoutSeconds": { "type": "integer", "description": "最长等待秒数，默认 10，最大 60。", "minimum": 1, "maximum": 60, "default": 10 }
+                          },
+                          "required": ["sessionId", "text"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val text = payload.get("text")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val timeoutSeconds = payload.get("timeoutSeconds")?.takeIf { !it.isJsonNull }?.asInt ?: 10
+                        if (sessionId.isBlank() || text.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 text 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.waitForText(project, sessionId, text, timeoutSeconds))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_wait_for_selector",
+                    description = "等待临时 AI 浏览器当前页面出现指定 CSS selector，适合等待结果列表、分页区域、弹窗或按钮渲染完成。优先用文本等待；只有知道稳定 selector 时使用本工具。等待后应重新 browser_snapshot 或 browser_read。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" },
+                            "selector": { "type": "string", "description": "要等待出现的 CSS selector。" },
+                            "timeoutSeconds": { "type": "integer", "description": "最长等待秒数，默认 10，最大 60。", "minimum": 1, "maximum": 60, "default": 10 }
+                          },
+                          "required": ["sessionId", "selector"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val selector = payload.get("selector")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        val timeoutSeconds = payload.get("timeoutSeconds")?.takeIf { !it.isJsonNull }?.asInt ?: 10
+                        if (sessionId.isBlank() || selector.isBlank()) {
+                            return@AgentTool error(project, "sessionId 和 selector 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.waitForSelector(project, sessionId, selector, timeoutSeconds))
+                    },
+                    requiredPermission = AgentToolPermissionScope.READ_ONLY,
+                    pluginInfo = systemPluginInfo
+                )
+            )
+
+            registerTool(
+                AgentTool(
+                    name = "browser_screenshot",
+                    description = "截取临时 AI 浏览器当前可视区域并返回本地 PNG 路径、宽高。仅在文本读取或 snapshot 不足以判断视觉状态、布局、验证码提示、图片内容时使用；截图后仍应通过 browser_snapshot / browser_read 获取结构化文本信息。",
+                    parametersJson = """
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sessionId": { "type": "string", "description": "browser_open 返回的会话 ID。" }
+                          },
+                          "required": ["sessionId"],
+                          "additionalProperties": false
+                        }
+                    """.trimIndent(),
+                    call = { args ->
+                        val payload = parseArgs(args) ?: return@AgentTool error(project, "参数解析失败")
+                        val sessionId = payload.get("sessionId")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                        if (sessionId.isBlank()) {
+                            return@AgentTool error(project, "sessionId 不能为空")
+                        }
+                        ok(project, AgentBrowserTools.screenshot(project, sessionId))
                     },
                     requiredPermission = AgentToolPermissionScope.READ_ONLY,
                     pluginInfo = systemPluginInfo

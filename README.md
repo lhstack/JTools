@@ -57,7 +57,7 @@ JTools 通过提供**热插拔功能**彻底改变了插件开发体验，允许
 | ⚙️ **智能体限制** | 可配置最大工具调用轮次并限制工具返回长度，避免超大上下文 |
 | 📂 **文件列表** | 文件列表支持 maxEntries 并返回截断信息 |
 | 🌐 **HTTP WebFetch** | WebFetch 支持 GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS、查询参数、请求头、请求体、表单参数、超时和 Web 工具代理 |
-| 🧭 **AI 浏览器工具** | 支持临时 JCEF 浏览器会话，用户可选择显示或隐藏运行，智能体可读取页面、点击、输入、滚动并在完成后销毁窗口 |
+| 🧭 **AI 浏览器工具** | 支持临时 JCEF 浏览器会话，用户可选择显示或隐藏运行，智能体可读取页面、观察元素 ref、点击、输入、等待、截图并在完成后销毁窗口 |
 | 🔧 **动态 SDK 管理** | 自动解析 IDEA、Maven 和 Gradle 项目的 SDK 依赖 |
 | 🌐 **Web 集成** | JavaScript 插件支持灵活的网页集成 |
 | 🪟 **多实例支持** | 支持同时打开同一插件的多个实例 |
@@ -100,6 +100,7 @@ JTools 通过提供**热插拔功能**彻底改变了插件开发体验，允许
 - **会话上下文更稳** - 会按项目保留当前会话、技能启用状态、草稿附件和部分运行时上下文，适合连续协作。
 - **Token 消耗可见** - 提示词选择器旁会显示当前会话累计 Token，用 K 单位压缩展示，悬停可查看输入、输出和上次请求用量。
 - **Web 工具分工更清楚** - `WebFetch` 负责直接 HTTP/API 请求，`WebSearch` 负责搜索，`browser_open` 等浏览器工具负责需要渲染、分页点击或可视化观察的页面操作。
+- **浏览器操作更可观察** - AI 浏览器支持 snapshot/ref 操作、文本/selector 等待和临时截图，智能体可以先观察页面结构再点击、输入或翻页。
 - **浏览器生命周期更可控** - AI 浏览器按需动态创建工具窗口，同一项目复用一个浏览器会话，任务完成后可销毁，并沿用 Web 工具代理设置。
 
 ## 📁 项目结构
@@ -122,7 +123,14 @@ JTools/
 ## 📦 版本日志
 
 
-### v1.1.4.3 (当前版本)
+### v1.1.4.4 (当前版本)
+- 🧭 **AI 浏览器工具增强** - 在 `v1.1.4.3` 浏览器工具链基础上新增 `browser_snapshot`、`browser_click_ref`、`browser_type_ref`、`browser_click_text`、`browser_wait_for_text`、`browser_wait_for_selector`、`browser_screenshot` 和 `browser_press`
+- 🔎 **可观察浏览器操作** - `browser_snapshot` 会返回可操作元素 ref，智能体优先通过 ref 点击和输入，页面变化后可等待文本/selector 并重新观察，减少盲猜 CSS selector
+- 🧾 **浏览器工具提示词优化** - 浏览器工具描述明确推荐 `open -> snapshot -> ref 操作 -> wait -> snapshot/read -> close` 的操作流程，CSS selector 工具作为低优先级兜底
+- ✅ **浏览器动作反馈** - `browser_click` / `browser_type` 等操作会返回 found/ok 状态，便于智能体判断元素是否真实命中
+- 📦 **版本元数据同步** - 发布版本提升至 `v1.1.4.4`，并同步 SDK Helper 版本元数据到 `1144`
+
+### v1.1.4.3
 - 🌐 **HTTP WebFetch** - `WebFetch` 改为面向接口和静态资源的直接 HTTP 客户端，支持 GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS、查询参数、请求头、原始请求体、表单参数、超时控制、响应头、内容元数据和 Web 工具代理
 - 🧭 **AI 浏览器工具** - 新增临时 JCEF 浏览器工具链，包含 `browser_open`、`browser_read`、`browser_click`、`browser_type`、`browser_scroll`、`browser_show`、`browser_hide` 和 `browser_close`
 - 👁️ **显示/隐藏浏览器运行** - 打开浏览器前智能体必须询问用户希望显示运行还是隐藏运行；显示运行会动态创建 `AI Browser` 工具窗口，隐藏运行则保持浏览器会话不展示

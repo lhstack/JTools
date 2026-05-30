@@ -54,7 +54,7 @@
         <li><b>⚙️ Agent Limits:</b> Configurable max tool iterations and tool result size limits to prevent oversized context.</li>
         <li><b>📂 File Listing:</b> jtools_list_files supports maxEntries with truncation metadata.</li>
         <li><b>🌐 HTTP WebFetch:</b> WebFetch works as a direct HTTP client with GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS, query params, headers, raw bodies, form params, timeout control, and Web tool proxy settings.</li>
-        <li><b>🧭 AI Browser Tools:</b> Browser tools can open a temporary JCEF browser session, run visible or hidden after user choice, read pages, click, type, scroll, and destroy the dynamic tool window when finished.</li>
+        <li><b>🧭 AI Browser Tools:</b> Browser tools can open a temporary JCEF browser session, run visible or hidden after user choice, read pages, observe element refs, click, type, wait, capture screenshots, and destroy the dynamic tool window when finished.</li>
         <li><b>🔧 Dynamic SDK Management:</b> Automatic SDK dependency resolution for IDEA, Maven, and Gradle projects.</li>
         <li><b>🌐 Web Integration:</b> JavaScript plugins enable flexible web page integration with custom development options.</li>
         <li><b>🪟 Multi-Instance Support:</b> Open multiple instances of the same plugin simultaneously with proper resource management.</li>
@@ -121,7 +121,7 @@
         <li><b>⚙️ 智能体限制：</b>可配置最大工具调用轮次并限制工具返回长度，避免超大上下文。</li>
         <li><b>📂 文件列表：</b>jtools_list_files 支持 maxEntries 并返回截断信息。</li>
         <li><b>🌐 HTTP WebFetch：</b>WebFetch 改为直接 HTTP 客户端，支持 GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS、查询参数、请求头、原始请求体、表单参数、超时控制和 Web 工具代理。</li>
-        <li><b>🧭 AI 浏览器工具：</b>浏览器工具可创建临时 JCEF 浏览器会话，在用户选择后显示或隐藏运行，支持读取页面、点击、输入、滚动，并在完成后销毁动态工具窗口。</li>
+        <li><b>🧭 AI 浏览器工具：</b>浏览器工具可创建临时 JCEF 浏览器会话，在用户选择后显示或隐藏运行，支持读取页面、观察元素 ref、点击、输入、等待、截图，并在完成后销毁动态工具窗口。</li>
         <li><b>🔧 动态 SDK 管理：</b>自动解析 IDEA、Maven 和 Gradle 项目的 SDK 依赖。</li>
         <li><b>🌐 Web 集成：</b>JavaScript 插件支持灵活的网页集成和自定义开发。</li>
         <li><b>🪟 多实例支持：</b>支持同时打开同一插件的多个实例，并具备完善的资源管理。</li>
@@ -151,8 +151,22 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.4.3</h2>
+            <h2>📦 Version v1.1.4.4</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧭 <b>AI Browser Tool Enhancements:</b> Built on the <code>v1.1.4.3</code> browser flow with <code>browser_snapshot</code>, <code>browser_click_ref</code>, <code>browser_type_ref</code>, <code>browser_click_text</code>, <code>browser_wait_for_text</code>, <code>browser_wait_for_selector</code>, <code>browser_screenshot</code>, and <code>browser_press</code></li>
+                <li>🔎 <b>Observable Browser Actions:</b> <code>browser_snapshot</code> returns actionable element refs so the agent can prefer ref-based click/type operations, wait for page changes, and observe again instead of guessing CSS selectors</li>
+                <li>🧾 <b>Browser Tool Prompting:</b> Browser tool descriptions now guide the agent toward the <code>open -> snapshot -> ref action -> wait -> snapshot/read -> close</code> workflow, with CSS selector tools kept as fallback operations</li>
+                <li>✅ <b>Browser Action Feedback:</b> Browser click/type operations now report <code>found</code> and <code>ok</code> so the agent can tell whether an element was actually hit</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.4</code> and aligned SDK helper version metadata to <code>1144</code></li>
+                <li>🧭 <b>AI 浏览器工具增强：</b>在 <code>v1.1.4.3</code> 浏览器工具链基础上新增 <code>browser_snapshot</code>、<code>browser_click_ref</code>、<code>browser_type_ref</code>、<code>browser_click_text</code>、<code>browser_wait_for_text</code>、<code>browser_wait_for_selector</code>、<code>browser_screenshot</code> 和 <code>browser_press</code></li>
+                <li>🔎 <b>可观察浏览器操作：</b><code>browser_snapshot</code> 会返回可操作元素 ref，智能体优先通过 ref 点击和输入，页面变化后可等待文本/selector 并重新观察，减少盲猜 CSS selector</li>
+                <li>🧾 <b>浏览器工具提示词优化：</b>浏览器工具描述明确推荐 <code>open -> snapshot -> ref 操作 -> wait -> snapshot/read -> close</code> 的操作流程，CSS selector 工具作为低优先级兜底</li>
+                <li>✅ <b>浏览器动作反馈：</b><code>browser_click</code> / <code>browser_type</code> 等操作会返回 <code>found</code> 和 <code>ok</code> 状态，便于智能体判断元素是否真实命中</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.4</code>，并同步 SDK Helper 版本元数据到 <code>1144</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.3</h2>
             <ul>
                 <li>🌐 <b>HTTP WebFetch:</b> Reworked <code>WebFetch</code> into a direct HTTP client for APIs and static resources, with GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS, query params, headers, raw body, form params, timeout control, response headers, content metadata, and Web tool proxy support</li>
                 <li>🧭 <b>AI Browser Tools:</b> Added a temporary JCEF browser tool flow with <code>browser_open</code>, <code>browser_read</code>, <code>browser_click</code>, <code>browser_type</code>, <code>browser_scroll</code>, <code>browser_show</code>, <code>browser_hide</code>, and <code>browser_close</code></li>
@@ -171,6 +185,7 @@
                 <li>🧰 <b>工具参数序列化：</b>工具调用转发时保留嵌套对象和数组参数，确保 headers、query params、form params 等结构化参数能正确传递</li>
                 <li>🛠️ <b>模型管理工具栏修复：</b>修正 SDK 模型列表面板布局，恢复右侧新增/刷新工具栏显示，避免按钮被布局挤出可视区域</li>
                 <li>📊 <b>智能体 Token 消耗：</b>在智能体提示词选择器旁新增当前会话 Token 消耗展示，按 K 单位格式化，并通过提示展示输入、输出和上次请求用量</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.3</code>，并同步 SDK Helper 版本元数据到 <code>1143</code></li>
             </ul>
 
             <h2>📦 Version v1.1.4.2</h2>

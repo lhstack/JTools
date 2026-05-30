@@ -10,6 +10,9 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.icons.AllIcons
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefJSQuery
+import com.google.gson.JsonElement
+import com.google.gson.JsonParser
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.plugins.PluginState
 import org.cef.CefApp
@@ -24,6 +27,7 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import javax.imageio.ImageIO
 import javax.swing.JPanel
 
 object AgentBrowserTools {
@@ -83,24 +87,37 @@ object AgentBrowserTools {
         return session.read(mode.ifBlank { "text" }, DEFAULT_TIMEOUT_MS)
     }
 
+    fun snapshot(project: Project, sessionId: String, maxElements: Int): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        return session.snapshot(maxElements.coerceIn(1, 200), DEFAULT_TIMEOUT_MS)
+    }
+
     fun click(project: Project, sessionId: String, selector: String, waitAfterMs: Long): Map<String, Any?> {
         val session = session(sessionId) ?: return notFound(sessionId)
         if (selector.isBlank()) {
             return error("selector 不能为空")
         }
-        session.executeJavaScript(
-            """
-                (function() {
-                  var element = document.querySelector(${selector.jsString()});
-                  if (element) {
-                    element.scrollIntoView({block: 'center', inline: 'center'});
-                    element.click();
-                  }
-                })();
-            """.trimIndent()
-        )
+        val result = session.clickSelector(selector, DEFAULT_TIMEOUT_MS)
         sleepQuietly(waitAfterMs.coerceIn(0, 10_000))
-        return mapOf("ok" to true, "sessionId" to sessionId, "url" to session.url(), "selector" to selector)
+        return result + mapOf("sessionId" to sessionId, "url" to session.url(), "selector" to selector)
+    }
+
+    fun clickRef(project: Project, sessionId: String, ref: String, waitAfterMs: Long): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        val selector = session.selectorForRef(ref) ?: return error("ref 不存在或已过期，请先调用 browser_snapshot: $ref")
+        val result = session.clickSelector(selector, DEFAULT_TIMEOUT_MS)
+        sleepQuietly(waitAfterMs.coerceIn(0, 10_000))
+        return result + mapOf("sessionId" to sessionId, "url" to session.url(), "ref" to ref)
+    }
+
+    fun clickText(project: Project, sessionId: String, text: String, exact: Boolean, waitAfterMs: Long): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        if (text.isBlank()) {
+            return error("text 不能为空")
+        }
+        val result = session.clickText(text, exact, DEFAULT_TIMEOUT_MS)
+        sleepQuietly(waitAfterMs.coerceIn(0, 10_000))
+        return result + mapOf("sessionId" to sessionId, "url" to session.url(), "text" to text, "exact" to exact)
     }
 
     fun type(project: Project, sessionId: String, selector: String, text: String, clear: Boolean): Map<String, Any?> {
@@ -108,21 +125,23 @@ object AgentBrowserTools {
         if (selector.isBlank()) {
             return error("selector 不能为空")
         }
-        session.executeJavaScript(
-            """
-                (function() {
-                  var element = document.querySelector(${selector.jsString()});
-                  if (!element) return;
-                  element.scrollIntoView({block: 'center', inline: 'center'});
-                  element.focus();
-                  ${if (clear) "element.value = '';" else ""}
-                  element.value = (element.value || '') + ${text.jsString()};
-                  element.dispatchEvent(new Event('input', {bubbles: true}));
-                  element.dispatchEvent(new Event('change', {bubbles: true}));
-                })();
-            """.trimIndent()
-        )
-        return mapOf("ok" to true, "sessionId" to sessionId, "url" to session.url(), "selector" to selector)
+        val result = session.typeSelector(selector, text, clear, DEFAULT_TIMEOUT_MS)
+        return result + mapOf("sessionId" to sessionId, "url" to session.url(), "selector" to selector)
+    }
+
+    fun typeRef(project: Project, sessionId: String, ref: String, text: String, clear: Boolean): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        val selector = session.selectorForRef(ref) ?: return error("ref 不存在或已过期，请先调用 browser_snapshot: $ref")
+        val result = session.typeSelector(selector, text, clear, DEFAULT_TIMEOUT_MS)
+        return result + mapOf("sessionId" to sessionId, "url" to session.url(), "ref" to ref)
+    }
+
+    fun press(project: Project, sessionId: String, key: String): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        if (key.isBlank()) {
+            return error("key 不能为空")
+        }
+        return session.press(key, DEFAULT_TIMEOUT_MS) + mapOf("sessionId" to sessionId, "url" to session.url(), "key" to key)
     }
 
     fun scroll(project: Project, sessionId: String, deltaY: Int): Map<String, Any?> {
@@ -130,6 +149,29 @@ object AgentBrowserTools {
         session.executeJavaScript("window.scrollBy(0, ${deltaY.coerceIn(-10_000, 10_000)});")
         sleepQuietly(500)
         return mapOf("ok" to true, "sessionId" to sessionId, "url" to session.url(), "deltaY" to deltaY)
+    }
+
+    fun waitForText(project: Project, sessionId: String, text: String, timeoutSeconds: Int): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        if (text.isBlank()) {
+            return error("text 不能为空")
+        }
+        return session.waitForText(text, timeoutSeconds.coerceIn(1, 60))
+            .let { it + mapOf("sessionId" to sessionId, "url" to session.url(), "text" to text) }
+    }
+
+    fun waitForSelector(project: Project, sessionId: String, selector: String, timeoutSeconds: Int): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        if (selector.isBlank()) {
+            return error("selector 不能为空")
+        }
+        return session.waitForSelector(selector, timeoutSeconds.coerceIn(1, 60))
+            .let { it + mapOf("sessionId" to sessionId, "url" to session.url(), "selector" to selector) }
+    }
+
+    fun screenshot(project: Project, sessionId: String): Map<String, Any?> {
+        val session = session(sessionId) ?: return notFound(sessionId)
+        return session.screenshot(DEFAULT_TIMEOUT_MS) + mapOf("sessionId" to sessionId, "url" to session.url())
     }
 
     fun show(project: Project, sessionId: String): Map<String, Any?> {
@@ -291,17 +333,20 @@ object AgentBrowserTools {
                 .setOffScreenRendering(false)
                 .setClient(client)
                 .build()
+            val jsQuery = JBCefJSQuery.create(created)
+            Disposer.register(disposable, jsQuery)
             created.cefBrowser.createImmediately()
             Disposer.register(disposable, created)
-            created
+            created to jsQuery
         }
         return BrowserSession(
             id = sessionId,
-            browser = browser,
+            browser = browser.first,
+            jsQuery = browser.second,
             disposable = disposable,
             component = JPanel().apply {
                 layout = java.awt.BorderLayout()
-                add(browser.component, java.awt.BorderLayout.CENTER)
+                add(browser.first.component, java.awt.BorderLayout.CENTER)
             },
             contentName = Const.AGENT_BROWSER_WINDOW_ID,
             initialUrl = url
@@ -389,6 +434,32 @@ object AgentBrowserTools {
         }
     }
 
+    private fun jsonToAny(element: JsonElement?): Any? {
+        if (element == null || element.isJsonNull) {
+            return null
+        }
+        return when {
+            element.isJsonPrimitive -> {
+                val primitive = element.asJsonPrimitive
+                when {
+                    primitive.isBoolean -> primitive.asBoolean
+                    primitive.isNumber -> primitive.asNumber
+                    else -> primitive.asString
+                }
+            }
+            element.isJsonArray -> element.asJsonArray.map { jsonToAny(it) }
+            element.isJsonObject -> element.asJsonObject.entrySet().associate { it.key to jsonToAny(it.value) }
+            else -> null
+        }
+    }
+
+    private fun jsonObjectToMap(element: JsonElement?): Map<String, Any?> {
+        if (element == null || !element.isJsonObject) {
+            return emptyMap()
+        }
+        return element.asJsonObject.entrySet().associate { it.key to jsonToAny(it.value) }
+    }
+
     private data class LoadResult(
         val ok: Boolean,
         val statusCode: Int,
@@ -424,11 +495,27 @@ object AgentBrowserTools {
     private class BrowserSession(
         val id: String,
         val browser: JBCefBrowser,
+        val jsQuery: JBCefJSQuery,
         val disposable: Disposable,
         val component: JPanel,
         val contentName: String,
         val initialUrl: String,
     ) {
+        private val pendingJs = ConcurrentHashMap<String, CompletableFuture<Map<String, Any?>>>()
+        private val refSelectors = ConcurrentHashMap<String, String>()
+
+        init {
+            jsQuery.addHandler { request ->
+                val payload = runCatching { JsonParser.parseString(request).asJsonObject }.getOrNull()
+                val id = payload?.get("id")?.takeIf { !it.isJsonNull }?.asString
+                val future = id?.let { pendingJs.remove(it) }
+                if (future != null) {
+                    future.complete(jsonObjectToMap(payload))
+                }
+                JBCefJSQuery.Response("ok")
+            }
+        }
+
         @Volatile
         var visible: Boolean = false
 
@@ -490,6 +577,222 @@ object AgentBrowserTools {
                 "truncated" to (text.length > MAX_TEXT_LENGTH),
                 "length" to text.length
             )
+        }
+
+        fun snapshot(maxElements: Int, timeoutMs: Long): Map<String, Any?> {
+            val result = evaluate(
+                """
+                    return (function() {
+                      const visible = (el) => {
+                        const r = el.getBoundingClientRect();
+                        const s = window.getComputedStyle(el);
+                        return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+                      };
+                      const cssPath = (el) => {
+                        if (el.id) return '#' + CSS.escape(el.id);
+                        const parts = [];
+                        let node = el;
+                        while (node && node.nodeType === 1 && node !== document.body && parts.length < 6) {
+                          let part = node.tagName.toLowerCase();
+                          if (node.name) part += '[name="' + CSS.escape(node.name) + '"]';
+                          else {
+                            let index = 1, prev = node;
+                            while ((prev = prev.previousElementSibling) != null) {
+                              if (prev.tagName === node.tagName) index++;
+                            }
+                            part += ':nth-of-type(' + index + ')';
+                          }
+                          parts.unshift(part);
+                          node = node.parentElement;
+                        }
+                        return parts.length ? parts.join(' > ') : el.tagName.toLowerCase();
+                      };
+                      const label = (el) => (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.title || '').replace(/\s+/g, ' ').trim();
+                      const selector = 'a[href],button,input,textarea,select,[role="button"],[onclick]';
+                      const elements = Array.from(document.querySelectorAll(selector))
+                        .filter(visible)
+                        .slice(0, ${maxElements})
+                        .map((el, index) => ({
+                          ref: 'e' + (index + 1),
+                          tag: el.tagName.toLowerCase(),
+                          type: el.getAttribute('type') || '',
+                          text: label(el).slice(0, 160),
+                          href: el.href || '',
+                          name: el.getAttribute('name') || '',
+                          placeholder: el.getAttribute('placeholder') || '',
+                          disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
+                          selector: cssPath(el)
+                        }));
+                      return {
+                        title: document.title || '',
+                        url: location.href,
+                        text: (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, 4000),
+                        elements: elements,
+                        elementCount: elements.length
+                      };
+                    })();
+                """.trimIndent(),
+                timeoutMs
+            )
+            val snapshot = result["result"] as? Map<*, *> ?: return result
+            refSelectors.clear()
+            (snapshot["elements"] as? List<*>)?.forEach { raw ->
+                val item = raw as? Map<*, *> ?: return@forEach
+                val ref = item["ref"]?.toString().orEmpty()
+                val selector = item["selector"]?.toString().orEmpty()
+                if (ref.isNotBlank() && selector.isNotBlank()) {
+                    refSelectors[ref] = selector
+                }
+            }
+            return mapOf("ok" to true, "sessionId" to id, "url" to url(), "snapshot" to snapshot)
+        }
+
+        fun selectorForRef(ref: String): String? = refSelectors[ref.trim()]
+
+        fun clickSelector(selector: String, timeoutMs: Long): Map<String, Any?> {
+            return evaluate(
+                """
+                    const el = document.querySelector(${selector.jsString()});
+                    if (!el) return {ok:false, found:false, error:'selector not found'};
+                    el.scrollIntoView({block:'center', inline:'center'});
+                    el.click();
+                    return {ok:true, found:true, tag:el.tagName.toLowerCase(), text:(el.innerText || el.value || '').replace(/\s+/g,' ').trim().slice(0,160), href:el.href || '', disabled:!!el.disabled};
+                """.trimIndent(),
+                timeoutMs
+            ).unwrapResult()
+        }
+
+        fun clickText(text: String, exact: Boolean, timeoutMs: Long): Map<String, Any?> {
+            return evaluate(
+                """
+                    const target = ${text.jsString()};
+                    const exact = ${exact};
+                    const elements = Array.from(document.querySelectorAll('a[href],button,[role="button"],input[type="button"],input[type="submit"],[onclick]'));
+                    const label = (el) => (el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').replace(/\s+/g,' ').trim();
+                    const el = elements.find(e => exact ? label(e) === target : label(e).includes(target));
+                    if (!el) return {ok:false, found:false, error:'text not found'};
+                    el.scrollIntoView({block:'center', inline:'center'});
+                    el.click();
+                    return {ok:true, found:true, tag:el.tagName.toLowerCase(), text:label(el).slice(0,160), href:el.href || '', disabled:!!el.disabled};
+                """.trimIndent(),
+                timeoutMs
+            ).unwrapResult()
+        }
+
+        fun typeSelector(selector: String, text: String, clear: Boolean, timeoutMs: Long): Map<String, Any?> {
+            return evaluate(
+                """
+                    const el = document.querySelector(${selector.jsString()});
+                    if (!el) return {ok:false, found:false, error:'selector not found'};
+                    el.scrollIntoView({block:'center', inline:'center'});
+                    el.focus();
+                    if (${clear}) el.value = '';
+                    el.value = (el.value || '') + ${text.jsString()};
+                    el.dispatchEvent(new Event('input', {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                    return {ok:true, found:true, tag:el.tagName.toLowerCase(), value:el.value || '', name:el.name || '', placeholder:el.placeholder || ''};
+                """.trimIndent(),
+                timeoutMs
+            ).unwrapResult()
+        }
+
+        fun press(key: String, timeoutMs: Long): Map<String, Any?> {
+            return evaluate(
+                """
+                    const key = ${key.jsString()};
+                    const el = document.activeElement || document.body;
+                    ['keydown','keyup'].forEach(type => {
+                      el.dispatchEvent(new KeyboardEvent(type, {key:key, code:key, bubbles:true, cancelable:true}));
+                    });
+                    if (key === 'Enter' && el && el.form) el.form.requestSubmit ? el.form.requestSubmit() : el.form.submit();
+                    return {ok:true, activeTag: el ? el.tagName.toLowerCase() : '', key:key};
+                """.trimIndent(),
+                timeoutMs
+            ).unwrapResult()
+        }
+
+        fun waitForText(text: String, timeoutSeconds: Int): Map<String, Any?> {
+            return evaluate(
+                """
+                    return new Promise((resolve) => {
+                      const target = ${text.jsString()};
+                      const deadline = Date.now() + ${timeoutSeconds * 1000};
+                      const tick = () => {
+                        const found = document.body && document.body.innerText && document.body.innerText.includes(target);
+                        if (found) resolve({ok:true, found:true});
+                        else if (Date.now() >= deadline) resolve({ok:false, found:false, error:'timeout'});
+                        else setTimeout(tick, 250);
+                      };
+                      tick();
+                    });
+                """.trimIndent(),
+                (timeoutSeconds + 2) * 1000L
+            ).unwrapResult()
+        }
+
+        fun waitForSelector(selector: String, timeoutSeconds: Int): Map<String, Any?> {
+            return evaluate(
+                """
+                    return new Promise((resolve) => {
+                      const selector = ${selector.jsString()};
+                      const deadline = Date.now() + ${timeoutSeconds * 1000};
+                      const tick = () => {
+                        const el = document.querySelector(selector);
+                        if (el) resolve({ok:true, found:true, tag:el.tagName.toLowerCase(), text:(el.innerText || el.value || '').replace(/\s+/g,' ').trim().slice(0,160)});
+                        else if (Date.now() >= deadline) resolve({ok:false, found:false, error:'timeout'});
+                        else setTimeout(tick, 250);
+                      };
+                      tick();
+                    });
+                """.trimIndent(),
+                (timeoutSeconds + 2) * 1000L
+            ).unwrapResult()
+        }
+
+        fun screenshot(timeoutMs: Long): Map<String, Any?> {
+            val image = runCatching { browser.cefBrowser.createScreenshot(true).get(timeoutMs, TimeUnit.MILLISECONDS) }
+                .getOrElse { return error(it.message ?: "截图失败") }
+            val file = java.nio.file.Files.createTempFile("jtools-browser-", ".png").toFile()
+            ImageIO.write(image, "png", file)
+            return mapOf("ok" to true, "path" to file.absolutePath, "width" to image.width, "height" to image.height)
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        private fun Map<String, Any?>.unwrapResult(): Map<String, Any?> {
+            val result = this["result"] as? Map<String, Any?>
+                ?: return this
+            return result
+        }
+
+        private fun evaluate(scriptBody: String, timeoutMs: Long): Map<String, Any?> {
+            val requestId = UUID.randomUUID().toString()
+            val future = CompletableFuture<Map<String, Any?>>()
+            pendingJs[requestId] = future
+            val callback = jsQuery.inject("JSON.stringify(payload)")
+            val script = """
+                (function() {
+                  const payload = {id: ${requestId.jsString()}, ok: false};
+                  const finish = (ok, value) => {
+                    payload.ok = ok;
+                    if (ok) payload.result = value;
+                    else payload.error = String(value && value.message ? value.message : value);
+                    $callback;
+                  };
+                  try {
+                    Promise.resolve((function() {
+                      $scriptBody
+                    })()).then(v => finish(true, v)).catch(e => finish(false, e));
+                  } catch (e) {
+                    finish(false, e);
+                  }
+                })();
+            """.trimIndent()
+            runOnEdt { browser.cefBrowser.executeJavaScript(script, url(), 0) }
+            return runCatching { future.get(timeoutMs, TimeUnit.MILLISECONDS) }
+                .getOrElse {
+                    pendingJs.remove(requestId)
+                    error(it.message ?: "浏览器脚本执行超时")
+                }
         }
 
         fun executeJavaScript(script: String) {

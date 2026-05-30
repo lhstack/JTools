@@ -100,9 +100,9 @@ object AgentToolPermissionHelp {
             - 用于读取网页或搜索网页信息，不写入本地文件。
 
             AI 浏览器工具
-            - browser_open / browser_read / browser_click / browser_type / browser_scroll / browser_show / browser_hide / browser_close：只读。
-            - 用于临时打开网页、读取页面内容和执行受控浏览器动作，不写入本地文件。
-            - browser_show 显示浏览器组件前会单独询问用户；任务完成后应调用 browser_close 销毁浏览器。
+            - browser_open / browser_read / browser_snapshot / browser_click / browser_click_ref / browser_click_text / browser_type / browser_type_ref / browser_press / browser_scroll / browser_wait_for_text / browser_wait_for_selector / browser_screenshot / browser_show / browser_hide / browser_close：只读。
+            - 用于临时打开网页、读取页面内容、观察可操作元素、执行受控浏览器动作和截取临时页面截图，不写入项目文件。
+            - browser_open 调用前智能体应先询问用户显示运行还是隐藏运行；browser_show 显示浏览器组件前会单独询问用户；任务完成后应调用 browser_close 销毁浏览器。
 
             Skills 工具
             - jtools_skill_list：只读。
