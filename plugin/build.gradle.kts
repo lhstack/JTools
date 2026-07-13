@@ -30,6 +30,13 @@ configurations.configureEach {
     exclude(group = "org.slf4j", module = "slf4j-reload4j")
 }
 
+intellijPlatform {
+    // This plugin has no applicationConfigurable/projectConfigurable extensions.
+    // Running traverseUI generates no plugin-owned settings index and may collide with
+    // an active runIde instance that uses the same sandbox.
+    buildSearchableOptions.set(false)
+}
+
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
     implementation("cn.hutool:hutool-core:5.8.37")
@@ -252,7 +259,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("251")
-        untilBuild.set("263.*")
+        untilBuild.set("265.*")
     }
 
     signPlugin {
