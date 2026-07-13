@@ -1,0 +1,10 @@
+import { reactive } from 'vue'
+export const hostState=reactive({dark:false,theme:{},sessions:[],agents:[],messages:[],queue:[],drafts:[],inputRestore:null,currentSessionId:null,currentAgentId:null})
+let bridgeReady
+const ready=new Promise(resolve=>bridgeReady=resolve)
+window.addEventListener('jtools-ready',()=>bridgeReady())
+if(window.jtoolsInvoke) bridgeReady()
+export async function invoke(type,payload={}){await ready;return window.jtoolsInvoke(JSON.stringify({type,payload}))}
+export async function api(type,payload={}){const raw=await invoke(type,payload);const result=raw?JSON.parse(raw):null;if(!result?.ok)throw new Error(result?.error||'操作失败');return result.data}
+export function installHostState(){window.jtoolsAgent={replace(next){Object.assign(hostState,next);applyTheme(next)}};invoke('ui.ready')}
+export function applyTheme(state){const t=state?.theme||{};document.documentElement.classList.toggle('dark',!!state?.dark);const style=document.documentElement.style;const vars={'--jb-bg':t.background,'--jb-panel':t.panel,'--jb-input':t.input,'--jb-text':t.text,'--jb-muted':t.muted,'--jb-border':t.border,'--jb-accent':t.accent,'--jb-font':t.fontFamily,'--el-bg-color':t.panel,'--el-bg-color-page':t.background,'--el-bg-color-overlay':t.panel,'--el-fill-color-blank':t.panel,'--el-fill-color-light':t.input,'--el-text-color-primary':t.text,'--el-text-color-regular':t.text,'--el-text-color-secondary':t.muted,'--el-border-color':t.border,'--el-border-color-light':t.border,'--el-color-primary':t.accent};Object.entries(vars).forEach(([k,v])=>v&&style.setProperty(k,v))}

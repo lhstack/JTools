@@ -31,7 +31,10 @@ object AgentToolbarIconSupport {
         val targetImage = BufferedImage(targetSize.width, targetSize.height, BufferedImage.TYPE_INT_ARGB)
         val targetGraphics = targetImage.createGraphics()
         try {
-            targetGraphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+            targetGraphics.setRenderingHint(
+                RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR
+            )
             targetGraphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
             val x = (targetSize.width - drawWidth) / 2
             val y = (targetSize.height - drawHeight) / 2

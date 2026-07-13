@@ -1,264 +1,216 @@
 package com.lhstack.tools.agent
 
+import com.google.gson.annotations.SerializedName
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
-import com.intellij.lang.Language
-import com.intellij.openapi.actionSystem.*
+import com.intellij.ide.ui.LafManagerListener
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.ide.CopyPasteManager
+import java.awt.datatransfer.StringSelection
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.JBColor
-import com.intellij.ui.LanguageTextField
-import com.intellij.ui.awt.RelativePoint
-import com.intellij.ui.components.JBList
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
-import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.lhstack.tools.agent.model.http.ModelCancel
+import com.lhstack.tools.agent.model.llm.AssistantContent
+import com.lhstack.tools.agent.model.llm.Message
+import com.lhstack.tools.agent.model.llm.ProviderToolCall
+import com.lhstack.tools.agent.model.llm.ToolCall
+import com.lhstack.tools.agent.model.llm.ToolFunction
+import com.lhstack.tools.agent.model.llm.ToolResult
+import com.lhstack.tools.agent.model.llm.ToolResultContent
+import com.lhstack.tools.agent.model.llm.UserContent
+import com.lhstack.tools.agent.model.log.ModelLogService
+import com.lhstack.tools.agent.model.tools.UpdateAgentDistillationTool
+import com.lhstack.tools.agent.model.log.ModelRequestException
+import com.lhstack.tools.agent.model.provider.AgentRuntime
+import com.lhstack.tools.agent.model.provider.ModelStreamSink
+import com.lhstack.tools.agent.model.provider.ToolEventSink
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.db.service.AgentRecord
+import com.lhstack.tools.db.service.AgentService
+import com.lhstack.tools.db.service.ChatSessionRecord
+import com.lhstack.tools.db.service.ChatSessionService
+import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.ext.errorNotify
-import com.lhstack.tools.ext.ifNotBlank
 import com.lhstack.tools.ext.infoNotify
-import com.lhstack.tools.plugins.pluginState
-import io.agentscope.core.model.ChatUsage
-import io.agentscope.core.tool.Toolkit as AgentScopeToolkit
+import com.intellij.lang.Language
+import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.LanguageTextField
+import com.intellij.ui.awt.RelativePoint
 import org.jdesktop.swingx.VerticalLayout
-import java.awt.*
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.GraphicsEnvironment
+import java.awt.Image
+import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
-import java.awt.event.*
+import java.awt.event.ActionEvent
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.awt.image.BufferedImage
 import java.io.File
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.*
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
+import java.time.LocalDateTime
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import javax.imageio.ImageIO
-import javax.swing.*
-import javax.swing.event.DocumentEvent
-import javax.swing.event.HyperlinkEvent
-import javax.swing.event.PopupMenuEvent
-import javax.swing.event.PopupMenuListener
+import javax.swing.Action
+import javax.swing.BorderFactory
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.DefaultListCellRenderer
+import javax.swing.DefaultListModel
+import javax.swing.JButton
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.ListSelectionModel
+import javax.swing.JList
+import javax.swing.JPanel
+import javax.swing.ScrollPaneConstants
+import javax.swing.SwingUtilities
+import javax.swing.TransferHandler
+import javax.swing.JScrollPane
+import javax.swing.JTable
+import javax.swing.JTabbedPane
+import javax.swing.SwingConstants
+import javax.swing.table.DefaultTableModel
+import javax.swing.table.TableRowSorter
 import javax.swing.text.DefaultEditorKit
 import javax.swing.text.JTextComponent
 
-internal data class AgentRequestUiControls(
-    val sessionSelector: JComponent,
-    val providerSelector: JComponent,
-    val systemPromptSelector: JComponent,
-    val modelSelector: JComponent,
-    val conversationModeSelector: JComponent,
-    val permissionScopeSelector: JComponent,
-    val approvalPolicySelector: JComponent,
-    val sendAction: AnAction,
-    val stopAction: AnAction,
-    val providerManageAction: AnAction,
-    val systemPromptManageAction: AnAction,
-    val modelManageAction: AnAction,
-    val modelSettingsAction: AnAction,
-    val skillSelectAction: AnAction,
-    val skillManageAction: AnAction,
-    val mcpManageAction: AnAction,
-) {
-    fun applyRequestInProgress(
-        requestInProgress: Boolean,
-        setActionEnabled: (AnAction, Boolean) -> Unit,
-        setInputEnabled: (Boolean) -> Unit,
-    ) {
-        val enabled = !requestInProgress
-        setActionEnabled(sendAction, enabled)
-        setActionEnabled(stopAction, requestInProgress)
-        sessionSelector.isEnabled = enabled
-        providerSelector.isEnabled = enabled
-        systemPromptSelector.isEnabled = enabled
-        modelSelector.isEnabled = enabled
-        conversationModeSelector.isEnabled = enabled
-        permissionScopeSelector.isEnabled = enabled
-        approvalPolicySelector.isEnabled = enabled
-        setActionEnabled(providerManageAction, enabled)
-        setActionEnabled(systemPromptManageAction, enabled)
-        setActionEnabled(modelManageAction, enabled)
-        setActionEnabled(modelSettingsAction, enabled)
-        setActionEnabled(skillSelectAction, enabled)
-        setActionEnabled(skillManageAction, enabled)
-        setActionEnabled(mcpManageAction, enabled)
-        setInputEnabled(enabled)
-    }
-}
+/**
+ * Agent 对话面板。对话完全基于 Agent 发起：会话绑定一个 Agent，发送时经 AgentRuntime
+ * 执行，历史以 model_request_logs 为唯一数据源。面板只负责编排 UI 与调用运行时，
+ * 不持有任何模型/供应商状态，也不做任何旧结构兼容。
+ */
+class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true), com.intellij.openapi.Disposable {
 
-class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
     private companion object {
-        private const val TOOL_BLOCK_VISIBLE_LINES = 10
-        private val INPUT_COMPOSER_BACKGROUND = JBColor(Color(0xFFFFFF), Color(0x2B2F34))
-        private val INPUT_COMPOSER_BORDER = JBColor(Color(0xD3D9E2), Color(0x4E545A))
-        private val INPUT_COMPOSER_DIVIDER = JBColor(Color(0xE4E8EF), Color(0x43484D))
-        private val INPUT_COMPOSER_FOCUS_BORDER = JBColor(0x4B90FF, 0x4B90FF)
-        private val TOP_SYSTEM_PROMPT_WIDTH = JBUI.scale(150)
-        private val TOP_PERMISSION_WIDTH = JBUI.scale(92)
-        private val TOP_APPROVAL_WIDTH = JBUI.scale(92)
-        private const val MARKDOWN_STREAM_RENDER_DELAY_MS = 220
-        private const val RAW_BLOCK_COPY_LINK_PREFIX = "jtools-copy-raw:"
-        private const val RAW_BLOCKS_CLIENT_PROPERTY = "jtools.rawBlocks"
+        const val ROLE_USER = "用户"
+        const val ROLE_ASSISTANT = "助手"
+        const val ROLE_REASONING = "推理"
+        const val ROLE_ERROR = "错误"
+        const val AUTO_TITLE = "新会话"
+        val INPUT_COMPOSER_BACKGROUND = JBColor(Color(0xFFFFFF), Color(0x2B2F34))
+        val INPUT_COMPOSER_BORDER = JBColor(Color(0xD3D9E2), Color(0x4E545A))
+        val INPUT_COMPOSER_DIVIDER = JBColor(Color(0xE4E8EF), Color(0x43484D))
+        val INPUT_COMPOSER_FOCUS_BORDER = JBColor(0x4B90FF, 0x4B90FF)
     }
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val chatBrowser: AgentChatBrowser by lazy { AgentChatBrowser(gson, ::handleBrowserCommand, onDropFiles = ::addAttachmentFiles) }
+    private val managementWindows by lazy { AgentManagementWindowManager(project, gson, ::refreshManagementData) }
+
     private val messageContainer = JPanel(VerticalLayout(8))
     private val chatScroll = JBScrollPane(messageContainer)
     private val inputArea = JBTextArea(3, 0)
-    private val attachmentDraftPanel = JPanel().apply {
+    private val inputCenterPanel = JPanel(BorderLayout(0, 6)).apply { isOpaque = false }
+    private val queueStrip = JPanel().apply {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.X_AXIS)
     }
-    private val attachmentDraftScroll = AgentAttachmentChipUi.createHorizontalStrip(attachmentDraftPanel)
-    private val inputCenterPanel = JPanel(BorderLayout(0, 6)).apply {
+    private val queueScroll = JBScrollPane(queueStrip).apply {
+        border = JBUI.Borders.empty()
         isOpaque = false
+        viewport.isOpaque = false
+        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+        verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
+        preferredSize = Dimension(0, JBUI.scale(40))
+        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(42))
     }
-    private val actionToolbars = mutableListOf<ActionToolbar>()
-    private val actionEnabledState = mutableMapOf<AnAction, Boolean>()
-    private val quickClearAction = createAction("清空当前会话", Icons.closeAllIcon()) {
-        currentSession?.let { clearSession(it) }
+    private val queuePanel = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        isVisible = false
+        add(queueScroll, BorderLayout.CENTER)
     }
-    private val sessionManageAction = createAction("会话管理", Icons.libraryIcon()) { openSessionManager() }
-    private val modelManageAction = createAction("模型管理", Icons.toolIcon()) { openModelManager() }
-    private val modelSettingsAction =
-        createAction("模型扩展设置", Icons.modelTuningIcon()) { openModelSettingsDialog() }
-    private val providerManageAction = createAction("供应方管理", Icons.providerConfigIcon()) { openProviderManager() }
-    private val systemPromptManageAction =
-        createAction("系统提示词管理", Icons.promptManageIcon()) { openSystemPromptManager() }
-    private val skillSelectAction = createAction("会话 Skills", Icons.sessionSkillsIcon()) { openSkillSelector() }
-    private val skillManageAction = createAction("Skills 管理", Icons.skillsManageIcon()) { openSkillManager() }
-    private val mcpManageAction = createAction("MCP 配置", Icons.mcpConfigIcon()) { openMcpManager() }
-    private val attachmentAction = object : AnAction({ "附件" }, Icons.attachmentIcon()) {
-        override fun actionPerformed(e: AnActionEvent) {
-            chooseAttachments()
-        }
 
-        override fun update(e: AnActionEvent) {
-            val visible = AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())
-            e.presentation.isVisible = visible
-            e.presentation.isEnabled = visible && !sending.get() && inputArea.isEnabled
-        }
+    private val draftAttachments = mutableListOf<AgentAttachmentState>()
+    private val draftAttachmentStrip = JPanel().apply {
+        isOpaque = false
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
     }
-    private val sendAction = createAction(
-        "发送",
-        Icons.runIcon(),
-        enabledProvider = { !sending.get() && inputArea.isEnabled }
-    ) { sendMessage() }
-    private val stopAction = createAction(
-        "停止",
-        Icons.stopIcon(),
-        enabledProvider = { sending.get() }
-    ) { cancelCurrentRequest() }
+    private val draftAttachmentPanel = AgentAttachmentChipUi.createHorizontalStrip(draftAttachmentStrip).apply {
+        isVisible = false
+    }
+
     private val statusLabel = JLabel()
     private val inputHintLabel = JLabel(AgentInputShortcutSupport.inputHint())
-    private val tokenUsageLabel = JLabel()
-    private val sessionModel = DefaultComboBoxModel<ChatSession>()
-    private val providerModel = DefaultComboBoxModel<AgentProviderState>()
-    private val sessionSelector = ComboBox<ChatSession>()
-    private val providerSelector = ComboBox<AgentProviderState>()
-    private val systemPromptSelector = ComboBox<SystemPromptOption>()
-    private val modelSelector = ComboBox<String>()
-    private val conversationModeSelector = ComboBox<AgentConversationMode>()
-    private val permissionScopeSelector = ComboBox<AgentToolPermissionScope>()
-    private val approvalPolicySelector = ComboBox<AgentToolApprovalPolicy>()
-    private val permissionHelpButton = JButton(AllIcons.General.ContextHelp).apply {
-        toolTipText = "查看权限说明"
-        isFocusable = false
-        isContentAreaFilled = false
-        isBorderPainted = false
-        margin = JBUI.insets(0)
-        preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
-        minimumSize = preferredSize
-        maximumSize = preferredSize
-        addActionListener {
-            showPermissionHelpDialog()
-        }
-    }
-    private val comboFixedWidth = JBUI.scale(180)
-    private val projectKey = resolveProjectKey()
-    private val client = AgentClient()
-    private val sending = AtomicBoolean(false)
-    private val requestCounter = AtomicInteger(0)
-    @Volatile
-    private var activeRequestId = 0
-    private var cancelToken: AgentClient.CancelToken? = null
-    private var currentSession: ChatSession? = null
+    private val sessionSelector = ComboBox<ChatSessionRecord>()
+    private val agentSelector = ComboBox<AgentRecord>()
+
+    private val actionToolbars = mutableListOf<ActionToolbar>()
+    private val actionEnabledState = mutableMapOf<AnAction, Boolean>()
+
+
+    private val queueOrder = AtomicLong(0)
+    private val queueLock = Any()
+    private val chatQueue = mutableListOf<ChatQueueItem>()
+    private var currentSessionId: Long? = null
+    private var renderedSessionId: Long? = null
+    private var inputRestoreSequence = 0L
+    private var browserInputRestore: AgentBrowserInputRestore? = null
     private var updatingSessionSelection = false
-    private var updatingProviderSelection = false
-    private var updatingSystemPromptSelection = false
-    private var updatingModelSelection = false
-    private var updatingConversationModeSelection = false
-    private var updatingPermissionScopeSelection = false
-    private var updatingApprovalPolicySelection = false
+    private var updatingAgentSelection = false
 
-    private var assistantBlock: MessageBlock? = null
-    private val streamingTextBlocks = mutableMapOf<String, MessageBlock>()
-    private var toolBlock: ToolListBlock? = null
-    private val modelCache = mutableMapOf<String, ModelCacheEntry>()
-    private val modelLoadInFlight = mutableSetOf<String>()
-    private val modelLoadListeners = mutableMapOf<String, MutableList<(List<String>) -> Unit>>()
-    private data class ModelCacheEntry(val models: List<String>, val loadedAt: Long)
+    private var currentTurnView: AssistantTurnView? = null
+    private val messageCards = mutableListOf<AgentChatCard>()
 
-    private val requestUiControls = AgentRequestUiControls(
-        sessionSelector = sessionSelector,
-        providerSelector = providerSelector,
-        systemPromptSelector = systemPromptSelector,
-        modelSelector = modelSelector,
-        conversationModeSelector = conversationModeSelector,
-        permissionScopeSelector = permissionScopeSelector,
-        approvalPolicySelector = approvalPolicySelector,
-        sendAction = sendAction,
-        stopAction = stopAction,
-        providerManageAction = providerManageAction,
-        systemPromptManageAction = systemPromptManageAction,
-        modelManageAction = modelManageAction,
-        modelSettingsAction = modelSettingsAction,
-        skillSelectAction = skillSelectAction,
-        skillManageAction = skillManageAction,
-        mcpManageAction = mcpManageAction,
-    )
+    private val newSessionAction = createAction("新建会话", Icons.agentSessionNewIcon()) { createSession() }
+    private val clearAction = createAction("清空当前会话", Icons.agentSessionClearIcon()) { clearCurrentSession() }
+    private val sessionManageAction = createAction("会话管理", Icons.agentSessionManageIcon()) { openSessionManager() }
+    private val modelLogAction = createAction("模型日志", Icons.agentModelLogIcon()) { openModelLogDialog() }
+    private val modelManageAction = createAction("供应商与模型", Icons.agentModelIcon()) { openModelManager() }
+    private val promptManageAction = createAction("提示词管理", Icons.agentPromptIcon()) { openPromptManager() }
+    private val agentManageAction = createAction("Agent 管理", Icons.agentManageIcon()) { openAgentManager() }
+       private val skillManageAction = createAction("Skills 管理", Icons.agentSkillsIcon()) { openSkillManager() }
+    private val globalConfigAction = createAction("全局配置", Icons.agentGlobalConfigIcon()) { openGlobalConfigManager() }
+    private val attachmentAction = createAction("添加附件", Icons.agentAttachmentIcon()) { chooseAttachments() }
 
     init {
-        setupChatContainer()
-        setupInputArea()
         setupSessionSelector()
-        setupProviderSelector()
-        setupSystemPromptSelector()
-        setupModelSelector()
-        setupConversationModeSelector()
-        setupPermissionScopeSelector()
-        setupApprovalPolicySelector()
-        setActionEnabled(stopAction, false)
-        val root = JPanel(BorderLayout())
-        root.add(buildTopBar(), BorderLayout.NORTH)
-        root.add(buildChatContainer(), BorderLayout.CENTER)
-        root.add(buildInputBar(), BorderLayout.SOUTH)
-        setContent(root)
-        initSessions()
-        updateStatus()
-        updateToolbars()
+        setupAgentSelector()
+        setContent(chatBrowser.component)
+        project.messageBus.connect(this).subscribe(LafManagerListener.TOPIC, LafManagerListener { syncBrowserState() })
+        loadInitialData()
     }
+
+    // -------- 选择器与输入初始化 --------
 
     private fun setupChatContainer() {
         messageContainer.background = UIUtil.getPanelBackground()
@@ -267,2224 +219,1799 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         chatScroll.viewport.background = UIUtil.getPanelBackground()
         chatScroll.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         chatScroll.verticalScrollBar.unitIncrement = 16
+        chatScroll.viewport.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) = Unit
+        })
     }
 
     private fun setupInputArea() {
-        val defaultTransferHandler = inputArea.transferHandler
         val defaultPasteAction = inputArea.actionMap.get(DefaultEditorKit.pasteAction)
         inputArea.lineWrap = true
         inputArea.wrapStyleWord = true
         inputArea.margin = JBUI.insets(6)
         inputArea.background = UIUtil.getTextFieldBackground()
         inputArea.isOpaque = true
-        inputArea.inputMap.put(
-            AgentInputShortcutSupport.sendKeyStroke(),
-            "sendMessage"
-        )
+        inputArea.inputMap.put(AgentInputShortcutSupport.sendKeyStroke(), "sendMessage")
         inputArea.actionMap.put("sendMessage", object : javax.swing.AbstractAction() {
-            override fun actionPerformed(e: ActionEvent) {
-                sendMessage()
-            }
+            override fun actionPerformed(e: ActionEvent) = sendMessage()
         })
-        bindPasteAttachment(inputArea) {
-            if(defaultPasteAction != null){
-                defaultPasteAction.actionPerformed(
-                    ActionEvent(
-                        inputArea,
-                        ActionEvent.ACTION_PERFORMED,
-                        DefaultEditorKit.pasteAction
-                    )
-                )
-            }else {
-                inputArea.text += it
+        bindPasteAttachment(inputArea) { text ->
+            if (text.isNotEmpty()) {
+                inputArea.replaceSelection(text)
+                return@bindPasteAttachment
             }
+            defaultPasteAction?.actionPerformed(
+                ActionEvent(inputArea, ActionEvent.ACTION_PERFORMED, DefaultEditorKit.pasteAction)
+            )
         }
         inputArea.transferHandler = object : TransferHandler() {
-            override fun canImport(support: TransferSupport): Boolean {
-                if (AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
-                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(
-                        DataFlavor.imageFlavor
-                    ))
-                ) {
-                    return true
-                }
-                return defaultTransferHandler?.canImport(support) ?: false
-            }
+            override fun canImport(support: TransferSupport): Boolean = canImportAttachment(support.transferable)
+            override fun importData(support: TransferSupport): Boolean = importAttachmentTransferable(support.transferable)
+        }
+    }
 
-            override fun importData(support: TransferSupport): Boolean {
-                if (!canImport(support)) {
-                    return false
-                }
-                if (AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings()) &&
-                    (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) || support.isDataFlavorSupported(
-                        DataFlavor.imageFlavor
-                    ))
-                ) {
-                    return addAttachmentsFromTransferable(support.transferable)
-                }
-                return defaultTransferHandler?.importData(support) ?: false
+    private fun setupSessionSelector() {
+        sessionSelector.isEditable = false
+        sessionSelector.renderer = simpleRenderer { (it as? ChatSessionRecord)?.title ?: "" }
+        applyFixedWidth(sessionSelector, JBUI.scale(200))
+        sessionSelector.addActionListener {
+            if (updatingSessionSelection) return@addActionListener
+            val selected = sessionSelector.selectedItem as? ChatSessionRecord ?: return@addActionListener
+            switchSession(selected.id)
+        }
+    }
+
+    private fun setupAgentSelector() {
+        agentSelector.isEditable = false
+        agentSelector.renderer = simpleRenderer { (it as? AgentRecord)?.name ?: "" }
+        applyFixedWidth(agentSelector, JBUI.scale(200))
+        agentSelector.addActionListener {
+            if (updatingAgentSelection) return@addActionListener
+            val agent = agentSelector.selectedItem as? AgentRecord ?: return@addActionListener
+            bindCurrentSessionAgent(agent)
+        }
+    }
+
+    // -------- 数据加载 --------
+
+    private fun loadInitialData() {
+        refreshAgentSelector(null)
+        val sessions = ChatSessionService.listSessions()
+        if (sessions.isEmpty()) {
+            createSession()
+        } else {
+            currentSessionId = sessions.first().id
+            refreshSessionSelector(sessions)
+            switchSession(sessions.first().id)
+        }
+    }
+
+    private fun refreshAgentSelector(selectedId: Long?) {
+        updatingAgentSelection = true
+        agentSelector.removeAllItems()
+        AgentService.listAgents().forEach { agentSelector.addItem(it) }
+        val target = (0 until agentSelector.itemCount)
+            .map { agentSelector.getItemAt(it) }
+            .firstOrNull { it.id == selectedId }
+        if (target != null) agentSelector.selectedItem = target
+        updatingAgentSelection = false
+        syncBrowserState()
+    }
+
+    private fun refreshSessionSelector(sessions: List<ChatSessionRecord>) {
+        updatingSessionSelection = true
+        sessionSelector.removeAllItems()
+        sessions.forEach { sessionSelector.addItem(it) }
+        val target = (0 until sessionSelector.itemCount)
+            .map { sessionSelector.getItemAt(it) }
+            .firstOrNull { it.id == currentSessionId }
+        if (target != null) sessionSelector.selectedItem = target
+        updatingSessionSelection = false
+        syncBrowserState()
+    }
+
+    // -------- 会话生命周期 --------
+
+    private fun createSession() {
+        val agent = agentSelector.selectedItem as? AgentRecord
+        val record = ChatSessionService.createSession(AUTO_TITLE, agent?.id)
+        currentSessionId = record.id
+        refreshSessionSelector(ChatSessionService.listSessions())
+        switchSession(record.id)
+    }
+
+    private fun switchSession(sessionId: Long) {
+        val record = ChatSessionService.sessionById(sessionId) ?: return
+        currentSessionId = record.id
+        updatingSessionSelection = true
+        selectSessionItem(record.id)
+        updatingSessionSelection = false
+        refreshAgentSelector(record.agentId)
+        renderSessionHistory(record)
+        refreshQueuePanel()
+        updateActiveStopButton()
+        updateStatus()
+    }
+
+    private fun selectSessionItem(sessionId: Long) {
+        val target = (0 until sessionSelector.itemCount)
+            .map { sessionSelector.getItemAt(it) }
+            .firstOrNull { it.id == sessionId }
+        if (target != null) sessionSelector.selectedItem = target
+    }
+
+    private fun bindCurrentSessionAgent(agent: AgentRecord) {
+        val sessionId = currentSessionId ?: return
+        val agentId = agent.id ?: return
+        ChatSessionService.updateSessionAgent(sessionId, agentId)
+        updateStatus()
+    }
+
+    private fun clearCurrentSession() {
+        val sessionId = currentSessionId ?: return
+        val record = ChatSessionService.sessionById(sessionId) ?: return
+        val confirm = Messages.showYesNoDialog(
+            project, "确定清空当前会话的全部对话记录？", "清空会话", Messages.getQuestionIcon()
+        )
+        if (confirm != Messages.YES) return
+        discardQueueItemsForSession(sessionId)
+        ModelLogService.deleteChatTurns(
+            ChatSessionService.SESSION_SOURCE_TYPE,
+            ChatSessionService.sessionSourceId(record.agentId, record.id),
+        )
+        renderSessionHistory(record)
+    }
+
+    private fun clearCurrentSessionFromBrowser() {
+        val sessionId = currentSessionId ?: return
+        val record = ChatSessionService.sessionById(sessionId) ?: return
+        discardQueueItemsForSession(sessionId)
+        ModelLogService.deleteChatTurns(
+            ChatSessionService.SESSION_SOURCE_TYPE,
+            ChatSessionService.sessionSourceId(record.agentId, record.id),
+        )
+        renderSessionHistory(record)
+    }
+
+    private fun renameSession(record: ChatSessionRecord) {
+        val name = Messages.showInputDialog(
+            project, "输入新的会话名称", "重命名会话", Messages.getQuestionIcon(), record.title, null
+        )?.trim().orEmpty()
+        if (name.isBlank()) return
+        ChatSessionService.renameSession(record.id, name)
+        refreshSessionSelector(ChatSessionService.listSessions())
+    }
+
+    private fun deleteSession(record: ChatSessionRecord) {
+        val confirm = Messages.showYesNoDialog(
+            project, "确定删除会话 ${record.title}？其对话记录也会一并删除。", "删除会话", Messages.getQuestionIcon()
+        )
+        if (confirm != Messages.YES) return
+        discardQueueItemsForSession(record.id)
+        ModelLogService.deleteChatTurns(
+            ChatSessionService.SESSION_SOURCE_TYPE,
+            ChatSessionService.sessionSourceId(record.agentId, record.id),
+        )
+        ChatSessionService.deleteSession(record.id)
+        val remaining = ChatSessionService.listSessions()
+        if (remaining.isEmpty()) {
+            currentSessionId = null
+            createSession()
+        } else {
+            currentSessionId = remaining.first().id
+            refreshSessionSelector(remaining)
+            switchSession(remaining.first().id)
+        }
+    }
+
+    // -------- 会话历史渲染（数据源：model_request_logs）--------
+
+    private fun renderSessionHistory(record: ChatSessionRecord) {
+        renderedSessionId = record.id
+        messageCards.clear()
+        clearStreamingRefs()
+        val sourceId = ChatSessionService.sessionSourceId(record.agentId, record.id)
+        val entries = buildSessionRenderEntries(record.id, sourceId)
+        entries.forEach { entry ->
+            when (entry) {
+                is SessionRenderEntry.History -> renderTurn(record.id, entry.turn)
+                is SessionRenderEntry.Queue -> renderQueuedItem(entry.item)
+            }
+        }
+        syncBrowserState()
+    }
+
+    private fun buildSessionRenderEntries(sessionId: Long, sourceId: String): List<SessionRenderEntry> {
+        val queued = synchronized(queueLock) {
+            chatQueue
+                .filter { it.sessionId == sessionId && it.shouldRenderInHistory() }
+                .map { SessionRenderEntry.Queue(it, queuedRenderOrder(it)) }
+        }
+        val queuedClientOrders = queued.mapTo(mutableSetOf()) { it.item.order }
+        val history = ModelLogService.listChatTurns(ChatSessionService.SESSION_SOURCE_TYPE, sourceId)
+            .asSequence()
+            .filter { it.status != "running" && it.status != "failed" }
+            .filterNot { chatTurnClientOrder(it) in queuedClientOrders }
+            .map { SessionRenderEntry.History(it, it.logId) }
+            .toList()
+        return (history + queued).sortedWith(compareBy<SessionRenderEntry> { it.order }.thenBy { it.tieBreaker })
+    }
+
+    private fun queuedRenderOrder(item: ChatQueueItem): Long = Long.MAX_VALUE / 4 + item.order
+
+    private fun chatTurnClientOrder(turn: ModelLogService.ChatTurn): Long? {
+        val snapshot = jsonObject(turn.requestData, "request_snapshot")
+        return snapshot?.get("client_message_order")
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+            ?.asLong
+    }
+
+    private fun renderTurn(sessionId: Long, turn: ModelLogService.ChatTurn) {
+        renderTurnUserBubble(sessionId, turn)
+        val structured = jsonObject(turn.responseData, "structured_response")
+        if (structured != null) {
+            val response = jsonString(structured.get("response"))
+            val reasoning = reasoningText(structured)
+            val hasTools = hasToolCalls(structured)
+            if (response.isNotBlank() || reasoning.isNotBlank() || hasTools) {
+                val turnView = createAssistantTurnView(sessionId) { deleteChatMessage(turn.logId, "assistant") }
+                if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
+                if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
+                renderTurnToolCalls(structured, turnView)
+                turnView.card.finish(turn.createdAt, usageText(structured), usageDetails(structured))
+                return
+            }
+        }
+        if (turn.status == "failed" && !turn.errorData.isNullOrBlank()) {
+            val turnView = createAssistantTurnView(sessionId) { deleteChatMessage(turn.logId, "assistant") }
+            turnView.card.setResponse("错误：${turn.errorData}")
+            turnView.card.finish(turn.createdAt, null)
+        }
+    }
+
+    private fun renderTurnUserBubble(sessionId: Long, turn: ModelLogService.ChatTurn) {
+        if (turn.messageType == "agent_distillation") return
+        val snapshot = jsonObject(turn.requestData, "request_snapshot") ?: return
+        val prompt = jsonString(snapshot.get("prompt_message"))
+        val attachments = readAttachmentSnapshots(snapshot)
+        if (prompt.isBlank() && attachments.isEmpty()) return
+        appendMessage(
+            sessionId,
+            ROLE_USER,
+            prompt,
+            collapsible = false,
+            collapsedByDefault = false,
+            attachments = attachments,
+            onDelete = null,
+            createdAt = turn.createdAt,
+        )
+    }
+
+    private fun deleteChatMessage(logId: Long, role: String) {
+        ModelLogService.deleteModelLog(logId)
+        currentSessionId?.let { refreshCurrentSessionHistoryIfVisible(it) }
+        project.infoNotify("对话", "消息已删除")
+    }
+
+    private fun reasoningText(structured: JsonObject): String {
+        val reasoning = structured.get("reasoning")?.takeIf { it.isJsonArray }?.asJsonArray ?: return ""
+        return reasoning.mapNotNull { jsonString(it).takeIf { s -> s.isNotBlank() } }.joinToString("\n\n").trim()
+    }
+
+    private fun hasToolCalls(structured: JsonObject): Boolean =
+        structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.isEmpty == false
+
+    private fun usageText(structured: JsonObject): String? {
+        val usage = structured.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        val total = usageNumber(usage, "total_tokens").takeIf { it > 0 }
+            ?: (usageNumber(usage, "input_tokens").takeIf { it > 0 } ?: usageNumber(usage, "prompt_tokens"))
+                .saturatingAdd(usageNumber(usage, "output_tokens").takeIf { it > 0 } ?: usageNumber(usage, "completion_tokens"))
+                .saturatingAdd(usageNumber(usage, "cache_creation_input_tokens"))
+                .saturatingAdd(usageNumber(usage, "cache_read_input_tokens"))
+        return if (total > 0) formatTokenUsage(total) else null
+    }
+
+    private fun usageDetails(structured: JsonObject): List<AgentBrowserUsageItem> {
+        val usage = structured.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject ?: return emptyList()
+        return flattenUsageDetails(usage)
+    }
+
+    private fun flattenUsageDetails(value: JsonElement, prefix: String = ""): List<AgentBrowserUsageItem> {
+        if (!value.isJsonObject) return emptyList()
+        return value.asJsonObject.entrySet().flatMap { (key, entry) ->
+            val path = if (prefix.isEmpty()) key else "$prefix.$key"
+            when {
+                entry.isJsonObject -> flattenUsageDetails(entry, path)
+                entry.isJsonPrimitive && entry.asJsonPrimitive.isNumber ->
+                    listOf(AgentBrowserUsageItem(path, entry.asLong))
+                else -> emptyList()
             }
         }
     }
 
-    private fun bindPasteAttachment(component: JBTextArea, onTextFallback: (String) -> Unit) {
+    private fun usageNumber(usage: JsonObject, key: String): Long =
+        usage.get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong ?: 0L
+
+    private fun Long.saturatingAdd(other: Long): Long =
+        if (other > 0 && Long.MAX_VALUE - this < other) Long.MAX_VALUE else this + other
+
+    private fun formatTokenUsage(value: Long): String = when {
+        value >= 1_000_000 -> "${String.format("%.1f", value / 1_000_000.0).removeSuffix(".0")}m"
+        value >= 1_000 -> "${String.format("%.1f", value / 1_000.0).removeSuffix(".0")}k"
+        else -> "$value tokens"
+    }
+
+    private fun renderTurnToolCalls(structured: JsonObject, turnView: AssistantTurnView) {
+        syncToolCalls(structured, turnView.card)
+    }
+
+    private fun syncToolCalls(structured: JsonObject, card: AgentAssistantMessageCard) {
+        val calls = structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray ?: return
+        if (calls.isEmpty) return
+        val results = structured.get("tool_results")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
+        val resultByCallId = mutableMapOf<String, String>()
+        results.forEach { element ->
+            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
+            val callId = jsonString(obj.get("internal_call_id"))
+            if (callId.isNotBlank()) resultByCallId[callId] = jsonString(obj.get("result"))
+        }
+        calls.forEachIndexed { index, element ->
+            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEachIndexed
+            val callId = jsonString(obj.get("internal_call_id")).ifBlank { "tool-$index" }
+            val name = jsonString(obj.get("tool_name"))
+            val args = obj.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
+            card.ensureTool(callId, name, args)
+            if (resultByCallId.containsKey(callId)) {
+                card.updateToolResult(callId, resultByCallId[callId].orEmpty())
+            }
+        }
+    }
+
+    private fun readAttachmentSnapshots(snapshot: JsonObject): List<AgentAttachmentState> {
+        val array = snapshot.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            AgentAttachmentState(
+                id = jsonString(obj.get("id")).ifBlank { UUID.randomUUID().toString() },
+                name = jsonString(obj.get("name")),
+                path = jsonString(obj.get("path")),
+                mimeType = jsonString(obj.get("mimeType")),
+                size = obj.get("size")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0,
+                kind = jsonString(obj.get("kind")).ifBlank { AgentAttachmentKind.FILE.id },
+            )
+        }
+    }
+
+    private fun jsonObject(parent: JsonObject?, key: String): JsonObject? {
+        val element = parent?.get(key) ?: return null
+        return element.takeIf { it.isJsonObject }?.asJsonObject
+    }
+
+    private fun jsonString(element: JsonElement?): String =
+        element?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+
+    // -------- 附件草稿 --------
+
+    private fun pasteAttachmentsFromClipboard() {
+        val transferable = systemClipboardContents() ?: CopyPasteManager.getInstance().contents ?: return
+        if (importAttachmentTransferable(transferable)) return
+        clipboardText(transferable).takeIf { AgentAttachmentClipboardSupport.parseFiles(it).isNotEmpty() }
+            ?.let { addAttachmentFiles(AgentAttachmentClipboardSupport.parseFiles(it)) }
+    }
+
+    /** 弹出文件选择器，支持多选，加入草稿附件。 */
+    private fun chooseAttachments() {
+        val descriptor = FileChooserDescriptor(true, false, false, false, false, true)
+            .withTitle("选择附件")
+        val files = FileChooser.chooseFiles(descriptor, project, null)
+            .mapNotNull { it.takeIf { vf -> !vf.isDirectory } }
+            .map { File(it.path) }
+        addAttachmentFiles(files)
+    }
+
+    /**
+     * 使用 IDE Paste action 的快捷键绑定粘贴附件。
+     * Swing 文本组件自己的 paste action 在 IDEA action system 下不稳定，文件/图片粘贴必须绑定
+     * IdeActions.ACTION_PASTE 的快捷键，和旧实现保持一致。
+     */
+    private fun bindPasteAttachment(component: JComponent, onTextFallback: (String) -> Unit) {
         val action = PasteAttachmentAction(
-            onFiles = { files ->
-                addAttachmentFiles(files)
-            },
-            onImage = { image ->
-                saveClipboardImage(image)?.let { addAttachmentFiles(listOf(it)) }
-            },
-            onTextFallback = onTextFallback
+            onFiles = { files -> addAttachmentFiles(files) },
+            onImage = { image -> imageToTempFile(image)?.let { addAttachmentFiles(listOf(it)) } },
+            onTextFallback = onTextFallback,
         )
         val pasteAction = ActionManager.getInstance().getAction(IdeActions.ACTION_PASTE) ?: return
         action.registerCustomShortcutSet(pasteAction.shortcutSet, component)
     }
 
-    private fun setupSessionSelector() {
-        sessionSelector.model = sessionModel
-        sessionSelector.maximumRowCount = 8
-        sessionSelector.isEditable = false
-        configureComboBox(sessionSelector, comboFixedWidth, { (it as? ChatSession)?.title ?: it?.toString().orEmpty() })
-        sessionSelector.addActionListener {
-            if (updatingSessionSelection || sending.get()) {
-                return@addActionListener
-            }
-            val selected = sessionSelector.selectedItem as? ChatSession ?: return@addActionListener
-            switchSession(selected)
-        }
-    }
-
-    private fun setupProviderSelector() {
-        providerSelector.model = providerModel
-        providerSelector.maximumRowCount = 8
-        providerSelector.isEditable = false
-        configureComboBox(providerSelector, comboFixedWidth, {
-            val provider = it as? AgentProviderState
-            val type = AgentProviderType.fromId(provider?.type).displayName
-            if (provider == null) "" else "${provider.name} ($type)"
-        })
-        providerSelector.addActionListener {
-            if (updatingProviderSelection || sending.get()) {
-                return@addActionListener
-            }
-            val selected = providerSelector.selectedItem as? AgentProviderState ?: return@addActionListener
-            updateCurrentProvider(selected)
-        }
-        refreshProviderSelector(null)
-    }
-
-    private fun setupSystemPromptSelector() {
-        systemPromptSelector.maximumRowCount = 8
-        systemPromptSelector.isEditable = false
-        configureComboBox(systemPromptSelector, TOP_SYSTEM_PROMPT_WIDTH, {
-            (it as? SystemPromptOption)?.label ?: it?.toString().orEmpty()
-        })
-        systemPromptSelector.addActionListener {
-            if (updatingSystemPromptSelection || sending.get()) {
-                return@addActionListener
-            }
-            val selected = systemPromptSelector.selectedItem as? SystemPromptOption ?: return@addActionListener
-            updateCurrentSystemPrompt(selected.id)
-        }
-        refreshSystemPromptSelector(null)
-    }
-
-    private fun setupModelSelector() {
-        modelSelector.isEditable = true
-        configureComboBox(modelSelector, comboFixedWidth, { it?.toString().orEmpty() }, ellipsizeEditor = true)
-        modelSelector.addPopupMenuListener(object : PopupMenuListener {
-            override fun popupMenuWillBecomeVisible(e: PopupMenuEvent?) {
-                refreshModelSelector(resolveSelectedModel())
-            }
-
-            override fun popupMenuWillBecomeInvisible(e: PopupMenuEvent?) {}
-
-            override fun popupMenuCanceled(e: PopupMenuEvent?) {}
-        })
-        refreshModelSelector(resolveDefaultModel(resolveSelectedProvider()))
-        modelSelector.addItemListener { event ->
-            if (updatingModelSelection || event.stateChange != ItemEvent.SELECTED) {
-                return@addItemListener
-            }
-            updateCurrentModel(resolveSelectedModel())
-        }
-        modelSelector.addActionListener {
-            if (updatingModelSelection) {
-                return@addActionListener
-            }
-            updateCurrentModel(resolveSelectedModel())
-        }
-    }
-
-    private fun setupConversationModeSelector() {
-        conversationModeSelector.maximumRowCount = 4
-        conversationModeSelector.isEditable = false
-        conversationModeSelector.isVisible = AgentConversationModeSupport.selectorVisible()
-        configureComboBox(conversationModeSelector, comboFixedWidth, {
-            (it as? AgentConversationMode)?.displayName ?: it?.toString().orEmpty()
-        })
-        refreshConversationModeSelector(AgentConversationMode.CHAT.id)
-        conversationModeSelector.addActionListener {
-            if (updatingConversationModeSelection || sending.get()) {
-                return@addActionListener
-            }
-            val selected = conversationModeSelector.selectedItem as? AgentConversationMode ?: return@addActionListener
-            updateConversationMode(selected)
-        }
-    }
-
-    private fun setupPermissionScopeSelector() {
-        permissionScopeSelector.maximumRowCount = AgentToolPermissionScope.entries.size
-        permissionScopeSelector.isEditable = false
-        configureComboBox(
-            permissionScopeSelector,
-            TOP_PERMISSION_WIDTH,
-            { (it as? AgentToolPermissionScope)?.displayName ?: it?.toString().orEmpty() },
-            tooltipProvider = { (it as? AgentToolPermissionScope)?.tooltip ?: it?.toString().orEmpty() }
-        )
-        refreshPermissionScopeSelector(currentSession?.state?.runtime?.permissionScope)
-        permissionScopeSelector.addActionListener {
-            if (updatingPermissionScopeSelection || sending.get()) {
-                return@addActionListener
-            }
-            val selected = permissionScopeSelector.selectedItem as? AgentToolPermissionScope ?: return@addActionListener
-            updateCurrentPermissionScope(selected)
-        }
-    }
-
-    private fun setupApprovalPolicySelector() {
-        approvalPolicySelector.maximumRowCount = AgentToolApprovalPolicy.entries.size
-        approvalPolicySelector.isEditable = false
-        configureComboBox(
-            approvalPolicySelector,
-            TOP_APPROVAL_WIDTH,
-            { (it as? AgentToolApprovalPolicy)?.displayName ?: it?.toString().orEmpty() },
-            tooltipProvider = { (it as? AgentToolApprovalPolicy)?.tooltip ?: it?.toString().orEmpty() }
-        )
-        refreshApprovalPolicySelector(currentSession?.state?.runtime?.approvalPolicy)
-        approvalPolicySelector.addActionListener {
-            if (updatingApprovalPolicySelection || sending.get()) {
-                return@addActionListener
-            }
-            val selected = approvalPolicySelector.selectedItem as? AgentToolApprovalPolicy ?: return@addActionListener
-            updateCurrentApprovalPolicy(selected)
-        }
-    }
-
-
-    private fun configureComboBox(
-        comboBox: ComboBox<*>,
-        fixedWidth: Int,
-        textProvider: (Any?) -> String,
-        tooltipProvider: (Any?) -> String = textProvider,
-        ellipsizeEditor: Boolean = false
-    ) {
-        applyFixedWidth(comboBox, fixedWidth)
-        comboBox.renderer = createEllipsisRenderer(comboBox, textProvider, tooltipProvider)
-        if (ellipsizeEditor) {
-            comboBox.editor = EllipsisComboBoxEditor(comboBox, textProvider)
-        }
-    }
-
-    private fun applyFixedWidth(comboBox: ComboBox<*>, fixedWidth: Int) {
-        val height = comboBox.preferredSize.height
-        val size = Dimension(fixedWidth, height)
-        comboBox.preferredSize = size
-        comboBox.minimumSize = size
-        comboBox.maximumSize = size
-    }
-
-    private fun createEllipsisRenderer(
-        comboBox: ComboBox<*>,
-        textProvider: (Any?) -> String,
-        tooltipProvider: (Any?) -> String = textProvider,
-    ): DefaultListCellRenderer {
-        return object : DefaultListCellRenderer() {
-            override fun getListCellRendererComponent(
-                list: JList<*>?,
-                value: Any?,
-                index: Int,
-                isSelected: Boolean,
-                cellHasFocus: Boolean
-            ): Component {
-                val fullText = textProvider(value)
-                val displayText = if (index < 0) {
-                    val metrics = getFontMetrics(font ?: comboBox.font)
-                    ellipsizeText(fullText, metrics, comboDisplayWidth(comboBox))
-                } else {
-                    fullText
-                }
-                val label = super.getListCellRendererComponent(
-                    list,
-                    displayText,
-                    index,
-                    isSelected,
-                    cellHasFocus
-                ) as JLabel
-                label.toolTipText = tooltipProvider(value).takeIf { it.isNotBlank() }
-                return label
-            }
-        }
-    }
-
-    private fun createOptionRenderer(labelProvider: (Any?) -> String): DefaultListCellRenderer {
-        return object : DefaultListCellRenderer() {
-            override fun getListCellRendererComponent(
-                list: JList<*>?,
-                value: Any?,
-                index: Int,
-                isSelected: Boolean,
-                cellHasFocus: Boolean
-            ): Component {
-                val label = labelProvider(value)
-                return super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus)
-            }
-        }
-    }
-
-    private fun comboDisplayWidth(comboBox: ComboBox<*>): Int {
-        val rawWidth = if (comboBox.width > 0) comboBox.width else comboBox.preferredSize.width
-        return maxOf(0, rawWidth - JBUI.scale(32))
-    }
-
-    private fun ellipsizeText(text: String, metrics: FontMetrics, maxWidth: Int): String {
-        if (text.isBlank()) {
-            return text
-        }
-        if (metrics.stringWidth(text) <= maxWidth) {
-            return text
-        }
-        val ellipsis = "..."
-        val ellipsisWidth = metrics.stringWidth(ellipsis)
-        if (maxWidth <= ellipsisWidth) {
-            return ellipsis
-        }
-        var low = 0
-        var high = text.length
-        while (low < high) {
-            val mid = (low + high) / 2
-            val width = metrics.stringWidth(text.substring(0, mid)) + ellipsisWidth
-            if (width <= maxWidth) {
-                low = mid + 1
-            } else {
-                high = mid
-            }
-        }
-        val end = maxOf(0, low - 1)
-        return text.substring(0, end) + ellipsis
-    }
-
-    private inner class EllipsisComboBoxEditor(
-        private val comboBox: ComboBox<*>,
-        private val textProvider: (Any?) -> String
-    ) : ComboBoxEditor {
-        private val textField = JBTextField()
-        private var currentItem: Any? = null
-
-        init {
-            textField.border = JBUI.Borders.empty(0, 4)
-            textField.addFocusListener(object : FocusAdapter() {
-                override fun focusGained(e: FocusEvent) {
-                    textField.text = textProvider(currentItem)
-                    textField.selectAll()
-                }
-
-                override fun focusLost(e: FocusEvent) {
-                    currentItem = textField.text
-                    updateDisplay()
-                }
-            })
-        }
-
-        override fun getEditorComponent(): Component = textField
-
-        override fun setItem(anObject: Any?) {
-            currentItem = anObject
-            updateDisplay()
-        }
-
-        override fun getItem(): Any? {
-            if (textField.hasFocus()) {
-                currentItem = textField.text
-            }
-            return currentItem?.toString().orEmpty()
-        }
-
-        override fun selectAll() {
-            textField.selectAll()
-        }
-
-        override fun addActionListener(l: ActionListener) {
-            textField.addActionListener(l)
-        }
-
-        override fun removeActionListener(l: ActionListener) {
-            textField.removeActionListener(l)
-        }
-
-        private fun updateDisplay() {
-            val fullText = textProvider(currentItem)
-            textField.toolTipText = fullText.takeIf { it.isNotBlank() }
-            textField.text = if (textField.hasFocus()) {
-                fullText
-            } else {
-                ellipsizeText(fullText, textField.getFontMetrics(textField.font), comboDisplayWidth(comboBox))
-            }
-        }
-    }
-
-    private fun createAction(
-        description: String,
-        icon: javax.swing.Icon,
-        enabledProvider: (() -> Boolean)? = null,
-        action: () -> Unit
-    ): AnAction {
-        return object : AnAction({ description }, AgentToolbarIconSupport.normalize(icon)) {
-            override fun actionPerformed(e: AnActionEvent) {
-                action()
-            }
-
-            override fun update(e: AnActionEvent) {
-                val enabled = (enabledProvider?.invoke() ?: true) && isActionEnabled(this)
-                e.presentation.isEnabled = enabled
-            }
-        }
-    }
-
-    private fun setActionEnabled(action: AnAction, enabled: Boolean) {
-        actionEnabledState[action] = enabled
-    }
-
-    private fun isActionEnabled(action: AnAction): Boolean {
-        return actionEnabledState[action] != false
-    }
-
-    private fun updateToolbars() {
-        actionToolbars.forEach { it.updateActionsAsync() }
-    }
-
-    private fun createToolbar(
-        id: String,
-        group: DefaultActionGroup,
-        horizontal: Boolean,
-        target: JComponent
-    ): JComponent {
-        val toolbar = ActionManager.getInstance().createActionToolbar(id, group, horizontal)
-        toolbar.targetComponent = target
-        toolbar.setMinimumButtonSize(AgentToolbarIconSupport.minimumButtonSize)
-        actionToolbars.add(toolbar)
-        return toolbar.component
-    }
-
-    private fun resolveSelectedModel(): String {
-        val selected = modelSelector.selectedItem?.toString()?.trim().orEmpty()
-        if (selected.isNotEmpty()) {
-            return selected
-        }
-        return modelSelector.editor.item?.toString()?.trim().orEmpty()
-    }
-
-    private fun resolveModelForSettings(provider: AgentProviderState?): String {
-        val selected = resolveSelectedModel().trim()
-        if (selected.isNotBlank()) {
-            return selected
-        }
-        val active = provider?.activeModel?.trim().orEmpty()
-        if (active.isNotBlank()) {
-            return active
-        }
-        return currentSession?.model?.trim().orEmpty()
-    }
-
-    private fun initSessions() {
-        val stored = resolveStoredSessions()
-        if (stored.isNotEmpty()) {
-            stored.forEach { state ->
-                sessionModel.addElement(toSession(state))
-            }
-            val activeId = resolveActiveSessionId(stored)
-            val active = (0 until sessionModel.size)
-                .map { sessionModel.getElementAt(it) }
-                .firstOrNull { it.id == activeId }
-                ?: sessionModel.getElementAt(0)
-            switchSession(active)
-        } else {
-            val session = createSession()
-            switchSession(session)
-        }
-    }
-
-    private fun createSession(): ChatSession {
-        val modelName = modelSelector.editor.item?.toString()?.trim().orEmpty()
-        val resolvedProvider = resolveSelectedProvider()
-        val resolvedModel = modelName.ifBlank { resolveDefaultModel(resolvedProvider) }
-        if (resolvedProvider != null && resolvedModel.isNotBlank()) {
-            resolvedProvider.activeModel = resolvedModel
-            ensureModelExists(resolvedProvider, resolvedModel)
-        }
-        val state = AgentSessionState().apply {
-            id = UUID.randomUUID().toString()
-            projectKey = this@AgentChatPanel.projectKey
-            providerId = resolvedProvider?.id.orEmpty()
-            systemPromptId = ""
-            title = "新会话"
-            autoTitle = true
-            model = resolvedModel
-            conversationMode = AgentConversationMode.CHAT.id
-            enabledSkillIds = project.pluginState().agentSkills
-                .filter { it.enabledByDefault }
-                .map { it.id }
-                .toMutableList()
-        }
-        val session = toSession(state)
-        resetMessages(session)
-        project.pluginState().agentSessions.add(state)
-        sessionModel.addElement(session)
-        return session
-    }
-
-    private fun toSession(state: AgentSessionState): ChatSession {
-        if (state.id.isBlank()) {
-            state.id = UUID.randomUUID().toString()
-        }
-        if (state.projectKey.isBlank()) {
-            state.projectKey = projectKey
-        }
-        val prompts = ensureSystemPromptList()
-        state.systemPromptId = AgentSystemPromptSupport.normalizeSelectedPromptId(state.systemPromptId, prompts)
-        AgentSystemPromptSupport.syncSessionSystemPrompt(state, prompts)
-        val availableSkillIds = project.pluginState().agentSkills.map { it.id }.toSet()
-        state.enabledSkillIds = state.enabledSkillIds
-            .filter { it in availableSkillIds }
-            .distinct()
-            .toMutableList()
-        val resolvedProvider = resolveProviderForSession(state)
-        val resolvedModel = state.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
-        state.model = resolvedModel
-        if (resolvedProvider != null && resolvedModel.isNotBlank()) {
-            resolvedProvider.activeModel = resolvedModel
-            ensureModelExists(resolvedProvider, resolvedModel)
-        }
-        val messages = mutableListOf<JsonObject>()
-        state.messages.forEach { raw ->
-            try {
-                messages.add(JsonParser.parseString(raw).asJsonObject)
-            } catch (_: Throwable) {
-                // ignore malformed persisted message
-            }
-        }
-        val renders = state.renders.map { renderState ->
-            RenderItem(
-                role = renderState.role,
-                content = renderState.content,
-                collapsible = renderState.collapsible,
-                collapsedByDefault = renderState.collapsedByDefault,
-                attachments = renderState.attachments.toMutableList(),
-                state = renderState
-            )
-        }.toMutableList()
-        return ChatSession(
-            id = state.id,
-            title = state.title.ifBlank { "新会话" },
-            autoTitle = state.autoTitle,
-            model = resolvedModel,
-            providerId = resolvedProvider?.id.orEmpty(),
-            messages = messages,
-            renders = renders,
-            state = state
-        )
-    }
-
-    private fun switchSession(session: ChatSession) {
-        currentSession = session
-        setActiveSessionId(session.id)
-        syncSessionSystemPrompt(session)
-        updatingSessionSelection = true
-        sessionSelector.selectedItem = session
-        updatingSessionSelection = false
-        val resolvedProvider = resolveProviderForSession(session.state)
-        session.providerId = resolvedProvider?.id.orEmpty()
-        refreshProviderSelector(session.providerId)
-        refreshSystemPromptSelector(session.state.systemPromptId)
-        val resolvedModel = session.model.trim().ifBlank { resolveDefaultModel(resolvedProvider) }
-        session.model = resolvedModel
-        session.state.model = resolvedModel
-        if (resolvedProvider != null && resolvedModel.isNotBlank()) {
-            resolvedProvider.activeModel = resolvedModel
-            ensureModelExists(resolvedProvider, resolvedModel)
-        }
-        refreshModelSelector(resolvedModel)
-        refreshConversationModeSelector(session.state.conversationMode)
-        refreshPermissionScopeSelector(session.state.runtime.permissionScope)
-        refreshApprovalPolicySelector(session.state.runtime.approvalPolicy)
-        renderSession(session)
-        refreshAttachmentDrafts()
-        updateStatus()
-        updateTokenUsageLabel()
-    }
-
-    private fun renderSession(session: ChatSession) {
-        messageContainer.removeAll()
-        messageContainer.revalidate()
-        messageContainer.repaint()
-        clearStreamingRequestState()
-        session.renders.forEach { item ->
-            appendRenderedItem(item)
-        }
-        scrollToBottom()
-    }
-
-    private fun appendRenderedItem(item: RenderItem) {
-        if (item.role == "工具") {
-            appendRenderedToolItem(item)
-            return
-        }
-        val color = if (item.role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
-        val block = createMessageBlock(item.role, color, item.collapsible, item.collapsedByDefault, item)
-        setBlockContent(block, item.content)
-        addMessageBlock(block)
-    }
-
-    private fun appendRenderedToolItem(item: RenderItem) {
-        val block = createToolListBlock(item)
-        val toolEntries = item.state?.toolEntries
-            ?.takeIf { it.isNotEmpty() }
-            ?: item.content.takeIf { it.isNotBlank() }?.let { legacyContent ->
-                mutableListOf(
-                    AgentToolRenderEntryState().apply {
-                        id = "legacy-tool-log"
-                        index = 0
-                        name = "工具日志"
-                        startedAt = 0L
-                        status = "已完成"
-                        result = legacyContent
-                    }
-                )
-            }
-            ?: emptyList()
-        toolEntries.sortedBy { it.index }.forEach { entryState ->
-            val entryCard = createToolEntryCard(entryState)
-            block.entriesById[entryState.id] = entryCard
-            block.listPanel.add(entryCard.panel)
-        }
-        updateToolBlockSummary(block)
-        block.listPanel.revalidate()
-        block.listPanel.repaint()
-        addBlockComponent(block.panel)
-    }
-
-    private fun addRenderItem(item: RenderItem, before: RenderItem? = null) {
-        val session = currentSession ?: return
-        val stateItem = item.state ?: AgentRenderState().apply {
-            role = item.role
-            content = item.content
-            collapsible = item.collapsible
-            collapsedByDefault = item.collapsedByDefault
-            attachments = item.attachments.toMutableList()
-        }.also { item.state = it }
-        stateItem.attachments = item.attachments.toMutableList()
-        if (before != null) {
-            val index = session.renders.indexOf(before)
-            if (index >= 0) {
-                session.renders.add(index, item)
-                session.state.renders.add(index, stateItem)
+    private inner class PasteAttachmentAction(
+        private val onFiles: (List<File>) -> Unit,
+        private val onImage: (Image) -> Unit,
+        private val onTextFallback: (String) -> Unit,
+    ) : AnAction() {
+        override fun actionPerformed(e: AnActionEvent) {
+            val systemClipboard = systemClipboardContents()
+            if (systemClipboard != null && handleClipboardTransferable(systemClipboard, preferPlainText = true)) {
                 return
             }
+            val ideClipboard = CopyPasteManager.getInstance().contents
+            if (ideClipboard != null && handleClipboardTransferable(ideClipboard, preferPlainText = false)) {
+                return
+            }
+            onTextFallback("")
         }
-        session.renders.add(item)
-        session.state.renders.add(stateItem)
+
+        private fun handleClipboardTransferable(transferable: Transferable, preferPlainText: Boolean): Boolean {
+            val text = clipboardText(transferable)
+            if (preferPlainText && text.isNotEmpty() && AgentAttachmentClipboardSupport.parseFiles(text).isEmpty()) {
+                onTextFallback(text)
+                return true
+            }
+            val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
+            if (files.isNotEmpty()) {
+                onFiles(files)
+                return true
+            }
+            clipboardImage(transferable)?.let {
+                onImage(it)
+                return true
+            }
+            if (text.isNotEmpty()) {
+                onTextFallback(text)
+                return true
+            }
+            return false
+        }
     }
 
-    private fun syncSessionMessages(session: ChatSession) {
-        session.state.messages.clear()
-        session.messages.forEach { message ->
-            session.state.messages.add(message.toString())
+    private fun canImportAttachment(transferable: Transferable): Boolean =
+        AgentAttachmentClipboardSupport.extractFiles(transferable).isNotEmpty() ||
+            transferable.isDataFlavorSupported(DataFlavor.imageFlavor)
+
+    private fun importAttachmentTransferable(transferable: Transferable): Boolean {
+        val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
+        if (files.isNotEmpty()) {
+            addAttachmentFiles(files)
+            return true
         }
+        imageFromTransferable(transferable)?.let {
+            addAttachment(it)
+            return true
+        }
+        return false
     }
 
-    private fun syncSessionSystemPrompt(session: ChatSession) {
-        val prompts = ensureSystemPromptList()
-        session.state.systemPromptId = AgentSystemPromptSupport.normalizeSelectedPromptId(session.state.systemPromptId, prompts)
-        AgentSystemPromptSupport.syncSessionSystemPrompt(session.state, prompts)
-        AgentSystemPromptSupport.syncSystemPromptJson(
-            session.messages,
-            AgentSystemPromptSupport.resolvePromptContent(prompts, session.state.systemPromptId)
+    private fun systemClipboardContents(): Transferable? =
+        runCatching { Toolkit.getDefaultToolkit().systemClipboard.getContents(null) }.getOrNull()
+
+    /** 剪贴板图片转成临时 PNG 文件附件。 */
+    private fun imageFromTransferable(transferable: Transferable): AgentAttachmentState? {
+        val image = clipboardImage(transferable) ?: return null
+        val tempFile = imageToTempFile(image) ?: return null
+        return AgentAttachmentSupport.normalize(
+            AgentAttachmentState(
+                name = tempFile.name,
+                path = tempFile.absolutePath,
+                mimeType = "image/png",
+                size = tempFile.length(),
+                kind = AgentAttachmentKind.IMAGE.id,
+            )
         )
-        syncSessionMessages(session)
     }
 
-    private fun updateCurrentModel(model: String) {
-        val session = currentSession ?: return
-        val provider = resolveSelectedProvider()
-        val resolved = model.trim()
-        if (resolved.isBlank()) {
-            refreshModelSelector(session.model)
+    private fun clipboardImage(transferable: Transferable): Image? {
+        if (!transferable.isDataFlavorSupported(DataFlavor.imageFlavor)) return null
+        return runCatching { transferable.getTransferData(DataFlavor.imageFlavor) as? Image }.getOrNull()
+    }
+
+    private fun clipboardText(transferable: Transferable): String {
+        if (transferable.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+            return runCatching { transferable.getTransferData(DataFlavor.stringFlavor)?.toString().orEmpty() }.getOrDefault("")
+        }
+        transferable.transferDataFlavors.forEach { flavor ->
+            if (flavor.isFlavorTextType) {
+                val text = runCatching {
+                    when (val data = transferable.getTransferData(flavor)) {
+                        is java.io.Reader -> data.readText()
+                        is java.io.InputStream -> data.bufferedReader().readText()
+                        else -> data?.toString().orEmpty()
+                    }
+                }.getOrDefault("")
+                if (text.isNotEmpty()) return text
+            }
+        }
+        return ""
+    }
+
+    private fun imageToTempFile(image: Image): File? {
+        val buffered = runCatching { toBufferedImage(image) }.getOrNull() ?: return null
+        val tempFile = kotlin.io.path.createTempFile("jtools-agent-paste-", ".png").toFile()
+        return if (runCatching { ImageIO.write(buffered, "png", tempFile) }.getOrDefault(false)) tempFile else null
+    }
+
+    private fun toBufferedImage(image: Image): BufferedImage {
+        if (image is BufferedImage) return image
+        val width = image.getWidth(null).coerceAtLeast(1)
+        val height = image.getHeight(null).coerceAtLeast(1)
+        val buffered = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        val g = buffered.createGraphics()
+        g.drawImage(image, 0, 0, null)
+        g.dispose()
+        return buffered
+    }
+
+    private fun addAttachmentFiles(files: List<File>) {
+        val added = files
+            .filter { it.isFile }
+            .map {
+                AgentAttachmentSupport.normalize(
+                    AgentAttachmentState(name = it.name, path = it.absolutePath, size = it.length())
+                )
+            }
+        if (added.isEmpty()) return
+        added.forEach(::addAttachment)
+    }
+
+    private fun addAttachment(attachment: AgentAttachmentState) {
+        draftAttachments.removeAll { it.path.isNotBlank() && it.path == attachment.path }
+        draftAttachments.add(attachment)
+        refreshDraftAttachmentStrip()
+    }
+
+    private fun removeDraftAttachment(attachment: AgentAttachmentState) {
+        draftAttachments.removeAll { it.id == attachment.id }
+        refreshDraftAttachmentStrip()
+    }
+
+    private fun clearDraftAttachments() {
+        draftAttachments.clear()
+        refreshDraftAttachmentStrip()
+    }
+
+    private fun refreshDraftAttachmentStrip() {
+        draftAttachmentStrip.removeAll()
+        draftAttachments.forEach { attachment ->
+            draftAttachmentStrip.add(
+                AgentAttachmentChipUi.createDraftChip(
+                    attachment = attachment,
+                    onOpen = { openAttachment(attachment) },
+                    onRemove = { removeDraftAttachment(attachment) },
+                )
+            )
+            draftAttachmentStrip.add(Box.createHorizontalStrut(JBUI.scale(6)))
+        }
+        draftAttachmentPanel.isVisible = draftAttachments.isNotEmpty()
+        draftAttachmentStrip.revalidate()
+        draftAttachmentStrip.repaint()
+        draftAttachmentPanel.revalidate()
+        draftAttachmentPanel.repaint()
+        draftAttachmentPanel.parent?.revalidate()
+        draftAttachmentPanel.parent?.repaint()
+        syncBrowserState()
+    }
+
+    // -------- 发送与运行 --------
+
+    private fun ensureCurrentSessionForSend(): ChatSessionRecord {
+        currentSessionId?.let(ChatSessionService::sessionById)?.let { return it }
+        val agentId = (agentSelector.selectedItem as? AgentRecord)?.id
+            ?: AgentService.listAgents().firstOrNull { it.enabled }?.id
+        val record = ChatSessionService.createSession(AUTO_TITLE, agentId)
+        currentSessionId = record.id
+        refreshSessionSelector(ChatSessionService.listSessions())
+        switchSession(record.id)
+        return record
+    }
+
+    private fun sendMessage() {
+        val record = ensureCurrentSessionForSend()
+        val agent = resolveSessionAgent(record) ?: return
+        val prompt = inputArea.text.trim()
+        val attachments = draftAttachments.toList()
+        if (prompt.isEmpty() && attachments.isEmpty()) return
+
+        val item = ChatQueueItem(
+            messageId = UUID.randomUUID().toString(),
+            sessionId = record.id,
+            agentId = agent.id ?: return,
+            prompt = prompt,
+            order = queueOrder.incrementAndGet(),
+            attachments = attachments,
+        )
+        synchronized(queueLock) { chatQueue.add(item) }
+        inputArea.text = ""
+        clearDraftAttachments()
+        maybeAutoRenameSession(record, prompt)
+        refreshQueuePanel()
+        processQueue()
+    }
+
+    private fun processQueue() {
+        val items = nextRunnableQueueItems()
+        items.forEach { item ->
+            onUi { startQueueItemUi(item) }
+            ApplicationManager.getApplication().executeOnPooledThread { runQueueItem(item) }
+        }
+    }
+
+    private fun nextRunnableQueueItems(): List<ChatQueueItem> = synchronized(queueLock) {
+        val processingSessionIds = chatQueue
+            .asSequence()
+            .filter { it.status == ChatQueueStatus.PROCESSING }
+            .map { it.sessionId }
+            .toMutableSet()
+        chatQueue
+            .filter { it.status == ChatQueueStatus.PENDING && processingSessionIds.add(it.sessionId) }
+            .onEach { it.status = ChatQueueStatus.PROCESSING }
+    }
+
+    private fun runQueueItem(item: ChatQueueItem) {
+        val record = ChatSessionService.sessionById(item.sessionId)
+        val agent = AgentService.agentById(item.agentId)
+        if (record == null || agent == null || !agent.enabled) {
+            finishQueueItemError(item, "队列任务关联的会话或 Agent 已不存在")
             return
         }
-        session.model = resolved
-        session.state.model = resolved
-        if (provider != null) {
-            provider.activeModel = resolved
-            ensureModelExists(provider, resolved)
-        }
-        refreshModelSelector(resolved)
-        refreshConversationModeSelector(session.state.conversationMode)
-        refreshAttachmentDrafts()
-        updateStatus()
-        updateModelSettingsAction()
-    }
-
-    private fun updateCurrentProvider(provider: AgentProviderState) {
-        val session = currentSession ?: return
-        session.providerId = provider.id
-        session.state.providerId = provider.id
-        project.pluginState().agentActiveProviderId = provider.id
-        val resolvedModel = provider.activeModel.trim().ifBlank { resolveDefaultModel(provider) }
-        if (resolvedModel.isNotBlank()) {
-            provider.activeModel = resolvedModel
-            ensureModelExists(provider, resolvedModel)
-        }
-        session.model = resolvedModel
-        session.state.model = resolvedModel
-        refreshModelSelector(resolvedModel)
-        refreshConversationModeSelector(session.state.conversationMode)
-        refreshAttachmentDrafts()
-        updateStatus()
-        updateModelSettingsAction()
-    }
-
-    private fun updateConversationMode(mode: AgentConversationMode) {
-        val session = currentSession ?: return
-        session.state.conversationMode = mode.id
-        refreshConversationModeSelector(mode.id)
-        updateStatus()
-    }
-
-    private fun updateCurrentPermissionScope(scope: AgentToolPermissionScope) {
-        val session = currentSession ?: return
-        session.state.runtime.permissionScope = scope.id
-        refreshPermissionScopeSelector(scope.id)
-        client.clearSession(session.id)
-        updateStatus()
-    }
-
-    private fun updateCurrentApprovalPolicy(policy: AgentToolApprovalPolicy) {
-        val session = currentSession ?: return
-        session.state.runtime.approvalPolicy = policy.id
-        refreshApprovalPolicySelector(policy.id)
-        client.clearSession(session.id)
-        updateStatus()
-    }
-
-    private fun updateModelSettingsAction() {
-        val provider = resolveSelectedProvider()
-        val model = resolveModelForSettings(provider)
-        setActionEnabled(modelSettingsAction, !sending.get() && provider != null && model.isNotBlank())
-        updateToolbars()
-    }
-
-    private fun openModelSettingsDialog() {
-        val provider = resolveSelectedProvider()
-        if (provider == null) {
-            project.errorNotify("模型扩展设置", "请先选择供应方")
-            return
-        }
-        val model = resolveModelForSettings(provider)
-        if (model.isBlank()) {
-            project.errorNotify("模型扩展设置", "请先选择模型")
-            return
-        }
-        when (AgentProviderType.fromId(provider.type)) {
-            AgentProviderType.OPENAI -> openOpenAiModelSettingsDialog(provider, model)
-            AgentProviderType.ANTHROPIC -> openAnthropicModelSettingsDialog(provider, model)
-        }
-    }
-
-    private fun openOpenAiModelSettingsDialog(provider: AgentProviderState, model: String) {
-        val settings = AgentProviderSupport.findModelSettings(provider, model)
-        val streamingCheck = JCheckBox("启用流式输出").apply { isSelected = settings?.streamingEnabled != false }
-        val capabilitySelection = createCapabilitySelection(
-            settings?.modelCapabilities.orEmpty(),
-            AgentModelCapabilityCatalog.multimodalOptions(),
-        )
-        val toolCallingCheck = JCheckBox("支持工具调用").apply {
-            isOpaque = false
-            val capabilities = settings?.modelCapabilities.orEmpty()
-            isSelected = capabilities.isEmpty() || capabilities.contains("tool_calling")
-        }
-        val effortOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("NONE", "none"),
-            ModelSettingOption("MINIMAL", "minimal"),
-            ModelSettingOption("LOW", "low"),
-            ModelSettingOption("MEDIUM", "medium"),
-            ModelSettingOption("HIGH", "high"),
-            ModelSettingOption("XHIGH", "xhigh"),
-        )
-        val responseFormatOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("TEXT", "text"),
-            ModelSettingOption("JSON_OBJECT", "json_object"),
-            ModelSettingOption("JSON_SCHEMA", "json_schema"),
-        )
-        val logprobsOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("启用", "true"),
-            ModelSettingOption("关闭", "false"),
-        )
-        val toolChoiceOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("AUTO", "auto"),
-            ModelSettingOption("NONE", "none"),
-            ModelSettingOption("REQUIRED", "required"),
-        )
-        val boolOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("启用", "true"),
-            ModelSettingOption("关闭", "false"),
-        )
-        val effortCombo = ComboBox(effortOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = effortOptions.firstOrNull {
-                it.value.equals(settings?.openAiReasoningEffort, ignoreCase = true)
-            } ?: effortOptions.first()
-        }
-        val temperatureField = JBTextField(settings?.openAiTemperature.orEmpty())
-        val topPField = JBTextField(settings?.openAiTopP.orEmpty())
-        val maxTokensField = JBTextField(settings?.openAiMaxTokens.orEmpty())
-        val maxCompletionTokensField = JBTextField(settings?.openAiMaxCompletionTokens.orEmpty())
-        val presencePenaltyField = JBTextField(settings?.openAiPresencePenalty.orEmpty())
-        val frequencyPenaltyField = JBTextField(settings?.openAiFrequencyPenalty.orEmpty())
-        val seedField = JBTextField(settings?.openAiSeed.orEmpty())
-        val stopArea = JBTextArea(3, 28).apply {
-            text = settings?.openAiStopSequences.orEmpty()
-            lineWrap = true
-            wrapStyleWord = true
-        }
-        val responseFormatCombo = ComboBox(responseFormatOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = responseFormatOptions.firstOrNull {
-                it.value.equals(settings?.openAiResponseFormat, ignoreCase = true)
-            } ?: responseFormatOptions.first()
-        }
-        val schemaNameField = JBTextField(settings?.openAiResponseFormatSchemaName.orEmpty())
-        val schemaDescField = JBTextField(settings?.openAiResponseFormatSchemaDescription.orEmpty())
-        val schemaStrictCheck =
-            JCheckBox("Strict").apply { isSelected = settings?.openAiResponseFormatSchemaStrict == true }
-        val schemaArea = JBTextArea(6, 28).apply {
-            text = settings?.openAiResponseFormatSchemaJson.orEmpty()
-            lineWrap = true
-            wrapStyleWord = true
-        }
-        val logprobsCombo = ComboBox(logprobsOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = logprobsOptions.firstOrNull {
-                it.value.equals(settings?.openAiLogprobs, ignoreCase = true)
-            } ?: logprobsOptions.first()
-        }
-        val topLogprobsField = JBTextField(settings?.openAiTopLogprobs.orEmpty())
-        val toolChoiceCombo = ComboBox(toolChoiceOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = toolChoiceOptions.firstOrNull {
-                it.value.equals(settings?.openAiToolChoice, ignoreCase = true)
-            } ?: toolChoiceOptions.first()
-        }
-        val parallelToolCallsCombo = ComboBox(boolOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = boolOptions.firstOrNull {
-                it.value.equals(settings?.openAiParallelToolCalls, ignoreCase = true)
-            } ?: boolOptions.first()
-        }
-
-        fun updateSchemaState() {
-            val mode = (responseFormatCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-            val enabled = mode == "json_schema"
-            schemaNameField.isEnabled = enabled
-            schemaDescField.isEnabled = enabled
-            schemaStrictCheck.isEnabled = enabled
-            schemaArea.isEnabled = enabled
-        }
-
-        fun updateLogprobsState() {
-            val enabled = (logprobsCombo.selectedItem as? ModelSettingOption)?.value == "true"
-            topLogprobsField.isEnabled = enabled
-        }
-        responseFormatCombo.addItemListener { updateSchemaState() }
-        logprobsCombo.addItemListener { updateLogprobsState() }
-        updateSchemaState()
-        updateLogprobsState()
-
-        val capabilityCard = AgentFormUi.sectionCard(
-            "模型能力",
-            "这里配置附件能力、工具能力和流式输出。",
-            AgentFormUi.verticalStack(
-                AgentFormUi.twoColumnGrid(
-                    AgentFormUi.fieldTile("模型", JLabel(model), "当前正在配置的模型名称。"),
-                    AgentFormUi.fieldTile("流式输出", streamingCheck, "决定该模型是否支持流式返回内容。"),
-                ),
-                AgentFormUi.fieldTile(
-                    "多模态能力",
-                    capabilitySelection.panel,
-                    "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"
-                ),
-                AgentFormUi.fieldTile("工具调用", toolCallingCheck, "勾选后表示该模型支持工具调用。"),
-            )
-        )
-        val samplingCard = AgentFormUi.sectionCard(
-            "采样与输出",
-            "控制回答风格、长度和随机性。",
-            AgentFormUi.verticalStack(
-                AgentFormUi.twoColumnGrid(
-                    AgentFormUi.fieldTile("思考强度", effortCombo, "控制模型在推理阶段投入的计算强度。"),
-                    AgentFormUi.fieldTile("温度", temperatureField, "控制输出随机性，值越高越发散。"),
-                    AgentFormUi.fieldTile("Top P", topPField, "控制核采样范围。"),
-                    AgentFormUi.fieldTile("最大输出 Tokens", maxTokensField, "限制模型本次回答的最大输出长度。"),
-                    AgentFormUi.fieldTile(
-                        "最大完成 Tokens",
-                        maxCompletionTokensField,
-                        "限制 completion 阶段的 token 上限。"
-                    ),
-                    AgentFormUi.fieldTile("随机种子", seedField, "在支持的模型上固定随机种子，便于复现。"),
-                    AgentFormUi.fieldTile("存在惩罚", presencePenaltyField, "降低重复主题出现的概率。"),
-                    AgentFormUi.fieldTile("频率惩罚", frequencyPenaltyField, "降低重复措辞出现的概率。"),
-                ),
-                AgentFormUi.fieldTile("停止序列", JBScrollPane(stopArea), "配置一个或多个停止输出的序列。"),
-            )
-        )
-        val structureCard = AgentFormUi.sectionCard(
-            "结构化输出",
-            "控制文本输出、JSON 对象和 Schema 输出。",
-            AgentFormUi.verticalStack(
-                AgentFormUi.twoColumnGrid(
-                    AgentFormUi.fieldTile("响应格式", responseFormatCombo, "控制模型输出文本或结构化 JSON。"),
-                    AgentFormUi.fieldTile("严格模式", schemaStrictCheck, "决定是否严格遵守 Schema。"),
-                    AgentFormUi.fieldTile("Schema 名称", schemaNameField, "JSON Schema 的名称。"),
-                    AgentFormUi.fieldTile("Schema 描述", schemaDescField, "JSON Schema 的中文说明。"),
-                ),
-                AgentFormUi.fieldTile("Schema JSON", JBScrollPane(schemaArea), "完整的 JSON Schema 对象。"),
-            )
-        )
-        val toolCard = AgentFormUi.sectionCard(
-            "工具与调试",
-            "控制工具调用策略和调试信息输出。",
-            AgentFormUi.twoColumnGrid(
-                AgentFormUi.fieldTile("工具调用策略", toolChoiceCombo, "控制模型自动、禁止或强制调用工具。"),
-                AgentFormUi.fieldTile("并行工具调用", parallelToolCallsCombo, "是否允许一次并行触发多个工具调用。"),
-                AgentFormUi.fieldTile("Logprobs", logprobsCombo, "是否返回输出 token 的概率信息。"),
-                AgentFormUi.fieldTile("Top Logprobs", topLogprobsField, "每个 token 返回的最高概率候选数量。"),
-            )
-        )
-        val panel = AgentFormUi.verticalStack(capabilityCard, samplingCard, structureCard, toolCard)
-
-        val dialog = object : DialogWrapper(project, false) {
-            init {
-                title = "模型扩展设置 - OpenAI"
-                init()
-            }
-
-            override fun createCenterPanel(): JComponent {
-                val scroll = JBScrollPane(panel)
-                scroll.preferredSize = Dimension(JBUI.scale(760), JBUI.scale(680))
-                return scroll
-            }
-
-            override fun doOKAction() {
-                fun requireNumber(field: JBTextField, label: String, integerOnly: Boolean = false): Boolean {
-                    val text = field.text.trim()
-                    if (text.isBlank()) {
-                        return true
-                    }
-                    val valid = if (integerOnly) text.toLongOrNull() != null else text.toDoubleOrNull() != null
-                    if (!valid) {
-                        Messages.showErrorDialog(project, "$label 必须是数字", "参数无效")
-                    }
-                    return valid
-                }
-                if (!requireNumber(temperatureField, "Temperature")) return
-                if (!requireNumber(topPField, "Top P")) return
-                if (!requireNumber(maxTokensField, "Max Tokens", integerOnly = true)) return
-                if (!requireNumber(maxCompletionTokensField, "Max Completion Tokens", integerOnly = true)) return
-                if (!requireNumber(presencePenaltyField, "Presence Penalty")) return
-                if (!requireNumber(frequencyPenaltyField, "Frequency Penalty")) return
-                if (!requireNumber(seedField, "Seed", integerOnly = true)) return
-                val responseMode = (responseFormatCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                val logprobsValue = (logprobsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                if (logprobsValue == "true" && !requireNumber(
-                        topLogprobsField,
-                        "Top Logprobs",
-                        integerOnly = true
-                    )
-                ) return
-                if (responseMode == "json_schema") {
-                    if (schemaArea.text.trim().isEmpty()) {
-                        Messages.showErrorDialog(project, "Schema JSON 不能为空", "参数无效")
-                        return
-                    }
-                    try {
-                        JsonParser.parseString(schemaArea.text.trim()).asJsonObject
-                    } catch (_: Throwable) {
-                        Messages.showErrorDialog(project, "Schema JSON 必须是有效的 JSON 对象", "参数无效")
-                        return
-                    }
-                }
-
-                val target = AgentProviderSupport.getOrCreateModelSettings(provider, model)
-                target.streamingEnabled = streamingCheck.isSelected
-                target.chatModeEnabled = true
-                target.responsesModeEnabled = false
-                target.modelCapabilities = selectedCapabilityIds(capabilitySelection).apply {
-                    if (toolCallingCheck.isSelected) add("tool_calling")
-                }
-                target.openAiReasoningEffort = (effortCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                target.openAiTemperature = temperatureField.text.trim()
-                target.openAiTopP = topPField.text.trim()
-                target.openAiMaxTokens = maxTokensField.text.trim()
-                target.openAiMaxCompletionTokens = maxCompletionTokensField.text.trim()
-                target.openAiPresencePenalty = presencePenaltyField.text.trim()
-                target.openAiFrequencyPenalty = frequencyPenaltyField.text.trim()
-                target.openAiSeed = seedField.text.trim()
-                target.openAiStopSequences = stopArea.text.trim()
-                target.openAiResponseFormat = responseMode
-                target.openAiResponseFormatSchemaName = schemaNameField.text.trim()
-                target.openAiResponseFormatSchemaDescription = schemaDescField.text.trim()
-                target.openAiResponseFormatSchemaStrict = schemaStrictCheck.isSelected
-                target.openAiResponseFormatSchemaJson = schemaArea.text.trim()
-                target.openAiLogprobs = logprobsValue
-                target.openAiTopLogprobs = topLogprobsField.text.trim()
-                target.openAiToolChoice = (toolChoiceCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                target.openAiParallelToolCalls =
-                    (parallelToolCallsCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                super.doOKAction()
-            }
-        }
-        if (dialog.showAndGet()) {
-            refreshConversationModeSelector(currentSession?.state?.conversationMode)
-            refreshAttachmentDrafts()
-            updateStatus()
-            updateToolbars()
-        }
-    }
-
-    private fun openAnthropicModelSettingsDialog(provider: AgentProviderState, model: String) {
-        val settings = AgentProviderSupport.findModelSettings(provider, model)
-        val streamingCheck = JCheckBox("启用流式输出").apply { isSelected = settings?.streamingEnabled != false }
-        val capabilitySelection = createCapabilitySelection(
-            settings?.modelCapabilities.orEmpty(),
-            AgentModelCapabilityCatalog.multimodalOptions(),
-        )
-        val toolCallingCheck = JCheckBox("支持工具调用").apply {
-            isOpaque = false
-            val capabilities = settings?.modelCapabilities.orEmpty()
-            isSelected = capabilities.isEmpty() || capabilities.contains("tool_calling")
-        }
-        val thinkingOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("启用", "enabled"),
-            ModelSettingOption("自适应", "adaptive"),
-            ModelSettingOption("禁用", "disabled"),
-        )
-        val serviceTierOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("AUTO", "auto"),
-            ModelSettingOption("STANDARD_ONLY", "standard_only"),
-        )
-        val outputEffortOptions = listOf(
-            ModelSettingOption("默认 (不设置)", ""),
-            ModelSettingOption("LOW", "low"),
-            ModelSettingOption("MEDIUM", "medium"),
-            ModelSettingOption("HIGH", "high"),
-            ModelSettingOption("MAX", "max"),
-        )
-        val thinkingCombo = ComboBox(thinkingOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = thinkingOptions.firstOrNull {
-                it.value.equals(settings?.anthropicThinkingMode, ignoreCase = true)
-            } ?: thinkingOptions.first()
-        }
-        val budgetField = JBTextField(settings?.anthropicThinkingBudgetTokens?.takeIf { it > 0 }?.toString().orEmpty())
-        val maxTokensField = JBTextField(settings?.anthropicMaxTokens.orEmpty())
-        val temperatureField = JBTextField(settings?.anthropicTemperature.orEmpty())
-        val topPField = JBTextField(settings?.anthropicTopP.orEmpty())
-        val topKField = JBTextField(settings?.anthropicTopK.orEmpty())
-        val stopArea = JBTextArea(3, 28).apply {
-            text = settings?.anthropicStopSequences.orEmpty()
-            lineWrap = true
-            wrapStyleWord = true
-        }
-        val serviceTierCombo = ComboBox(serviceTierOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = serviceTierOptions.firstOrNull {
-                it.value.equals(settings?.anthropicServiceTier, ignoreCase = true)
-            } ?: serviceTierOptions.first()
-        }
-        val inferenceGeoField = JBTextField(settings?.anthropicInferenceGeo.orEmpty())
-        val metadataUserIdField = JBTextField(settings?.anthropicMetadataUserId.orEmpty())
-        val outputEffortCombo = ComboBox(outputEffortOptions.toTypedArray()).apply {
-            renderer = createOptionRenderer { (it as? ModelSettingOption)?.label.orEmpty() }
-            selectedItem = outputEffortOptions.firstOrNull {
-                it.value.equals(settings?.anthropicOutputEffort, ignoreCase = true)
-            } ?: outputEffortOptions.first()
-        }
-        val outputSchemaArea = JBTextArea(6, 28).apply {
-            text = settings?.anthropicOutputSchemaJson.orEmpty()
-            lineWrap = true
-            wrapStyleWord = true
-        }
-
-        fun updateBudgetState() {
-            val enabled = (thinkingCombo.selectedItem as? ModelSettingOption)?.value == "enabled"
-            budgetField.isEnabled = enabled
-        }
-        thinkingCombo.addItemListener { updateBudgetState() }
-        updateBudgetState()
-
-        val capabilityCard = AgentFormUi.sectionCard(
-            "模型能力",
-            "这里配置附件能力、工具能力和流式输出。",
-            AgentFormUi.verticalStack(
-                AgentFormUi.twoColumnGrid(
-                    AgentFormUi.fieldTile("模型", JLabel(model), "当前正在配置的模型名称。"),
-                    AgentFormUi.fieldTile("流式输出", streamingCheck, "决定该模型是否支持流式返回内容。"),
-                ),
-                AgentFormUi.fieldTile(
-                    "多模态能力",
-                    capabilitySelection.panel,
-                    "选择这个模型支持的输入模态。聊天框附件按钮会根据这里动态显示。"
-                ),
-                AgentFormUi.fieldTile("工具调用", toolCallingCheck, "勾选后表示该模型支持工具调用。"),
-            )
-        )
-        val samplingCard = AgentFormUi.sectionCard(
-            "Thinking 与采样",
-            "控制 Anthropic 的 thinking 模式和采样参数。",
-            AgentFormUi.verticalStack(
-                AgentFormUi.twoColumnGrid(
-                    AgentFormUi.fieldTile("思考模式", thinkingCombo, "控制 Anthropic 模型的 thinking 行为。"),
-                    AgentFormUi.fieldTile("预算 Tokens", budgetField, "Thinking 模式启用时可消耗的 token 预算。"),
-                    AgentFormUi.fieldTile("最大输出 Tokens", maxTokensField, "限制模型本次回答的最大输出长度。"),
-                    AgentFormUi.fieldTile("温度", temperatureField, "控制输出随机性，值越高越发散。"),
-                    AgentFormUi.fieldTile("Top P", topPField, "控制核采样范围。"),
-                    AgentFormUi.fieldTile("Top K", topKField, "限制每步采样候选 token 数量。"),
-                    AgentFormUi.fieldTile("服务层级", serviceTierCombo, "控制 Anthropic 服务层级策略。"),
-                    AgentFormUi.fieldTile("输出强度", outputEffortCombo, "控制结构化输出阶段的努力级别。"),
-                ),
-                AgentFormUi.fieldTile("停止序列", JBScrollPane(stopArea), "配置一个或多个停止输出的序列。"),
-            )
-        )
-        val metadataCard = AgentFormUi.sectionCard(
-            "地域与结构化输出",
-            "配置地域、用户标识以及结构化输出。",
-            AgentFormUi.verticalStack(
-                AgentFormUi.twoColumnGrid(
-                    AgentFormUi.fieldTile("推理地域", inferenceGeoField, "指定推理地域或可用区域。"),
-                    AgentFormUi.fieldTile("用户标识", metadataUserIdField, "请求中附带的用户标识。"),
-                ),
-                AgentFormUi.fieldTile(
-                    "输出 Schema JSON",
-                    JBScrollPane(outputSchemaArea),
-                    "结构化输出使用的 JSON Schema 对象。"
-                ),
-            )
-        )
-        val panel = AgentFormUi.verticalStack(capabilityCard, samplingCard, metadataCard)
-
-        val dialog = object : DialogWrapper(project, false) {
-            init {
-                title = "模型扩展设置 - Anthropic"
-                init()
-            }
-
-            override fun createCenterPanel(): JComponent {
-                val scroll = JBScrollPane(panel)
-                scroll.preferredSize = Dimension(JBUI.scale(760), JBUI.scale(680))
-                return scroll
-            }
-
-            override fun doOKAction() {
-                fun requireNumber(field: JBTextField, label: String, integerOnly: Boolean = false): Boolean {
-                    val text = field.text.trim()
-                    if (text.isBlank()) {
-                        return true
-                    }
-                    val valid = if (integerOnly) text.toLongOrNull() != null else text.toDoubleOrNull() != null
-                    if (!valid) {
-                        Messages.showErrorDialog(project, "$label 必须是数字", "参数无效")
-                    }
-                    return valid
-                }
-                if (!requireNumber(maxTokensField, "Max Tokens", integerOnly = true)) return
-                if (!requireNumber(temperatureField, "Temperature")) return
-                if (!requireNumber(topPField, "Top P")) return
-                if (!requireNumber(topKField, "Top K", integerOnly = true)) return
-                val schemaText = outputSchemaArea.text.trim()
-                if (schemaText.isNotEmpty()) {
-                    try {
-                        JsonParser.parseString(schemaText).asJsonObject
-                    } catch (_: Throwable) {
-                        Messages.showErrorDialog(project, "Output Schema JSON 必须是有效的 JSON 对象", "参数无效")
-                        return
-                    }
-                }
-                val thinkingMode = (thinkingCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                val budgetText = budgetField.text.trim()
-                val budgetParsed = budgetText.toIntOrNull()
-                if (budgetText.isNotBlank() && budgetParsed == null) {
-                    Messages.showErrorDialog(project, "预算 Tokens 必须是数字", "参数无效")
-                    return
-                }
-                val budgetValue = budgetParsed ?: 0
-                if (thinkingMode == "enabled") {
-                    if (budgetValue <= 0) {
-                        Messages.showErrorDialog(project, "预算 Tokens 必须大于 0", "参数无效")
-                        return
-                    }
-                }
-                val target = AgentProviderSupport.getOrCreateModelSettings(provider, model)
-                target.streamingEnabled = streamingCheck.isSelected
-                target.chatModeEnabled = true
-                target.responsesModeEnabled = false
-                target.modelCapabilities = selectedCapabilityIds(capabilitySelection).apply {
-                    if (toolCallingCheck.isSelected) add("tool_calling")
-                }
-                target.anthropicThinkingMode = thinkingMode
-                target.anthropicThinkingBudgetTokens = if (thinkingMode == "enabled") budgetValue else 0
-                target.anthropicMaxTokens = maxTokensField.text.trim()
-                target.anthropicTemperature = temperatureField.text.trim()
-                target.anthropicTopP = topPField.text.trim()
-                target.anthropicTopK = topKField.text.trim()
-                target.anthropicStopSequences = stopArea.text.trim()
-                target.anthropicServiceTier = (serviceTierCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                target.anthropicInferenceGeo = inferenceGeoField.text.trim()
-                target.anthropicMetadataUserId = metadataUserIdField.text.trim()
-                target.anthropicOutputEffort = (outputEffortCombo.selectedItem as? ModelSettingOption)?.value.orEmpty()
-                target.anthropicOutputSchemaJson = outputSchemaArea.text.trim()
-                super.doOKAction()
-            }
-        }
-        if (dialog.showAndGet()) {
-            refreshConversationModeSelector(currentSession?.state?.conversationMode)
-            refreshAttachmentDrafts()
-            updateStatus()
-            updateToolbars()
-        }
-    }
-
-    private fun refreshModelSelector(selected: String?) {
-        updatingModelSelection = true
-        modelSelector.removeAllItems()
-        val provider = resolveSelectedProvider()
-        val candidate = selected?.trim().orEmpty()
-        if (provider == null) {
-            if (candidate.isNotBlank()) {
-                modelSelector.addItem(candidate)
-                modelSelector.selectedItem = candidate
-                modelSelector.editor.item = candidate
+        val history = buildHistory(record)
+        val result = try {
+            AgentRuntime.execute(buildQueueRequest(item, agent, record, history))
+        } catch (e: Throwable) {
+            if (!isQueueItemActive(item)) {
+                (e as? ModelRequestException)?.logId?.let { ModelLogService.deleteModelLog(it) }
+            } else if (item.token.isCancelled()) {
+                finishQueueItemCancelled(item, (e as? ModelRequestException)?.logId)
             } else {
-                modelSelector.selectedItem = ""
-                modelSelector.editor.item = ""
+                val logId = (e as? ModelRequestException)?.logId
+                finishQueueItemError(item, e.message ?: "调用失败", logId)
             }
-            updatingModelSelection = false
-            updateModelSettingsAction()
             return
         }
-        val models = ensureModelList(provider)
-        val active = provider.activeModel.trim()
-        if (active.isNotBlank() && !models.contains(active)) {
-            models.add(0, active)
-        }
-        if (candidate.isNotBlank() && !models.contains(candidate)) {
-            models.add(0, candidate)
-        }
-        val resolved = when {
-            candidate.isNotBlank() -> candidate
-            active.isNotBlank() -> active
-            currentSession?.model?.trim()?.isNotBlank() == true -> currentSession?.model?.trim().orEmpty()
-            models.isNotEmpty() -> models.first()
-            else -> ""
-        }
-        models.forEach { modelSelector.addItem(it) }
-        modelSelector.selectedItem = resolved
-        modelSelector.editor.item = resolved
-        updatingModelSelection = false
-        updateModelSettingsAction()
-
-    }
-
-    private fun refreshConversationModeSelector(selected: String?) {
-        updatingConversationModeSelection = true
-        conversationModeSelector.removeAllItems()
-        val provider = resolveSelectedProvider()
-        val model = currentSession?.model?.trim().orEmpty().ifBlank { resolveDefaultModel(provider) }
-        val settings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(
-            provider,
-            model
-        ) else null
-        val availableModes = AgentConversationModeSupport.availableModes(settings?.responsesModeEnabled == true)
-        availableModes.forEach { conversationModeSelector.addItem(it) }
-        val requested = AgentConversationMode.fromId(selected)
-        val resolved = availableModes.firstOrNull { it == requested } ?: availableModes.first()
-        conversationModeSelector.selectedItem = resolved
-        currentSession?.state?.conversationMode = resolved.id
-        updatingConversationModeSelection = false
-    }
-
-    private fun refreshPermissionScopeSelector(selected: String?) {
-        updatingPermissionScopeSelection = true
-        permissionScopeSelector.removeAllItems()
-        AgentToolPermissionScope.entries.forEach { permissionScopeSelector.addItem(it) }
-        val resolved = AgentToolPermissionScope.fromId(selected)
-        permissionScopeSelector.selectedItem = resolved
-        currentSession?.state?.runtime?.permissionScope = resolved.id
-        updatingPermissionScopeSelection = false
-    }
-
-    private fun refreshApprovalPolicySelector(selected: String?) {
-        updatingApprovalPolicySelection = true
-        approvalPolicySelector.removeAllItems()
-        AgentToolApprovalPolicy.entries.forEach { approvalPolicySelector.addItem(it) }
-        val resolved = AgentToolApprovalPolicy.fromId(selected)
-        approvalPolicySelector.selectedItem = resolved
-        currentSession?.state?.runtime?.approvalPolicy = resolved.id
-        updatingApprovalPolicySelection = false
-    }
-
-    private fun requestModelList(
-        provider: AgentProviderState,
-        showError: Boolean,
-        onLoaded: ((List<String>) -> Unit)? = null
-    ) {
-        val providerId = provider.id
-        if (onLoaded != null) {
-            val listeners = modelLoadListeners.getOrPut(providerId) { mutableListOf() }
-            listeners.add(onLoaded)
-        }
-        if (!modelLoadInFlight.add(providerId)) {
+        if (!isQueueItemActive(item)) {
+            ModelLogService.deleteModelLog(result.logId)
             return
         }
-        val apiKey = provider.apiKey.trim()
-        if (apiKey.isBlank()) {
-            modelLoadInFlight.remove(providerId)
-            if (showError) {
-                project.errorNotify("模型列表", "请先在供应方配置中填写 API Key")
-            }
-            drainModelLoadListeners(providerId, modelCache[providerId]?.models.orEmpty())
-            return
+        finishQueueItemSuccess(item, result)
+    }
+
+    private fun buildQueueRequest(
+        item: ChatQueueItem,
+        agent: AgentRecord,
+        record: ChatSessionRecord,
+        history: List<Message>,
+    ): AgentRuntime.Request {
+        val streamSink = object : ModelStreamSink {
+            override fun onResponseDelta(text: String) = onUi { appendStreamingText(item, ROLE_ASSISTANT, text) }
+            override fun onReasoningDelta(text: String) = onUi { appendStreamingText(item, ROLE_REASONING, text) }
         }
+        val eventSink = object : ToolEventSink {
+            override fun onToolCall(call: ProviderToolCall) = onUi { renderToolCallEvent(item, call) }
+            override fun onToolResult(result: ToolResult) = onUi { renderToolResultEvent(item, result) }
+        }
+        val modalities = resolveModelModalities(agent)
+        val attachmentContents = item.attachments.map { AgentAttachmentSupport.toUserContent(it, modalities) }
+        val attachmentSnapshots = item.attachments.map { AgentAttachmentSupport.snapshotOf(it) }
+        return AgentRuntime.Request(
+            agentId = agent.id ?: item.agentId,
+            prompt = item.prompt,
+            triggerType = "chat",
+            triggerId = record.id.toString(),
+            workspace = resolveWorkspace(),
+            skillsRootDir = ResourceConfigService.skillsRootDir(),
+            history = history,
+            attachments = attachmentContents,
+            attachmentSnapshots = attachmentSnapshots,
+            streamSink = streamSink,
+            eventSink = eventSink,
+            cancel = item.token,
+            toolCancel = item.toolToken,
+            clientMessageOrder = item.order,
+            project = project,
+        )
+    }
+
+    /** 读取 Agent 绑定模型声明的多模态能力（image/audio/video/text）。 */
+    private fun resolveModelModalities(agent: AgentRecord): Set<String> {
+        val modelId = agent.modelId ?: return emptySet()
+        val model = CatalogService.modelById(modelId) ?: return emptySet()
+        return runCatching {
+            com.google.gson.JsonParser.parseString(model.modalities)
+                .asJsonArray.mapNotNull { it.takeIf(com.google.gson.JsonElement::isJsonPrimitive)?.asString }
+                .toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    private fun scheduleSessionDistillation(sessionId: Long, sourceAgentId: Long) {
         ApplicationManager.getApplication().executeOnPooledThread {
-            val result = client.listModels(provider)
-            ApplicationManager.getApplication().invokeLater({
-                modelLoadInFlight.remove(providerId)
-                if (showError && result.errorMessage != null) {
-                    project.errorNotify("模型列表", result.errorMessage)
-                }
-                val existing = modelCache[providerId]
-                if (result.models.isNotEmpty() || existing == null) {
-                    modelCache[providerId] = ModelCacheEntry(result.models, System.currentTimeMillis())
-                }
-                drainModelLoadListeners(providerId, modelCache[providerId]?.models.orEmpty())
-                if (resolveSelectedProvider()?.id == providerId) {
-                    refreshModelSelector(currentSession?.model)
-                    updateStatus()
-                }
-            }, ModalityState.any())
+            runSessionDistillation(sessionId, sourceAgentId)
         }
     }
 
-    private fun drainModelLoadListeners(providerId: String, models: List<String>) {
-        val listeners = modelLoadListeners.remove(providerId) ?: return
-        listeners.forEach { it(models) }
-    }
-
-    private fun refreshProviderSelector(selectedProviderId: String?) {
-        updatingProviderSelection = true
-        providerSelector.removeAllItems()
-        val providers = ensureProviderList()
-        providers.forEach { providerSelector.addItem(it) }
-        val resolvedId = selectedProviderId
-            ?: currentSession?.providerId
-            ?: project.pluginState().agentActiveProviderId
-        val resolved = providers.firstOrNull { it.id == resolvedId } ?: providers.firstOrNull()
-        providerSelector.selectedItem = resolved
-        updatingProviderSelection = false
-    }
-
-    private fun refreshSystemPromptSelector(selectedPromptId: String?) {
-        updatingSystemPromptSelection = true
-        systemPromptSelector.removeAllItems()
-        val prompts = ensureSystemPromptList()
-        val defaultPrompt = prompts.first { it.id == AgentSystemPromptSupport.DEFAULT_PROMPT_ID }
-        systemPromptSelector.addItem(SystemPromptOption("", defaultPrompt.name))
-        AgentSystemPromptSupport.customPrompts(prompts).forEach { prompt ->
-            systemPromptSelector.addItem(SystemPromptOption(prompt.id, prompt.name))
-        }
-        val resolvedId = AgentSystemPromptSupport.normalizeSelectedPromptId(
-            selectedPromptId ?: currentSession?.state?.systemPromptId,
-            prompts
-        )
-        val selected = (0 until systemPromptSelector.itemCount)
-            .mapNotNull { systemPromptSelector.getItemAt(it) }
-            .firstOrNull { it.id == resolvedId }
-            ?: SystemPromptOption("", defaultPrompt.name)
-        systemPromptSelector.selectedItem = selected
-        currentSession?.state?.systemPromptId = resolvedId
-        updatingSystemPromptSelection = false
-    }
-
-    private fun ensureSystemPromptList(): MutableList<AgentSystemPromptState> {
-        val prompts = AgentSystemPromptSupport.normalizePrompts(project.pluginState().agentSystemPrompts)
-        project.pluginState().agentSystemPrompts.clear()
-        project.pluginState().agentSystemPrompts.addAll(prompts)
-        return project.pluginState().agentSystemPrompts
-    }
-
-    private fun updateCurrentSystemPrompt(promptId: String) {
-        val session = currentSession ?: return
-        val prompts = ensureSystemPromptList()
-        val resolvedId = AgentSystemPromptSupport.normalizeSelectedPromptId(promptId, prompts)
-        if (session.state.systemPromptId == resolvedId) {
-            refreshSystemPromptSelector(resolvedId)
+    private fun runSessionDistillation(sessionId: Long, sourceAgentId: Long) {
+        val sourceAgent = AgentService.agentById(sourceAgentId) ?: return
+        val config = sourceAgent.distillConfig
+        if (!config.enabled) return
+        val distillAgentId = config.agentId ?: run {
+            onUi { project.errorNotify("Agent 蒸馏", "${sourceAgent.name} 已启用蒸馏，但未配置蒸馏 Agent") }
             return
         }
-        session.state.systemPromptId = resolvedId
-        syncSessionSystemPrompt(session)
-        client.clearSession(session.id)
-        refreshSystemPromptSelector(resolvedId)
-        updateStatus()
-    }
-
-    private fun ensureModelList(provider: AgentProviderState?): MutableList<String> {
-        if (provider == null) {
-            return mutableListOf()
+        val distillAgent = AgentService.agentById(distillAgentId) ?: run {
+            onUi { project.errorNotify("Agent 蒸馏", "蒸馏 Agent `$distillAgentId` 不存在") }
+            return
         }
-        AgentProviderSupport.normalizeProvider(provider)
-        provider.models = provider.models.filter { it.isNotBlank() }.toMutableList()
-        return provider.models
-    }
-
-    private fun ensureModelExists(provider: AgentProviderState, model: String) {
-        val trimmed = model.trim().ifBlank { return }
-        val models = ensureModelList(provider)
-        if (!models.contains(trimmed)) {
-            models.add(trimmed)
+        if (!distillAgent.enabled) {
+            onUi { project.errorNotify("Agent 蒸馏", "蒸馏 Agent ${distillAgent.name} 已停用") }
+            return
         }
-    }
-
-    private fun resolveDefaultModel(provider: AgentProviderState?): String {
-        provider?.let { AgentProviderSupport.normalizeProvider(it) }
-        val active = provider?.activeModel?.trim().orEmpty()
-        if (active.isNotBlank()) {
-            return active
-        }
-        val models = provider?.models?.filter { it.isNotBlank() }.orEmpty()
-        return models.firstOrNull().orEmpty()
-    }
-
-    private fun ensureProviderList(): MutableList<AgentProviderState> {
-        val providers = project.pluginState().agentProviders
-        if (providers.isEmpty()) {
-            val provider = AgentProviderState().apply {
-                id = UUID.randomUUID().toString()
-                name = "OpenAI"
-                type = AgentProviderType.OPENAI.id
-                baseUrl = AgentProviderSupport.defaultBaseUrl(AgentProviderType.OPENAI)
-                apiKey = project.pluginState().agentOpenApiKey.trim()
+        val session = ChatSessionService.sessionById(sessionId) ?: return
+        val sourceId = ChatSessionService.sessionSourceId(sourceAgentId, sessionId)
+        val logs = ModelLogService.listCompletedLogsForSource(
+            sourceType = ChatSessionService.SESSION_SOURCE_TYPE,
+            sourceId = sourceId,
+            afterId = config.lastDistilledModelLogId,
+            messageTypes = config.effectiveMessageTypes(),
+        )
+        if (logs.size < config.minMessages) return
+        val maxSourceLogId = logs.maxOf { it.id }
+        try {
+            val personaDraft = java.util.concurrent.atomic.AtomicReference<com.lhstack.tools.db.config.AgentPersonaConfig?>()
+            AgentRuntime.execute(
+                distillAgent,
+                AgentRuntime.Request(
+                    agentId = distillAgent.id ?: distillAgentId,
+                    prompt = buildSessionDistillationPrompt(sourceAgent, session, logs, config.extraPrompt),
+                    triggerType = "distillation",
+                    triggerId = sessionId.toString(),
+                    workspace = resolveWorkspace(),
+                    skillsRootDir = ResourceConfigService.skillsRootDir(),
+                    extraTools = listOf(UpdateAgentDistillationTool(personaDraft, sourceAgent.extConfig.persona)),
+                    logSourceType = ChatSessionService.SESSION_SOURCE_TYPE,
+                    logSourceId = sourceId,
+                    logMessageType = "agent_distillation",
+                    logPromptMessage = null,
+                    project = project,
+                )
+            )
+            val distilledPersona = personaDraft.get()
+                ?: throw IllegalStateException("蒸馏模型未调用 update_agent_distillation 工具提交 Agent 长期配置")
+            AgentService.updateDistilledPersona(sourceAgentId, distilledPersona, maxSourceLogId)
+            onUi { refreshCurrentSessionHistoryIfVisible(sessionId) }
+        } catch (e: Throwable) {
+            onUi {
+                refreshCurrentSessionHistoryIfVisible(sessionId)
+                project.errorNotify("Agent 蒸馏", e.message ?: "蒸馏失败")
             }
-            AgentProviderSupport.normalizeProvider(provider)
-            providers.add(provider)
-            if (project.pluginState().agentActiveProviderId.isBlank()) {
-                project.pluginState().agentActiveProviderId = provider.id
+        }
+    }
+
+    private fun buildSessionDistillationPrompt(
+        sourceAgent: AgentRecord,
+        session: ChatSessionRecord,
+        logs: List<ModelLogService.ModelLogRecord>,
+        extraPrompt: String?,
+    ): String = buildString {
+        val persona = sourceAgent.extConfig.persona
+        appendLine("你是 Agent 能力蒸馏助手。请根据以下 Agent 的历史消息，更新该 Agent 自身的长期专业配置，让它在持续处理同一领域任务时变得更专业。")
+        appendLine()
+        appendLine("内容必须使用简体中文，且应面向 Agent 助手自身，不要写成用户画像、任务流水或系统配置复述。每个字段都必须整理为完整版本，不能只返回新增内容；每个字段必须严格控制在对应最大字符数以内。")
+        appendLine(); appendLine("蒸馏时间信息：")
+        appendLine("- 当前蒸馏时间：${LocalDateTime.now().toString().replace('T', ' ')}")
+        appendLine("- 本次历史消息数量：${logs.size}")
+        appendLine("- 会话：${session.title} (#${session.id})")
+        extraPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            appendLine(); appendLine("用户自定义的附加蒸馏要求："); appendLine(it)
+        }
+        appendLine(); appendLine("目标 Agent：${sourceAgent.name} (#${sourceAgent.id})")
+        appendLine(); appendLine("当前 Agent 长期内容：")
+        appendPersonaForDistillation("专业记忆", persona.memory, persona.memoryMaxChars)
+        appendPersonaForDistillation("工作方法", persona.behaviorHabits, persona.behaviorHabitsMaxChars)
+        appendPersonaForDistillation("角色设定", persona.soul, persona.soulMaxChars)
+        appendPersonaForDistillation("能力画像", persona.profile, persona.profileMaxChars)
+        appendPersonaForDistillation("边界约束", persona.guardrails, persona.guardrailsMaxChars)
+        appendLine("---"); appendLine("历史消息：")
+        logs.forEach { log ->
+            appendLine("## 消息 #${log.id} [${log.messageType.orEmpty()} / ${log.status} / 时间: ${log.createdAt.orEmpty()}]")
+            appendLine("输入："); appendLine(modelLogPrompt(log))
+            val structured = log.responseData.get("structured_response")?.takeIf { it.isJsonObject }?.asJsonObject
+            appendLine("输出：")
+            appendLine(structured?.get("response")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty())
+            log.errorData?.takeIf { it.isNotBlank() }?.let { appendLine("错误："); appendLine(it) }
+            appendLine()
+        }
+        appendLine("---")
+        appendLine("请对比当前长期内容和历史消息，重新整理合并后的完整版本，不要把新内容简单追加到旧内容后面。")
+        appendLine("字段归属：memory 记录长期领域事实、稳定决策和可复用经验；behavior_habits 记录有效工作方法与质量标准；soul 记录稳定职责边界和专业定位；profile 记录专业方向、擅长任务与能力边界；guardrails 记录限制、禁区与安全要求。同一信息只能放入最匹配的一个字段。")
+        appendLine("每条内容必须带时间状态标签并以“- ”开头。主动合并相似条目，删除重复、冲突、过期、临时和低价值内容；某字段无需更新时原样返回，除非确实应该清空。")
+        appendLine("你必须调用 update_agent_distillation 工具提交 memory、behavior_habits、soul、profile、guardrails 的完整内容；如果工具返回 ok=false，必须根据 errors 压缩后重新调用，直到 ok=true。工具成功后，最终回复只输出本次 Agent 蒸馏更新摘要，不得输出 JSON。")
+    }
+
+    private fun StringBuilder.appendPersonaForDistillation(label: String, content: String, maxChars: Int) {
+        appendLine("### $label（当前内容，最大字符数 $maxChars）")
+        appendLine(content)
+        appendLine()
+    }
+
+    private fun startQueueItemUi(item: ChatQueueItem) {
+        ensureQueueUserCard(item)
+        ensureQueueAssistantCard(item)
+        renderQueuedItem(item)
+        refreshQueuePanel()
+        updateActiveStopButton()
+        scrollQueueItemIfVisible(item)
+    }
+
+    private fun finishQueueItemSuccess(item: ChatQueueItem, result: AgentRuntime.ExecutionResult) = onUi {
+        if (!isQueueItemActive(item)) return@onUi
+        item.persistedLogId = result.logId
+        applyFinalAssistantResult(item, result)
+        item.status = ChatQueueStatus.COMPLETED
+        completeQueueItem(item)
+        scheduleSessionDistillation(item.sessionId, item.agentId)
+    }
+
+    private fun finishQueueItemCancelled(item: ChatQueueItem, logId: Long?) = onUi {
+        if (!isQueueItemActive(item)) return@onUi
+        item.status = ChatQueueStatus.CANCELLED
+        item.persistedLogId = logId
+        if (item.hasAssistantOutput) {
+            logId?.let { ModelLogService.finishModelLogCancelled(it, cancelledResponseData(item)) }
+            ensureQueueAssistantCard(item).finish(LocalDateTime.now().toString().replace('T', ' '), null)
+            completeQueueItem(item, refreshHistory = logId != null, remove = logId != null)
+        } else {
+            logId?.let { ModelLogService.deleteModelLog(it) }
+            if (currentSessionId == item.sessionId) {
+                inputArea.text = item.prompt
             }
-        } else {
-            providers.forEach { AgentProviderSupport.normalizeProvider(it) }
+            completeQueueItem(item, refreshHistory = true)
         }
-        return providers
     }
 
-    private fun resolveProviderForSession(state: AgentSessionState): AgentProviderState? {
-        val providers = ensureProviderList()
-        val existing = providers.firstOrNull { it.id == state.providerId && state.providerId.isNotBlank() }
-        if (existing != null) {
-            return existing
+    private fun finishQueueItemError(item: ChatQueueItem, error: String, logId: Long? = null) = onUi {
+        if (!isQueueItemActive(item)) return@onUi
+        item.status = ChatQueueStatus.FAILED
+        item.persistedLogId = logId
+        discardQueueCards(item)
+        restoreFailedInput(item)
+        completeQueueItem(item, refreshHistory = true)
+        project.errorNotify("模型请求失败", error)
+    }
+
+    private fun discardQueueCards(item: ChatQueueItem) {
+        item.userCard?.let(messageCards::remove)
+        item.assistantCard?.let(messageCards::remove)
+        item.userCard = null
+        item.assistantCard = null
+    }
+
+    private fun restoreFailedInput(item: ChatQueueItem) {
+        inputArea.text = item.prompt
+        item.attachments.forEach { attachment ->
+            draftAttachments.removeAll { existing -> existing.path.isNotBlank() && existing.path == attachment.path }
+            draftAttachments.add(attachment)
         }
-        val fallback = providers.firstOrNull { it.id == project.pluginState().agentActiveProviderId }
-            ?: providers.firstOrNull()
-        state.providerId = fallback?.id.orEmpty()
-        return fallback
+        browserInputRestore = AgentBrowserInputRestore(++inputRestoreSequence, item.prompt)
+        refreshDraftAttachmentStrip()
     }
 
-    private fun resolveSelectedProvider(): AgentProviderState? {
-        return (providerSelector.selectedItem as? AgentProviderState)
-            ?: ensureProviderList().firstOrNull()
+    private fun completeQueueItem(item: ChatQueueItem, refreshHistory: Boolean = true, remove: Boolean = true) {
+        synchronized(queueLock) {
+            if (remove) {
+                chatQueue.remove(item)
+            }
+        }
+        refreshQueuePanel()
+        updateActiveStopButton()
+        if (refreshHistory) {
+            refreshCurrentSessionHistoryIfVisible(item.sessionId)
+        }
+        processQueue()
     }
 
-    private fun updateSessionTitle(text: String) {
-        val session = currentSession ?: return
-        if (!session.autoTitle) {
+    private fun discardQueueItemsForSession(sessionId: Long) {
+        val removed = synchronized(queueLock) {
+            val items = chatQueue.filter { it.sessionId == sessionId }
+            items.forEach { item ->
+                item.status = ChatQueueStatus.CANCELLED
+                item.token.cancel()
+                item.toolToken.cancel()
+            }
+            chatQueue.removeAll(items.toSet())
+            items
+        }
+        if (removed.isEmpty()) return
+        refreshQueuePanel()
+        updateActiveStopButton()
+        processQueue()
+    }
+
+    private fun cancelQueueItem(item: ChatQueueItem) {
+        val sessionToRefresh = synchronized(queueLock) {
+            when (item.status) {
+                ChatQueueStatus.PENDING -> {
+                    item.status = ChatQueueStatus.CANCELLED
+                    chatQueue.remove(item)
+                    item.sessionId
+                }
+                ChatQueueStatus.PROCESSING -> {
+                    item.conversationCancelRequested = true
+                    item.token.cancel()
+                    null
+                }
+                else -> null
+            }
+        }
+        refreshQueuePanel()
+        sessionToRefresh?.let { refreshCurrentSessionHistoryIfVisible(it) }
+        processQueue()
+    }
+
+    private fun isQueueItemActive(item: ChatQueueItem): Boolean = synchronized(queueLock) {
+        item.status != ChatQueueStatus.CANCELLED && chatQueue.contains(item)
+    }
+
+    private fun stopQueueItem(item: ChatQueueItem) {
+        if (item.status != ChatQueueStatus.PROCESSING) return
+        if (item.runningToolCount > 0 && !item.toolCancelRequested) {
+            item.toolCancelRequested = true
+            item.toolToken.cancel()
+            val runningIds = item.runningToolIds.toList()
+            item.canceledToolIds.addAll(runningIds)
+            runningIds.forEach { toolId ->
+                item.assistantCard?.updateToolResult(toolId, "用户手动取消")
+            }
+            item.runningToolIds.clear()
+            item.runningToolCount = 0
+            refreshQueuePanel()
+            updateActiveStopButton()
             return
         }
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) {
-            return
-        }
-        session.title = trimmed.take(20)
-        session.autoTitle = false
-        session.state.title = session.title
-        session.state.autoTitle = session.autoTitle
-        sessionSelector.repaint()
+        cancelQueueItem(item)
     }
 
-    private fun renameSession(session: ChatSession) {
-        val input = Messages.showInputDialog(
-            this,
-            "请输入会话名称",
-            "重命名会话",
-            null,
-            session.title,
-            null
-        ) ?: return
-        val name = input.trim()
-        if (name.isEmpty()) {
-            return
-        }
-        session.title = name
-        session.autoTitle = false
-        session.state.title = name
-        session.state.autoTitle = false
-        sessionSelector.repaint()
+    private fun updateActiveStopButton() = Unit
+
+    private fun hasActiveQueue(): Boolean = synchronized(queueLock) {
+        chatQueue.any { it.status == ChatQueueStatus.PENDING || it.status == ChatQueueStatus.PROCESSING }
     }
 
-    private fun deleteSession(session: ChatSession) {
-        val message = if (sending.get() && session == currentSession) {
-            "当前会话正在回复，是否终止并删除？"
-        } else {
-            "确定要删除会话吗？"
+    private fun refreshCurrentSessionHistoryIfVisible(sessionId: Long) {
+        if (currentSessionId != sessionId) return
+        val record = ChatSessionService.sessionById(sessionId) ?: return
+        renderSessionHistory(record)
+    }
+
+    private fun resolveSessionAgent(record: ChatSessionRecord): AgentRecord? {
+        val agentId = record.agentId
+        if (agentId == null) {
+            project.errorNotify("对话", "当前会话未绑定 Agent，请先在上方选择 Agent")
+            return null
         }
-        val confirmed = Messages.showYesNoDialog(
-            this,
-            message,
-            "删除会话",
-            null
+        val agent = AgentService.agentById(agentId)
+        if (agent == null) {
+            project.errorNotify("对话", "会话绑定的 Agent 已不存在，请重新选择")
+            return null
+        }
+        if (!agent.enabled) {
+            project.errorNotify("对话", "Agent ${agent.name} 已停用")
+            return null
+        }
+        return agent
+    }
+
+    private fun buildHistory(record: ChatSessionRecord): List<Message> {
+        val sourceId = ChatSessionService.sessionSourceId(record.agentId, record.id)
+        val turns = ModelLogService.listChatTurns(ChatSessionService.SESSION_SOURCE_TYPE, sourceId)
+        val messages = mutableListOf<Message>()
+        turns.filter { it.status != "running" && it.status != "failed" }.forEach { turn ->
+            val snapshot = jsonObject(turn.requestData, "request_snapshot")
+            val prompt = jsonString(snapshot?.get("prompt_message"))
+            if (prompt.isNotBlank()) messages.add(Message.user(prompt))
+            appendProviderHistory(messages, jsonObject(turn.responseData, "structured_response"))
+        }
+        return messages
+    }
+
+    /** 从对话日志还原 provider 的工具调用/工具结果消息，供下一轮上下文截断按工具轮次工作。 */
+    private fun appendProviderHistory(messages: MutableList<Message>, structured: JsonObject?) {
+        if (structured == null) return
+        val calls: List<JsonElement> = structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList()
+        val results: List<JsonElement> = structured.get("tool_results")?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList()
+        val assistantContent = calls.mapNotNull { element ->
+            val call = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val internalId = jsonString(call.get("internal_call_id")).ifBlank { jsonString(call.get("tool_call_id")) }
+            if (internalId.isBlank()) return@mapNotNull null
+            AssistantContent.ToolCall(
+                ToolCall(
+                    id = internalId,
+                    callId = jsonString(call.get("tool_call_id")).takeIf { it.isNotBlank() },
+                    function = ToolFunction(
+                        name = jsonString(call.get("tool_name")),
+                        arguments = jsonArgument(call.get("args")),
+                    ),
+                    signature = null,
+                    additionalParams = null,
+                ),
+            )
+        }
+        if (assistantContent.isNotEmpty()) {
+            messages.add(Message.Assistant(id = null, content = assistantContent))
+        }
+        val toolResults = results.mapNotNull { element ->
+            val result = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val internalId = jsonString(result.get("internal_call_id")).ifBlank { jsonString(result.get("tool_call_id")) }
+            if (internalId.isBlank()) return@mapNotNull null
+            UserContent.ToolResult(
+                ToolResult(
+                    id = internalId,
+                    callId = jsonString(result.get("tool_call_id")).takeIf { it.isNotBlank() },
+                    content = listOf(ToolResultContent.Text(jsonString(result.get("result")))),
+                ),
+            )
+        }
+        if (toolResults.isNotEmpty()) messages.add(Message.User(toolResults))
+        val response = jsonString(structured.get("response"))
+        if (response.isNotBlank()) messages.add(Message.assistant(response))
+    }
+
+    private fun jsonArgument(element: JsonElement?): JsonElement {
+        if (element == null || element.isJsonNull) return JsonObject()
+        if (!element.isJsonPrimitive || !element.asJsonPrimitive.isString) return element.deepCopy()
+        return runCatching { JsonParser.parseString(element.asString) }.getOrElse { JsonPrimitive(element.asString) }
+    }
+
+    private fun maybeAutoRenameSession(record: ChatSessionRecord, source: String) {
+        if (record.title != AUTO_TITLE) return
+        val title = source.trim().take(20).ifBlank { return }
+        ChatSessionService.renameSession(record.id, title)
+        refreshSessionSelector(ChatSessionService.listSessions())
+    }
+
+    private fun onUi(block: () -> Unit) {
+        ApplicationManager.getApplication().invokeLater(block)
+    }
+
+    private fun resolveWorkspace(): String =
+        project.basePath?.replace("\\", "/")?.trim()?.ifBlank { null } ?: System.getProperty("user.dir")
+
+    // -------- 实时消息渲染 --------
+
+    private fun appendStreamingText(item: ChatQueueItem, role: String, text: String) {
+        if (text.isEmpty()) return
+        item.hasAssistantOutput = true
+        val card = ensureQueueAssistantCard(item)
+        when (role) {
+            ROLE_REASONING -> {
+                item.reasoningText += text
+                card.appendReasoning(text)
+            }
+            else -> {
+                item.responseText += text
+                card.appendResponse(text)
+            }
+        }
+        scrollQueueItemIfVisible(item)
+    }
+
+    private fun renderToolCallEvent(item: ChatQueueItem, call: ProviderToolCall) {
+        item.hasAssistantOutput = true
+        item.runningToolIds.add(call.id)
+        item.runningToolCount = item.runningToolIds.size
+        item.toolCalls[call.id] = QueuedToolSnapshot(call.id, call.name, call.argsString())
+        ensureQueueAssistantCard(item).ensureTool(call.id, call.name, call.argsString())
+        refreshQueuePanel()
+        updateActiveStopButton()
+        scrollQueueItemIfVisible(item)
+    }
+
+    private fun renderToolResultEvent(item: ChatQueueItem, result: ToolResult) {
+        val text = result.content.filterIsInstance<ToolResultContent.Text>().joinToString("\n") { it.text }
+        if (!item.canceledToolIds.contains(result.id)) {
+            item.toolResults[result.id] = text
+            ensureQueueAssistantCard(item).updateToolResult(result.id, text)
+        }
+        item.runningToolIds.remove(result.id)
+        item.runningToolCount = item.runningToolIds.size
+        if (item.canceledToolIds.remove(result.id) && item.canceledToolIds.isEmpty()) {
+            item.toolToken.reset()
+            item.toolCancelRequested = false
+        }
+        refreshQueuePanel()
+        updateActiveStopButton()
+    }
+
+    private fun scrollQueueItemIfVisible(item: ChatQueueItem) {
+        if (renderedSessionId == item.sessionId) syncBrowserState()
+    }
+
+    private fun deleteQueueTurn(item: ChatQueueItem) {
+        item.persistedLogId?.let { ModelLogService.deleteModelLog(it) }
+        synchronized(queueLock) { chatQueue.remove(item) }
+        refreshQueuePanel()
+        refreshCurrentSessionHistoryIfVisible(item.sessionId)
+        project.infoNotify("对话", "消息已删除")
+    }
+
+    private fun cancelledResponseData(item: ChatQueueItem): JsonObject = JsonObject().apply {
+        addProperty("retry_count", 0)
+        add("structured_response", JsonObject().apply {
+            add("reasoning", JsonArray().apply {
+                item.reasoningText.trim().takeIf { it.isNotBlank() }?.let { add(it) }
+            })
+            addProperty("response", item.responseText.trim())
+            add("tool_calls", JsonArray().apply {
+                item.toolCalls.values.forEach { tool ->
+                    add(JsonObject().apply {
+                        addProperty("source", "ui_cancelled")
+                        addProperty("tool_name", tool.name)
+                        addProperty("internal_call_id", tool.id)
+                        addProperty("args", tool.args)
+                    })
+                }
+            })
+            add("tool_results", JsonArray().apply {
+                item.toolResults.forEach { (id, result) ->
+                    add(JsonObject().apply {
+                        addProperty("source", "ui_cancelled")
+                        addProperty("internal_call_id", id)
+                        addProperty("result", result)
+                    })
+                }
+            })
+            add("usage", JsonObject())
+            addProperty("cancelled", true)
+        })
+    }
+
+    private fun applyFinalAssistantResult(item: ChatQueueItem, result: AgentRuntime.ExecutionResult) {
+        item.hasAssistantOutput = true
+        val card = ensureQueueAssistantCard(item)
+        val response = result.output.ifBlank { jsonString(result.value.get("response")) }
+        item.responseText = response
+        card.setResponse(response)
+        val reasoning = reasoningText(result.value)
+        if (reasoning.isNotBlank()) {
+            item.reasoningText = reasoning
+            card.setReasoning(reasoning, expanded = true)
+        }
+        syncToolCalls(result.value, card)
+        card.finish(LocalDateTime.now().toString().replace('T', ' '), usageText(result.value), usageDetails(result.value))
+    }
+
+    private fun ensureQueueUserCard(item: ChatQueueItem): AgentUserMessageCard {
+        val existing = item.userCard
+        if (existing != null) return existing
+        val card = AgentUserMessageCard(
+            content = item.prompt,
+            attachments = item.attachments,
         )
-        if (confirmed != Messages.YES) {
+        item.userCard = card
+        return card
+    }
+
+    private fun ensureQueueAssistantCard(item: ChatQueueItem): AgentAssistantMessageCard {
+        val existing = item.assistantCard
+        if (existing != null) return existing
+        val card = AgentAssistantMessageCard(
+            showToolDetail = { toolItem, anchor -> showAgentToolDetailPopup(toolItem, anchor) },
+            onDelete = { deleteQueueTurn(item) },
+            onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+        )
+        item.assistantCard = card
+        return card
+    }
+
+    private fun attachQueueCardIfVisible(item: ChatQueueItem, card: AgentChatCard) {
+        if (renderedSessionId != item.sessionId) return
+        addMessageCard(item.sessionId, card)
+    }
+
+    private fun renderQueuedItem(item: ChatQueueItem) {
+        attachQueueCardIfVisible(item, ensureQueueUserCard(item))
+        item.assistantCard?.let { attachQueueCardIfVisible(item, it) }
+    }
+
+    private fun ChatQueueItem.shouldRenderInHistory(): Boolean =
+        status == ChatQueueStatus.PROCESSING || userCard != null || assistantCard != null
+
+    private fun clearStreamingRefs() {
+        currentTurnView = null
+    }
+
+    private fun reasoningColor(): Color = JBColor(0x6A6A6A, 0x9A9A9A)
+
+    private fun ensureCurrentAssistantTurnView(sessionId: Long): AssistantTurnView =
+        currentTurnView ?: createAssistantTurnView(sessionId).also { currentTurnView = it }
+
+    private fun createAssistantTurnView(sessionId: Long, onDelete: (() -> Unit)? = null): AssistantTurnView {
+        val card = AgentAssistantMessageCard(
+            showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
+            onDelete = onDelete,
+            onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+        )
+        addMessageCard(sessionId, card)
+        return AssistantTurnView(card)
+    }
+
+    private fun setAssistantTurnResponse(turnView: AssistantTurnView, content: String) {
+        turnView.card.setResponse(content)
+    }
+
+    private fun setAssistantTurnReasoning(turnView: AssistantTurnView, content: String, collapsedByDefault: Boolean) {
+        turnView.card.setReasoning(content, expanded = !collapsedByDefault)
+    }
+
+    // -------- 消息气泡基础设施 --------
+
+    private fun appendMessage(
+        sessionId: Long,
+        role: String,
+        content: String,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean,
+        attachments: List<AgentAttachmentState> = emptyList(),
+        onDelete: (() -> Unit)? = null,
+        createdAt: String? = null,
+    ) {
+        if (role == ROLE_USER) {
+            addMessageCard(
+                sessionId,
+                AgentUserMessageCard(
+                    content,
+                    attachments,
+                    onDelete,
+                    createdAt,
+                )
+            )
             return
         }
-        if (sending.get() && session == currentSession) {
-            cancelCurrentRequest()
+        val card = AgentAssistantMessageCard(
+            showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
+            onDelete = onDelete,
+            onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+        )
+        card.setResponse(if (role == ROLE_ERROR) "错误：$content" else content)
+        addMessageCard(sessionId, card)
+    }
+
+    private fun createMessageBlock(
+        role: String,
+        textColor: Color,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean,
+        fixedHeight: Int? = null,
+    ): MessageBlock {
+        val textPane = createPlainTextArea(textColor)
+        val contentPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(textPane, BorderLayout.CENTER)
         }
-        val index = sessionModel.getIndexOf(session)
-        sessionModel.removeElement(session)
-        project.pluginState().agentSessions.remove(session.state)
-        if (sessionModel.size <= 0) {
-            switchSession(createSession())
-            return
+        val scrollPane: JScrollPane? = if (collapsible) {
+            JBScrollPane(contentPanel).apply {
+                border = JBUI.Borders.empty()
+                horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+                isVisible = !collapsedByDefault
+                fixedHeight?.let {
+                    preferredSize = Dimension(0, it)
+                    maximumSize = Dimension(Int.MAX_VALUE, it)
+                }
+            }
+        } else null
+        val header = createBlockHeader(role, collapsible, collapsedByDefault, scrollPane, contentPanel)
+        val body = JPanel(BorderLayout(0, JBUI.scale(4))).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(6, 8)
+            add(header, BorderLayout.NORTH)
+            add(scrollPane ?: contentPanel, BorderLayout.CENTER)
         }
-        if (session == currentSession) {
-            val nextIndex = if (index <= 0) 0 else minOf(index, sessionModel.size - 1)
-            switchSession(sessionModel.getElementAt(nextIndex))
-        } else {
-            sessionSelector.repaint()
+        val panel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(body, if (role == ROLE_USER) BorderLayout.EAST else BorderLayout.CENTER)
+        }
+        return MessageBlock(panel, textPane, contentPanel)
+    }
+
+    private fun createBlockHeader(
+        role: String,
+        collapsible: Boolean,
+        collapsedByDefault: Boolean,
+        collapsibleTarget: JComponent?,
+        contentPanel: JComponent,
+    ): JComponent {
+        val userRole = role == ROLE_USER
+        val roleLabel = JLabel(role).apply {
+            foreground = JBColor(0x8A8A8A, 0x9AA0A6)
+            font = font.deriveFont(font.size2D - 1f)
+            horizontalAlignment = if (userRole) SwingConstants.RIGHT else SwingConstants.LEFT
+        }
+        if (!collapsible || collapsibleTarget == null) {
+            return JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(roleLabel, if (userRole) BorderLayout.EAST else BorderLayout.WEST)
+            }
+        }
+        val toggle = JButton(if (collapsedByDefault) "展开" else "收起").apply {
+            isFocusable = false
+            isBorderPainted = false
+            isContentAreaFilled = false
+            margin = JBUI.insets(0, 6)
+            foreground = JBColor(0x4B90FF, 0x4B90FF)
+            addActionListener {
+                collapsibleTarget.isVisible = !collapsibleTarget.isVisible
+                text = if (collapsibleTarget.isVisible) "收起" else "展开"
+                collapsibleTarget.revalidate()
+                collapsibleTarget.repaint()
+            }
+        }
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(roleLabel, BorderLayout.WEST)
+            add(toggle, BorderLayout.EAST)
         }
     }
 
-    private fun clearSession(session: ChatSession) {
-        val message = if (sending.get() && session == currentSession) {
-            "当前会话正在回复，是否终止并清空？"
-        } else {
-            "确定要清空会话吗？"
+    private fun createPlainTextArea(textColor: Color): JTextComponent =
+        JBTextArea().apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            isOpaque = false
+            foreground = textColor
+            font = UIUtil.getLabelFont()
+            border = JBUI.Borders.empty()
         }
-        val confirmed = Messages.showYesNoDialog(
-            this,
-            message,
-            "清空会话",
-            null
-        )
-        if (confirmed != Messages.YES) {
-            return
+
+    private fun setBlockContent(block: MessageBlock, content: String, immediate: Boolean) {
+        block.rawContent = content
+        block.textComponent.text = content
+    }
+
+    private fun appendBlockContent(block: MessageBlock, text: String) {
+        if (text.isEmpty()) return
+        block.rawContent += text
+        block.textComponent.document.insertString(block.textComponent.document.length, text, null)
+        block.textComponent.caretPosition = block.textComponent.document.length
+        block.contentPanel.revalidate()
+        block.contentPanel.repaint()
+    }
+
+    // -------- 工具卡片基础设施 --------
+
+    private fun createToolListBlock(collapsedByDefault: Boolean): ToolListBlock {
+        val listPanel = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isVisible = !collapsedByDefault
         }
-        if (sending.get() && session == currentSession) {
-            cancelCurrentRequest()
+        val headerLabel = JLabel("工具调用").apply {
+            foreground = JBColor(0x8A8A8A, 0x9AA0A6)
+            font = font.deriveFont(font.size2D - 1f)
         }
-        client.clearSession(session.id)
-        session.renders.clear()
-        session.state.renders.clear()
-        session.state.draftAttachments.clear()
-        resetTokenUsage(session)
-        resetMessages(session)
-        if (session == currentSession) {
-            inputArea.text = ""
-            refreshAttachmentDrafts()
-            renderSession(session)
-            updateTokenUsageLabel()
+        val toggle = JButton(if (collapsedByDefault) "展开" else "收起").apply {
+            isFocusable = false
+            isBorderPainted = false
+            isContentAreaFilled = false
+            margin = JBUI.insets(0, 6)
+            foreground = JBColor(0x4B90FF, 0x4B90FF)
+            addActionListener {
+                listPanel.isVisible = !listPanel.isVisible
+                text = if (listPanel.isVisible) "收起" else "展开"
+            }
         }
+        val header = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(headerLabel, BorderLayout.WEST)
+            add(toggle, BorderLayout.EAST)
+        }
+        val panel = JPanel(BorderLayout(0, JBUI.scale(4))).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(6, 8)
+            add(header, BorderLayout.NORTH)
+            add(listPanel, BorderLayout.CENTER)
+        }
+        return ToolListBlock(panel, listPanel, headerLabel)
+    }
+
+    private fun addToolCard(block: ToolListBlock, callId: String, name: String, args: String): ToolCard {
+        val card = ToolCard(id = callId, name = name.ifBlank { "工具" }, args = args)
+        val titleLabel = JLabel().apply {
+            font = font.deriveFont(font.size2D - 1f)
+        }
+        val detailButton = JButton("详情").apply {
+            isFocusable = false
+            isBorderPainted = false
+            isContentAreaFilled = false
+            margin = JBUI.insets(0, 6)
+            foreground = JBColor(0x4B90FF, 0x4B90FF)
+            addActionListener { showToolDetailPopup(card, this) }
+        }
+        val cardPanel = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
+            isOpaque = true
+            background = UIUtil.getTextFieldBackground()
+            border = JBUI.Borders.compound(
+                JBUI.Borders.customLine(JBColor.border(), 1),
+                JBUI.Borders.empty(4, 8),
+            )
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(30))
+            add(titleLabel, BorderLayout.CENTER)
+            add(detailButton, BorderLayout.EAST)
+        }
+        card.titleLabel = titleLabel
+        card.panel = cardPanel
+        block.cards[callId] = card
+        block.listPanel.add(cardPanel)
+        block.listPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+        refreshToolCard(card)
+        block.listPanel.revalidate()
+        block.listPanel.repaint()
+        return card
+    }
+
+    private fun refreshToolCard(card: ToolCard) {
+        card.titleLabel?.text = "[${card.status}] ${card.name}"
+    }
+
+    private fun updateToolBlockSummary(block: ToolListBlock) {
+        val total = block.cards.size
+        val done = block.cards.values.count { it.status == "已完成" }
+        block.headerLabel.text = "工具调用（$done/$total）"
+    }
+
+    private fun showAgentToolDetailPopup(item: AgentToolItem, anchor: JComponent) {
+        val panel = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
+            border = JBUI.Borders.empty(8)
+            preferredSize = Dimension(JBUI.scale(560), JBUI.scale(420))
+            add(createToolJsonSection("入参", item.args), BorderLayout.NORTH)
+            add(createToolJsonSection("出参", item.result), BorderLayout.CENTER)
+        }
+        JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(panel, null)
+            .setResizable(true)
+            .setMovable(true)
+            .setTitle("工具 ${item.name}")
+            .createPopup()
+            .show(RelativePoint(anchor, java.awt.Point(0, anchor.height)))
+    }
+
+    private fun showToolDetailPopup(card: ToolCard, anchor: JComponent) {
+        val panel = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
+            border = JBUI.Borders.empty(8)
+            preferredSize = Dimension(JBUI.scale(560), JBUI.scale(420))
+            add(createToolJsonSection("参数", card.args), BorderLayout.NORTH)
+            add(createToolJsonSection("结果", card.result), BorderLayout.CENTER)
+        }
+        JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(panel, null)
+            .setResizable(true)
+            .setMovable(true)
+            .setTitle("工具 ${card.name}")
+            .createPopup()
+            .show(RelativePoint(anchor, java.awt.Point(0, anchor.height)))
+    }
+
+    private fun createToolJsonSection(title: String, content: String): JComponent {
+        val viewer = createJsonViewer(content)
+        return JPanel(BorderLayout(0, JBUI.scale(4))).apply {
+            isOpaque = false
+            add(JLabel(title), BorderLayout.NORTH)
+            add(JBScrollPane(viewer).apply { preferredSize = Dimension(JBUI.scale(540), JBUI.scale(180)) }, BorderLayout.CENTER)
+        }
+    }
+
+    private fun createJsonViewer(text: String): LanguageTextField {
+        val language = Language.findLanguageByID("JSON") ?: Language.findLanguageByID("TEXT")
+        return object : LanguageTextField(language, project, text, false) {
+            override fun createEditor(): EditorEx = super.createEditor().apply {
+                setViewer(true)
+                setVerticalScrollbarVisible(true)
+                setHorizontalScrollbarVisible(true)
+            }
+        }
+    }
+
+    // -------- 消息容器编排 --------
+
+    private fun addMessageCard(sessionId: Long, card: AgentChatCard) {
+        if (renderedSessionId != sessionId || messageCards.any { it.id == card.id }) return
+        if (card is AgentAssistantMessageCard) card.onChanged = ::syncBrowserState
+        messageCards.add(card)
+        syncBrowserState()
+    }
+
+    private fun openAttachment(attachment: AgentAttachmentState) {
+        val path = attachment.path.trim().ifBlank { return }
+        val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path) ?: return
+        FileEditorManager.getInstance(project).openFile(virtualFile, true)
     }
 
     private fun openSessionManager() {
-        object : DialogWrapper(project, false) {
+        val sessions = ChatSessionService.listSessions()
+        if (sessions.isEmpty()) {
+            project.infoNotify("会话管理", "当前还没有会话")
+            return
+        }
+        val dialog = object : DialogWrapper(project, false) {
+            private val listModel = javax.swing.DefaultListModel<ChatSessionRecord>().apply {
+                sessions.forEach { addElement(it) }
+            }
+            private val list = com.intellij.ui.components.JBList(listModel).apply {
+                selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
+                cellRenderer = simpleRenderer { (it as? ChatSessionRecord)?.title ?: "" }
+                selectedIndex = 0
+            }
+
             init {
-                this.title = "会话管理"
-                this.setSize(760, 520)
-                this.init()
+                title = "会话管理"
+                setSize(JBUI.scale(420), JBUI.scale(480))
+                init()
             }
 
-            override fun createActions(): Array<out Action?> {
-                return arrayOf()
-            }
-
-            override fun createCenterPanel(): JComponent? {
-                val listModel = DefaultListModel<ChatSession>()
-                val list = JBList(listModel).apply {
-                    selectionMode = ListSelectionModel.SINGLE_SELECTION
-                    cellRenderer = object : DefaultListCellRenderer() {
-                        override fun getListCellRendererComponent(
-                            list: JList<*>?,
-                            value: Any?,
-                            index: Int,
-                            isSelected: Boolean,
-                            cellHasFocus: Boolean
-                        ): Component {
-                            val text = (value as? ChatSession)?.title ?: value?.toString().orEmpty()
-                            return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus)
+            override fun createCenterPanel(): JComponent {
+                val buttons = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                    add(JButton("重命名").apply {
+                        addActionListener {
+                            val record = list.selectedValue ?: return@addActionListener
+                            renameSession(record)
+                            listModel.clear()
+                            ChatSessionService.listSessions().forEach { listModel.addElement(it) }
                         }
-                    }
+                    })
+                    add(JButton("删除").apply {
+                        addActionListener {
+                            val record = list.selectedValue ?: return@addActionListener
+                            deleteSession(record)
+                            listModel.clear()
+                            ChatSessionService.listSessions().forEach { listModel.addElement(it) }
+                        }
+                    })
                 }
-                val newButton = JButton("新建")
-                val renameButton = JButton("重命名")
-                val deleteButton = JButton("删除")
-                val refreshList = {
-                    listModel.clear()
-                    for (i in 0 until sessionModel.size) {
-                        listModel.addElement(sessionModel.getElementAt(i))
-                    }
-                    currentSession?.let { list.setSelectedValue(it, true) }
-                }
-                refreshList()
-
-                fun updateDeleteState() {
-                    val selected = list.selectedValue
-                    deleteButton.isEnabled = !(sending.get() && selected == currentSession)
-                }
-
-                newButton.addActionListener {
-                    if (sending.get()) {
-                        return@addActionListener
-                    }
-                    val session = createSession()
-                    switchSession(session)
-                    refreshList()
-                    list.setSelectedValue(session, true)
-                }
-                renameButton.addActionListener {
-                    val selected = list.selectedValue ?: return@addActionListener
-                    renameSession(selected)
-                    list.repaint()
-                }
-                deleteButton.addActionListener {
-                    val selected = list.selectedValue ?: return@addActionListener
-                    deleteSession(selected)
-                    refreshList()
-                    updateDeleteState()
-                }
-                list.addListSelectionListener { updateDeleteState() }
-                newButton.isEnabled = !sending.get()
-                updateDeleteState()
-
-                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
-                    isOpaque = false
-                    add(newButton)
-                    add(renameButton)
-                    add(deleteButton)
-                }
-                val content = AgentFormUi.sectionCard(
-                    "会话列表",
-                    "集中管理当前项目中的历史会话。",
-                    JPanel(BorderLayout(0, 12)).apply {
-                        isOpaque = false
-                        add(buttonPanel, BorderLayout.NORTH)
-                        add(JBScrollPane(list), BorderLayout.CENTER)
-                    }
-                )
-                return JPanel(BorderLayout()).apply {
-                    border = JBUI.Borders.empty(12)
-                    add(content, BorderLayout.CENTER)
+                return JPanel(BorderLayout(0, JBUI.scale(8))).apply {
+                    border = JBUI.Borders.empty(8)
+                    add(JBScrollPane(list), BorderLayout.CENTER)
+                    add(buttons, BorderLayout.SOUTH)
                 }
             }
-        }.showAndGet()
+
+            override fun createActions(): Array<out javax.swing.Action?> = emptyArray()
+        }
+        dialog.showAndGet()
+        refreshSessionSelector(ChatSessionService.listSessions())
+    }
+
+    private fun openModelLogDialog() {
+        val dialog = object : DialogWrapper(project, false) {
+            private var page = 1
+            private val pageSize = 20
+            private var rows: List<ModelLogService.ModelLogRecord> = emptyList()
+            private val tableModel = object : DefaultTableModel(arrayOf("ID", "来源", "状态", "模型", "时间", "提示"), 0) {
+                override fun isCellEditable(row: Int, column: Int): Boolean = false
+                override fun getColumnClass(columnIndex: Int): Class<*> = if (columnIndex == 0) java.lang.Long::class.java else String::class.java
+            }
+            private val table = JTable(tableModel).apply {
+                setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+                rowHeight = JBUI.scale(26)
+                fillsViewportHeight = true
+                autoResizeMode = JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS
+                rowSorter = TableRowSorter(tableModel)
+            }
+            private val pageLabel = JLabel()
+            private val detailPanel = JPanel(BorderLayout())
+            private val metadataArea = modelLogDetailTextArea()
+            private val requestArea = modelLogDetailTextArea()
+            private val responseArea = modelLogDetailTextArea()
+            private val detailTabs = JTabbedPane().apply {
+                addTab("元数据", JBScrollPane(metadataArea))
+                addTab("请求", JBScrollPane(requestArea))
+                addTab("响应", JBScrollPane(responseArea))
+            }
+
+            init {
+                title = "模型日志"
+                setSize(JBUI.scale(1180), JBUI.scale(760))
+                isResizable = true
+                init()
+                configureColumns()
+                table.selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) renderSelectedModelLog() }
+                reloadPage(1)
+            }
+
+            override fun createCenterPanel(): JComponent {
+                val tablePanel = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
+                    add(JBScrollPane(table), BorderLayout.CENTER)
+                    add(pageBar(), BorderLayout.SOUTH)
+                }
+                val splitter = JBSplitter(false, .58f).apply {
+                    firstComponent = tablePanel
+                    secondComponent = detailPanel.apply {
+                        border = JBUI.Borders.customLine(JBColor.border(), 1)
+                        add(detailTabs, BorderLayout.CENTER)
+                    }
+                }
+                return JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(8)
+                    add(splitter, BorderLayout.CENTER)
+                }
+            }
+
+            override fun createActions(): Array<out Action?> = emptyArray()
+
+            private fun pageBar(): JComponent = JPanel(BorderLayout()).apply {
+                add(pageLabel, BorderLayout.WEST)
+                add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                    add(JButton("上一页").apply { addActionListener { reloadPage(page - 1) } })
+                    add(JButton("下一页").apply { addActionListener { reloadPage(page + 1) } })
+                    add(JButton("刷新").apply { addActionListener { reloadPage(page) } })
+                    add(JButton("删除").apply { addActionListener { deleteSelectedModelLog() } })
+                }, BorderLayout.EAST)
+            }
+
+            private fun configureColumns() {
+                table.columnModel.getColumn(0).preferredWidth = JBUI.scale(70)
+                table.columnModel.getColumn(1).preferredWidth = JBUI.scale(90)
+                table.columnModel.getColumn(2).preferredWidth = JBUI.scale(90)
+                table.columnModel.getColumn(3).preferredWidth = JBUI.scale(180)
+                table.columnModel.getColumn(4).preferredWidth = JBUI.scale(170)
+                table.columnModel.getColumn(5).preferredWidth = JBUI.scale(430)
+            }
+
+            private fun reloadPage(targetPage: Int) {
+                val result = ModelLogService.modelLogPage(targetPage, pageSize)
+                page = result.page
+                rows = result.rows
+                tableModel.rowCount = 0
+                rows.forEach { record ->
+                    tableModel.addRow(arrayOf(
+                        record.id,
+                        if (isChatModelLog(record)) "chat" else record.sourceType,
+                        record.status,
+                        listOfNotNull(record.providerName, record.modelName).joinToString(" / "),
+                        record.createdAt ?: record.startedAt.orEmpty(),
+                        modelLogPrompt(record).replace('\n', ' ').take(120),
+                    ))
+                }
+                val totalPages = ((result.total + pageSize - 1) / pageSize).coerceAtLeast(1)
+                pageLabel.text = "第 $page / $totalPages 页，共 ${result.total} 条"
+                if (tableModel.rowCount > 0) table.setRowSelectionInterval(0, 0) else clearModelLogDetail()
+            }
+
+            private fun renderSelectedModelLog() {
+                val record = selectedRecord()
+                if (record == null) {
+                    clearModelLogDetail()
+                    return
+                }
+                metadataArea.text = modelLogMetadata(record)
+                requestArea.text = gson.toJson(record.requestData)
+                responseArea.text = gson.toJson(record.responseData)
+                metadataArea.caretPosition = 0
+                requestArea.caretPosition = 0
+                responseArea.caretPosition = 0
+            }
+
+            private fun clearModelLogDetail() {
+                metadataArea.text = ""
+                requestArea.text = ""
+                responseArea.text = ""
+            }
+
+            private fun modelLogDetailTextArea(): JBTextArea = JBTextArea().apply {
+                isEditable = false
+                lineWrap = false
+                font = UIUtil.getLabelFont()
+            }
+
+            private fun selectedRecord(): ModelLogService.ModelLogRecord? {
+                val viewRow = table.selectedRow.takeIf { it >= 0 } ?: return null
+                val modelRow = table.convertRowIndexToModel(viewRow)
+                return rows.getOrNull(modelRow)
+            }
+
+            private fun deleteSelectedModelLog() {
+                val record = selectedRecord() ?: return
+                if (isChatModelLog(record)) {
+                    Messages.showInfoMessage(project, "会话日志不能在这里删除，请去会话里删除对应对话。", "模型日志")
+                    return
+                }
+                val confirm = Messages.showYesNoDialog(
+                    project,
+                    "确定删除模型日志 #${record.id}？",
+                    "删除模型日志",
+                    Messages.getQuestionIcon(),
+                )
+                if (confirm != Messages.YES) return
+                ModelLogService.deleteModelLog(record.id)
+                reloadPage(page)
+            }
+        }
+        dialog.showAndGet()
+    }
+
+    private fun modelLogMetadata(record: ModelLogService.ModelLogRecord): String = buildString {
+        appendLine("ID: ${record.id}")
+        appendLine("来源: ${if (isChatModelLog(record)) "chat" else record.sourceType}")
+        appendLine("source_id: ${record.sourceId.orEmpty()}")
+        appendLine("Agent ID: ${record.agentId ?: ""}")
+        appendLine("消息类型: ${record.messageType.orEmpty()}")
+        appendLine("模型: ${listOfNotNull(record.providerName, record.modelName).joinToString(" / ")}")
+        appendLine("状态: ${record.status}")
+        appendLine("开始时间: ${record.startedAt.orEmpty()}")
+        appendLine("结束时间: ${record.finishedAt.orEmpty()}")
+        appendLine("创建时间: ${record.createdAt.orEmpty()}")
+        record.errorData?.takeIf { it.isNotBlank() }?.let {
+            appendLine()
+            appendLine("错误:")
+            appendLine(it)
+        }
+    }
+
+    private fun modelLogPrompt(record: ModelLogService.ModelLogRecord): String {
+        val snapshot = record.requestData.get("request_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject
+        return snapshot?.get("prompt_message")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+    }
+
+    private fun isChatModelLog(record: ModelLogService.ModelLogRecord): Boolean {
+        if (record.sourceType != ChatSessionService.SESSION_SOURCE_TYPE) return false
+        val sessionId = record.sourceId?.substringAfter(':', missingDelimiterValue = "")?.toLongOrNull() ?: return false
+        return ChatSessionService.sessionById(sessionId) != null
     }
 
     private fun openModelManager() {
-        val provider = resolveSelectedProvider()
-        if (provider == null) {
-            project.errorNotify("模型管理", "请先选择供应方")
-            return
-        }
-        val providerId = provider.id
-        object : DialogWrapper(project, false) {
-            init {
-                this.title = "模型管理"
-                this.setSize(760, 360)
-                this.init()
-            }
-
-            override fun createActions(): Array<out Action?> {
-                return arrayOf()
-            }
-
-            override fun createCenterPanel(): JComponent {
-                val currentListModel = DefaultListModel<String>()
-                val sdkListModel = DefaultListModel<String>()
-                val sdkAllModels = mutableListOf<String>()
-                val currentList = JBList(currentListModel).apply {
-                    selectionMode = ListSelectionModel.SINGLE_SELECTION
-                }
-                val sdkList = JBList(sdkListModel).apply {
-                    selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
-                }
-                val sdkSearchField = JBTextField().apply {
-                    columns = 18
-                    emptyText.text = "搜索模型 ID"
-                    toolTipText = "通过模型 ID 进行模糊匹配"
-                }
-                val emptyHint = JLabel("当前模型列表为空，请从右侧选择并添加").apply {
-                    foreground = JBColor.GRAY
-                }
-
-                fun toolbarAction(text: String, icon: javax.swing.Icon, action: () -> Unit): AnAction {
-                    return object : AnAction({ text }, icon) {
-                        override fun actionPerformed(e: AnActionEvent) {
-                            action()
-                        }
-                    }
-                }
-
-                fun currentModelSet(): Set<String> {
-                    val result = LinkedHashSet<String>()
-                    for (i in 0 until currentListModel.size()) {
-                        result.add(currentListModel.getElementAt(i))
-                    }
-                    return result
-                }
-
-                fun applySdkFilter() {
-                    val query = sdkSearchField.text.trim()
-                    val hidden = currentModelSet()
-                    val filtered = if (query.isBlank()) {
-                        sdkAllModels.filter { !hidden.contains(it) }
-                    } else {
-                        sdkAllModels.filter { it.contains(query, ignoreCase = true) && !hidden.contains(it) }
-                    }
-                    sdkListModel.clear()
-                    filtered.forEach { sdkListModel.addElement(it) }
-                }
-
-                fun createToolbar(id: String, group: DefaultActionGroup, target: JComponent): JComponent {
-                    val toolbar = ActionManager.getInstance().createActionToolbar(id, group, true)
-                    toolbar.targetComponent = target
-                    return toolbar.component
-                }
-
-                fun refreshCurrentList() {
-                    currentListModel.clear()
-                    ensureModelList(provider).forEach { currentListModel.addElement(it) }
-                    emptyHint.isVisible = currentListModel.isEmpty
-                    applySdkFilter()
-                }
-
-
-                fun refreshSdkList(showError: Boolean) {
-                    val cached = modelCache[providerId]?.models.orEmpty()
-                    sdkAllModels.clear()
-                    sdkAllModels.addAll(cached)
-                    applySdkFilter()
-                    requestModelList(provider, showError) { models ->
-                        sdkAllModels.clear()
-                        sdkAllModels.addAll(models)
-                        applySdkFilter()
-                    }
-                }
-
-                refreshCurrentList()
-                refreshSdkList(false)
-
-                sdkSearchField.document.addDocumentListener(object : DocumentAdapter() {
-                    override fun textChanged(e: DocumentEvent) {
-                        applySdkFilter()
-                    }
-                })
-
-                val addAction = toolbarAction("新增", AllIcons.General.Add) {
-                    val input =
-                        Messages.showInputDialog(project, "请输入模型名称", "新增模型", null) ?: return@toolbarAction
-                    val name = input.trim()
-                    if (name.isEmpty()) {
-                        return@toolbarAction
-                    }
-                    ensureModelExists(provider, name)
-                    refreshCurrentList()
-                    if (provider.activeModel.isBlank()) {
-                        provider.activeModel = name
-                    }
-                    if (currentSession?.providerId == providerId && currentSession?.model?.isBlank() == true) {
-                        updateCurrentModel(name)
-                    } else {
-                        refreshModelSelector(currentSession?.model)
-                        updateStatus()
-                    }
-                    currentList.setSelectedValue(name, true)
-                }
-
-                val renameAction = toolbarAction("改名", Icons.mcpSaveIcon()) {
-                    val current = currentList.selectedValue ?: return@toolbarAction
-                    val input = Messages.showInputDialog(project, "请输入新的模型名称", "修改模型", null, current, null)
-                        ?: return@toolbarAction
-                    val name = input.trim()
-                    if (name.isEmpty() || name == current) {
-                        return@toolbarAction
-                    }
-                    val models = ensureModelList(provider)
-                    val index = models.indexOf(current)
-                    if (index >= 0) {
-                        models.removeAt(index)
-                        models.add(index, name)
-                    }
-                    if (provider.activeModel == current) {
-                        provider.activeModel = name
-                    }
-                    AgentProviderSupport.renameModelSettings(provider, current, name)
-                    updateSessionsModelName(providerId, current, name)
-                    if (currentSession?.model == current) {
-                        updateCurrentModel(name)
-                    } else {
-                        refreshModelSelector(currentSession?.model)
-                        updateStatus()
-                    }
-                    refreshCurrentList()
-                    currentList.setSelectedValue(name, true)
-                }
-
-                val deleteAction = toolbarAction("删除", Icons.mcpDeleteIcon()) {
-                    val current = currentList.selectedValue ?: return@toolbarAction
-                    val confirmed =
-                        Messages.showYesNoDialog(project, "确定要删除模型 \"$current\" 吗？", "删除模型", null)
-                    if (confirmed != Messages.YES) {
-                        return@toolbarAction
-                    }
-                    val models = ensureModelList(provider)
-                    models.remove(current)
-                    val fallback = models.firstOrNull().orEmpty()
-                    if (provider.activeModel == current) {
-                        provider.activeModel = fallback
-                    }
-                    AgentProviderSupport.removeModelSettings(provider, current)
-                    if (fallback.isBlank()) {
-                        updateSessionsModelName(providerId, current, "")
-                        if (currentSession?.model == current) {
-                            currentSession?.model = ""
-                            currentSession?.state?.model = ""
-                        }
-                        refreshModelSelector("")
-                        updateStatus()
-                    } else {
-                        updateSessionsModelName(providerId, current, fallback)
-                        if (currentSession?.model == current) {
-                            updateCurrentModel(fallback)
-                        } else {
-                            refreshModelSelector(currentSession?.model)
-                            updateStatus()
-                        }
-                    }
-                    refreshCurrentList()
-                }
-
-                val refreshSdkAction = toolbarAction("刷新", Icons.mcpRefreshIcon()) {
-                    refreshSdkList(true)
-                }
-
-                val addFromSdkAction = toolbarAction("添加到当前列表", Icons.moveright()) {
-                    val selected = sdkList.selectedValuesList.map { it.trim() }.filter { it.isNotBlank() }
-                    if (selected.isEmpty()) {
-                        project.infoNotify("模型管理", "请先选择右侧模型")
-                        return@toolbarAction
-                    }
-                    val models = ensureModelList(provider)
-                    var changed = false
-                    selected.forEach { model ->
-                        if (!models.contains(model)) {
-                            models.add(model)
-                            changed = true
-                        }
-                    }
-                    if (!changed) {
-                        return@toolbarAction
-                    }
-                    refreshCurrentList()
-                    val firstAdded = selected.first()
-                    if (provider.activeModel.isBlank()) {
-                        provider.activeModel = firstAdded
-                    }
-                    if (currentSession?.providerId == providerId && currentSession?.model?.isBlank() == true) {
-                        updateCurrentModel(provider.activeModel)
-                    } else {
-                        refreshModelSelector(currentSession?.model)
-                        updateStatus()
-                    }
-                }
-
-                val leftHeader = JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    add(JLabel("当前模型列表"))
-                    add(emptyHint)
-                }
-                val leftToolbarGroup = DefaultActionGroup().apply {
-                    add(addAction)
-                    add(renameAction)
-                    add(deleteAction)
-                }
-                val leftToolbar = createToolbar("AgentModelManagerLeftToolbar", leftToolbarGroup, currentList)
-                val leftPanel = AgentFormUi.sectionCard(
-                    "当前模型列表",
-                    "这里显示当前供应方已启用的模型。",
-                    JPanel(BorderLayout(0, 10)).apply {
-                        isOpaque = false
-                        add(leftHeader, BorderLayout.NORTH)
-                        add(JBScrollPane(currentList), BorderLayout.CENTER)
-                        add(leftToolbar, BorderLayout.SOUTH)
-                    }
-                )
-                val rightHeader = JLabel("SDK 模型列表")
-                val rightHeaderPanel = JPanel(BorderLayout(6, 0)).apply {
-                    isOpaque = false
-                    add(rightHeader, BorderLayout.WEST)
-                    add(sdkSearchField, BorderLayout.CENTER)
-                }
-                val rightToolbarGroup = DefaultActionGroup().apply {
-                    add(refreshSdkAction)
-                    add(addFromSdkAction)
-                }
-                val rightToolbar = createToolbar("AgentModelManagerRightToolbar", rightToolbarGroup, sdkList)
-                val rightPanel = AgentFormUi.sectionCard(
-                    "SDK 模型列表",
-                    "从 SDK 拉取并筛选可添加到当前供应方的模型。",
-                    JPanel(BorderLayout(0, 10)).apply {
-                        isOpaque = false
-                        add(rightHeaderPanel, BorderLayout.NORTH)
-                        add(JBScrollPane(sdkList), BorderLayout.CENTER)
-                        add(rightToolbar, BorderLayout.SOUTH)
-                    }
-                )
-                val content = JPanel(GridLayout(1, 2, 12, 0)).apply {
-                    isOpaque = false
-                    add(leftPanel)
-                    add(rightPanel)
-                }
-                return JPanel(BorderLayout()).apply {
-                    border = JBUI.Borders.empty(12)
-                    add(content, BorderLayout.CENTER)
-                }
-            }
-        }.showAndGet()
+        val panel = AwakeProviderModelConfigPanel(project)
+        showConfigDialog("供应商与模型", JBUI.scale(1100), JBUI.scale(720), { panel.component }, { panel.dispose() })
     }
 
-    private fun openProviderManager() {
-        val dialog = object : DialogWrapper(project, false) {
-            private val panel = AgentProviderConfigPanel(project){
-                client.refreshRuntimeCache(it)
-            }
-
-            init {
-                title = "供应方配置"
-                setSize(JBUI.scale(1000), JBUI.scale(500))
-                init()
-            }
-
-            override fun createCenterPanel(): JComponent = panel.component
-
-            override fun createActions(): Array<out Action?> = arrayOf()
-
-            override fun dispose() {
-                panel.dispose()
-                super.dispose()
-            }
-        }
-        dialog.showAndGet()
-        refreshProvidersAfterChange()
+    private fun openPromptManager() {
+        val panel = AwakePromptConfigPanel(project)
+        showConfigDialog("提示词管理", JBUI.scale(1100), JBUI.scale(720), { panel.component }, { panel.dispose() })
     }
 
-    private fun openSystemPromptManager() {
-        val dialog = object : DialogWrapper(project, false) {
-            private val panel = AgentSystemPromptConfigPanel(project,(systemPromptSelector.selectedItem as? SystemPromptOption)?.id) { refreshSystemPromptsAfterChange() }
-
-            init {
-                title = "系统提示词管理"
-                setSize(JBUI.scale(1100), JBUI.scale(720))
-                init()
-            }
-
-            override fun createCenterPanel(): JComponent = panel.component
-
-            override fun createActions(): Array<out Action?> = arrayOf()
-
-            override fun dispose() {
-                panel.dispose()
-                super.dispose()
-            }
+    private fun openAgentManager() {
+        val panel = AwakeAgentConfigPanel(project) {
+            refreshAgentSelector((agentSelector.selectedItem as? AgentRecord)?.id)
         }
-        dialog.showAndGet()
-        refreshSystemPromptsAfterChange()
+        showConfigDialog("Agent 管理", JBUI.scale(1180), JBUI.scale(760), { panel.component }, { panel.dispose() })
+        refreshAgentSelector((agentSelector.selectedItem as? AgentRecord)?.id)
     }
 
     private fun openSkillManager() {
+        val panel = AwakeSkillsConfigPanel(project)
+        showConfigDialog("Skills 管理", JBUI.scale(980), JBUI.scale(660), { panel.component }, { panel.dispose() })
+    }
+
+    private fun openGlobalConfigManager() {
+        val panel = AwakeGlobalConfigPanel(project)
+        showConfigDialog("全局配置", JBUI.scale(1100), JBUI.scale(760), { panel.component }, { panel.dispose() })
+    }
+
+    private fun showConfigDialog(
+        dialogTitle: String,
+        width: Int,
+        height: Int,
+        componentProvider: () -> JComponent,
+        onDispose: () -> Unit = {},
+    ) {
         val dialog = object : DialogWrapper(project, false) {
-            private val panel = AgentSkillConfigPanel(project) { refreshSkillsAfterChange() }
+            private val panelComponent = componentProvider()
 
             init {
-                title = "Skills 管理"
-                setSize(JBUI.scale(1100), JBUI.scale(720))
+                title = dialogTitle
+                setSize(width, height)
+                isResizable = true
+                Disposer.register(disposable) { onDispose() }
                 init()
             }
 
-            override fun createCenterPanel(): JComponent = panel.component
-
-            override fun createActions(): Array<out Action?> = arrayOf()
-
-            override fun dispose() {
-                panel.dispose()
-                super.dispose()
-            }
-        }
-        dialog.showAndGet()
-        refreshSkillsAfterChange()
-    }
-
-    private fun openSkillSelector() {
-        val allSkills = AgentSkillSupport.normalizeSkills(project.pluginState().agentSkills)
-        if (allSkills.isEmpty()) {
-            project.infoNotify("Skills", "当前还没有可用技能，请先导入目录或手动新增。")
-            return
-        }
-        val session = currentSession ?: return
-        val dialog = object : DialogWrapper(project, false) {
-            private val checkBoxes = linkedMapOf<String, JCheckBox>()
-
-            init {
-                title = "当前会话 Skills"
-                setSize(JBUI.scale(620), JBUI.scale(480))
-                init()
-            }
-
-            override fun createCenterPanel(): JComponent {
-                val listPanel = JPanel().apply {
-                    isOpaque = false
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    allSkills.forEachIndexed { index, skill ->
-                        if (index > 0) {
-                            add(Box.createVerticalStrut(JBUI.scale(6)))
-                        }
-                        val checkBox = JCheckBox(skill.name, session.state.enabledSkillIds.contains(skill.id)).apply {
-                            isOpaque = false
-                            toolTipText = skill.description
-                        }
-                        checkBoxes[skill.id] = checkBox
-                        add(createSessionSkillRow(skill, checkBox))
-                    }
-                }
-                val scrollPane = JBScrollPane(listPanel).apply {
-                    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-                    preferredSize = Dimension(JBUI.scale(560), JBUI.scale(300))
-                    minimumSize = Dimension(JBUI.scale(420), JBUI.scale(220))
-                }
-                return JPanel(BorderLayout()).apply {
-                    border = JBUI.Borders.empty(12)
-                    add(scrollPane, BorderLayout.CENTER)
-                }
-            }
-
-            override fun doOKAction() {
-                session.state.enabledSkillIds = checkBoxes
-                    .filterValues { it.isSelected }
-                    .keys
-                    .toMutableList()
-                updateStatus()
-                super.doOKAction()
-            }
+            override fun createCenterPanel(): JComponent = panelComponent
+            override fun createActions(): Array<out javax.swing.Action?> = emptyArray()
         }
         dialog.showAndGet()
     }
 
-    private fun createSessionSkillRow(skill: AgentSkillState, checkBox: JCheckBox): JComponent {
-        val sourceLabel = JLabel(AgentSkillSourceType.fromId(skill.sourceType).displayName).apply {
-            foreground = JBColor.GRAY
-            toolTipText = skill.description
-        }
-        return JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            isOpaque = true
-            background = UIUtil.getPanelBackground().brighter()
-            border = JBUI.Borders.compound(
-                JBUI.Borders.customLine(JBColor.border(), 1, 1, 1, 1),
-                JBUI.Borders.empty(0, 8)
-            )
-            toolTipText = skill.description
-            minimumSize = Dimension(0, JBUI.scale(28))
-            preferredSize = Dimension(0, JBUI.scale(28))
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(28))
-            add(checkBox, BorderLayout.WEST)
-            add(sourceLabel, BorderLayout.EAST)
-        }
-    }
-
-    private fun openMcpManager() {
-        val dialog = object : DialogWrapper(project, false) {
-            val panel = McpConfigPanel(project) { text ->
-                if (text.isNotBlank()) {
-                    SwingUtilities.invokeLater {
-                        inputArea.append(if (inputArea.text.isBlank()) text else "\n$text")
-                        inputArea.requestFocusInWindow()
-                    }
-                }
-            }
-
-            init {
-                this.title = "MCP 配置"
-                this.setSize(JBUI.scale(980), JBUI.scale(660))
-                this.setResizable(true)
-                Disposer.register(this.disposable) {
-                    panel.dispose()
-                }
-                this.init()
-            }
-
-            override fun createCenterPanel(): JComponent = panel.component
-            override fun createActions(): Array<out Action?> {
-                return arrayOf()
-            }
-        }
-        dialog.showAndGet()
-    }
-
-    private fun refreshProvidersAfterChange() {
-        val previousId = currentSession?.providerId
-        refreshProviderSelector(previousId)
-        val selected = resolveSelectedProvider()
-        if (currentSession != null && selected != null && currentSession?.providerId != selected.id) {
-            updateCurrentProvider(selected)
-        } else {
-            updateStatus()
-        }
-    }
-
-    private fun refreshSkillsAfterChange() {
-        val normalized = AgentSkillSupport.normalizeSkills(project.pluginState().agentSkills)
-        project.pluginState().agentSkills.clear()
-        project.pluginState().agentSkills.addAll(normalized)
-        val validIds = normalized.map { it.id }.toSet()
-        project.pluginState().agentSessions.forEach { state ->
-            state.enabledSkillIds = state.enabledSkillIds.filter { it in validIds }.distinct().toMutableList()
-        }
-        updateStatus()
+    private fun refreshQueuePanel() {
+        syncBrowserState()
         updateToolbars()
     }
 
-    private fun refreshSystemPromptsAfterChange() {
-        val normalized = AgentSystemPromptSupport.normalizePrompts(project.pluginState().agentSystemPrompts)
-        project.pluginState().agentSystemPrompts.clear()
-        project.pluginState().agentSystemPrompts.addAll(normalized)
-        project.pluginState().agentSessions.forEach { session ->
-            AgentSystemPromptSupport.syncSessionSystemPrompt(session, normalized)
-            client.clearSession(session.id)
-        }
-        currentSession?.let { syncSessionSystemPrompt(it) }
-        refreshSystemPromptSelector(currentSession?.state?.systemPromptId)
-        updateStatus()
-        updateToolbars()
-    }
-
-    private fun updateSessionsModelName(providerId: String, oldName: String, newName: String) {
-        for (i in 0 until sessionModel.size) {
-            val session = sessionModel.getElementAt(i)
-            if (session.providerId == providerId && session.model == oldName) {
-                session.model = newName
-                session.state.model = newName
-            }
-        }
-    }
-
-    private fun beginRequestUi() {
-        requestUiControls.applyRequestInProgress(
-            requestInProgress = true,
-            setActionEnabled = ::setActionEnabled,
-            setInputEnabled = ::setInputEnabled
-        )
-        updateToolbars()
-    }
-
-    private fun finishRequestUi() {
-        requestUiControls.applyRequestInProgress(
-            requestInProgress = false,
-            setActionEnabled = ::setActionEnabled,
-            setInputEnabled = ::setInputEnabled
-        )
-        cancelToken = null
-        sending.set(false)
-        updateModelSettingsAction()
-        updateToolbars()
-    }
-
-    private fun cancelCurrentRequest() {
-        if (!sending.get()) {
-            return
-        }
-        cancelToken?.cancel()
-        activeRequestId = requestCounter.incrementAndGet()
-        clearStreamingRequestState()
-        appendMessage("系统", "已终止当前请求", collapsible = false, collapsedByDefault = false)
-        finishRequestUi()
-    }
-
-    private fun isActiveRequest(requestId: Int, token: AgentClient.CancelToken?): Boolean {
-        return requestId == activeRequestId && token?.isCancelled() != true
-    }
-
-    private fun resolveProjectKey(): String {
-        val basePath = project.basePath?.replace("\\", "/")?.trim().orEmpty()
-        return if (basePath.isNotEmpty()) basePath else project.name
-    }
-
-    private fun resolveStoredSessions(): List<AgentSessionState> {
-        val all = project.pluginState().agentSessions
-        val matched = all.filter { it.projectKey == projectKey }
-        if (matched.isNotEmpty()) {
-            return matched
-        }
-        val legacy = all.filter { it.projectKey.isBlank() }
-        if (legacy.isNotEmpty()) {
-            legacy.forEach { it.projectKey = projectKey }
-            return legacy
-        }
-        return emptyList()
-    }
-
-    private fun resolveActiveSessionId(stored: List<AgentSessionState>): String? {
-        if (stored.isEmpty()) {
-            return null
-        }
-        val state = project.pluginState()
-        val byProject = state.agentActiveSessionIdByProject[projectKey]
-        if (!byProject.isNullOrBlank() && stored.any { it.id == byProject }) {
-            return byProject
-        }
-        val legacy = state.agentActiveSessionId.takeIf { it.isNotBlank() && stored.any { session -> session.id == it } }
-        if (legacy != null) {
-            state.agentActiveSessionIdByProject[projectKey] = legacy
-            return legacy
-        }
-        return null
-    }
-
-    private fun setActiveSessionId(sessionId: String) {
-        val state = project.pluginState()
-        state.agentActiveSessionIdByProject[projectKey] = sessionId
-        state.agentActiveSessionId = sessionId
-    }
+    // -------- UI 构建 --------
 
     private fun buildTopBar(): JComponent {
         val sessionPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
@@ -2492,24 +2019,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(JLabel("会话: "))
             add(sessionSelector)
             val group = DefaultActionGroup().apply {
-                add(quickClearAction)
+                add(newSessionAction)
+                add(clearAction)
                 add(sessionManageAction)
-                add(skillSelectAction)
+                add(modelLogAction)
             }
-            add(createToolbar("AgentSessionToolbar", group, true, this))
+            add(createToolbar("AgentSessionToolbar", group))
         }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(6, 8, 0, 8)
-            add(statusLabel, BorderLayout.CENTER)
-            add(sessionPanel, BorderLayout.EAST)
+            add(JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
+                isOpaque = false
+                add(sessionPanel)
+            }, BorderLayout.EAST)
         }
     }
 
-    private fun buildChatContainer(): JComponent {
-        return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(8, 8, 6, 8)
-            add(chatScroll, BorderLayout.CENTER)
-        }
+    private fun buildChatContainer(): JComponent = JPanel(BorderLayout()).apply {
+        border = JBUI.Borders.empty(8, 8, 6, 8)
+        add(chatScroll, BorderLayout.CENTER)
     }
 
     private fun buildInputBar(): JComponent {
@@ -2522,1317 +2050,337 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         inputHintLabel.foreground = UIUtil.getContextHelpForeground()
         inputHintLabel.horizontalAlignment = SwingConstants.LEFT
-        tokenUsageLabel.foreground = UIUtil.getContextHelpForeground()
-        tokenUsageLabel.horizontalAlignment = SwingConstants.LEFT
-        val providerPanel = JPanel().apply {
+
+        val agentPanel = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
             isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(Box.createHorizontalGlue())
-            add(JLabel("供应方: "))
-            add(Box.createHorizontalStrut(6))
-            add(providerSelector)
-        }
-        val modelPanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(Box.createHorizontalGlue())
-            add(JLabel("模型: "))
-            add(Box.createHorizontalStrut(6))
-            add(modelSelector)
-        }
-        val permissionScopePanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(JLabel("访问权限: "))
-            add(Box.createHorizontalStrut(6))
-            add(permissionScopeSelector)
-        }
-        val approvalPolicyPanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(JLabel("危险操作: "))
-            add(Box.createHorizontalStrut(6))
-            add(approvalPolicySelector)
-        }
-        val systemPromptPanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(tokenUsageLabel)
-            add(Box.createHorizontalStrut(JBUI.scale(10)))
-            add(JLabel("提示词: "))
-            add(Box.createHorizontalStrut(6))
-            add(systemPromptSelector)
-        }
-        val topControlBar = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(10), 0)).apply {
-            isOpaque = false
-            add(systemPromptPanel)
-            add(permissionScopePanel)
-            add(approvalPolicyPanel)
-            add(permissionHelpButton)
-        }
-        val header = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(inputHintLabel, BorderLayout.WEST)
-        }
-        val actionPanel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            val selectorPanel = JPanel().apply {
-                isOpaque = false
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                add(providerPanel)
-                add(Box.createVerticalStrut(4))
-                add(modelPanel)
-                if (AgentConversationModeSupport.selectorVisible()) {
-                    val modePanel = JPanel().apply {
-                        isOpaque = false
-                        layout = BoxLayout(this, BoxLayout.X_AXIS)
-                        add(Box.createHorizontalGlue())
-                        add(JLabel("对话模式: "))
-                        add(Box.createHorizontalStrut(6))
-                        add(conversationModeSelector)
-                    }
-                    add(Box.createVerticalStrut(4))
-                    add(modePanel)
-                }
-            }
-            add(selectorPanel, BorderLayout.NORTH)
-            val sendGroup = DefaultActionGroup().apply {
-                add(providerManageAction)
-                add(systemPromptManageAction)
-                add(modelManageAction)
-                add(modelSettingsAction)
-                add(skillManageAction)
-                add(mcpManageAction)
-                addSeparator()
+            border = JBUI.Borders.empty(4, 0, 4, 0)
+            add(JLabel("Agent: "))
+            add(agentSelector)
+            val group = DefaultActionGroup().apply {
                 add(attachmentAction)
-                add(sendAction)
-                add(stopAction)
+                add(modelManageAction)
+                add(promptManageAction)
+                add(agentManageAction)
+                        add(skillManageAction)
+                add(globalConfigAction)
             }
-            val sendToolbar = createToolbar("AgentSendToolbar", sendGroup, true, this)
-            add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
-                isOpaque = false
-                this.add(sendToolbar)
-            }, BorderLayout.SOUTH)
+            add(createToolbar("AgentActionToolbar", group))
         }
+
         inputCenterPanel.removeAll()
-        inputCenterPanel.add(attachmentDraftScroll, BorderLayout.NORTH)
         inputCenterPanel.add(inputScroll, BorderLayout.CENTER)
-        val inputBody = JPanel(BorderLayout(JBUI.scale(12), 0)).apply {
-            isOpaque = false
-            add(inputCenterPanel, BorderLayout.CENTER)
-            add(actionPanel, BorderLayout.EAST)
-        }
-        val inputCard = JPanel(BorderLayout(0, JBUI.scale(8))).apply {
+
+        val inputCard = JPanel(BorderLayout()).apply {
             isOpaque = true
             background = INPUT_COMPOSER_BACKGROUND
-            add(header, BorderLayout.NORTH)
-            add(inputBody, BorderLayout.CENTER)
+            add(inputCenterPanel, BorderLayout.CENTER)
         }
-        updateInputComposerChrome(inputCard, actionPanel, focused = inputArea.hasFocus())
-        updateTokenUsageLabel()
+        updateInputComposerChrome(inputCard, focused = false)
         inputArea.addFocusListener(object : FocusAdapter() {
-            override fun focusGained(e: FocusEvent) {
-                updateInputComposerChrome(inputCard, actionPanel, focused = true)
-            }
-
-            override fun focusLost(e: FocusEvent) {
-                updateInputComposerChrome(inputCard, actionPanel, focused = false)
-            }
+            override fun focusGained(e: FocusEvent) = updateInputComposerChrome(inputCard, focused = true)
+            override fun focusLost(e: FocusEvent) = updateInputComposerChrome(inputCard, focused = false)
         })
-        return JPanel(BorderLayout()).apply {
+
+        val topPanel = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(inputHintLabel, BorderLayout.WEST)
+            })
+            add(queuePanel)
+            add(draftAttachmentPanel)
+            add(agentPanel)
+        }
+
+        return JPanel(BorderLayout(0, JBUI.scale(6))).apply {
             border = JBUI.Borders.empty(4, 8, 8, 8)
             isOpaque = false
-            add(topControlBar, BorderLayout.NORTH)
+            add(topPanel, BorderLayout.NORTH)
             add(inputCard, BorderLayout.CENTER)
         }
     }
 
-    private fun updateInputComposerChrome(card: JPanel, actionPanel: JComponent, focused: Boolean) {
+    private fun updateInputComposerChrome(card: JPanel, focused: Boolean) {
         card.background = INPUT_COMPOSER_BACKGROUND
         inputArea.background = INPUT_COMPOSER_BACKGROUND
         card.border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(
                 if (focused) INPUT_COMPOSER_FOCUS_BORDER else INPUT_COMPOSER_BORDER,
                 JBUI.scale(1),
-                true
+                true,
             ),
-            JBUI.Borders.empty(10, 12, 10, 12)
-        )
-        actionPanel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 1, 0, 0, INPUT_COMPOSER_DIVIDER),
-            JBUI.Borders.emptyLeft(12)
+            JBUI.Borders.empty(8, 10),
         )
         card.revalidate()
         card.repaint()
     }
 
-    private fun showPermissionHelpDialog() {
-        val textArea = JBTextArea(AgentToolPermissionHelp.fullText()).apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            background = UIUtil.getPanelBackground()
-            foreground = UIUtil.getLabelForeground()
-            border = JBUI.Borders.empty(8, 10)
-            caretPosition = 0
-        }
-        val dialog = object : DialogWrapper(project, false) {
-            init {
-                title = "权限说明"
-                init()
-            }
+    // -------- action / toolbar / 状态 --------
 
-            override fun createCenterPanel(): JComponent {
-                return JBScrollPane(textArea).apply {
-                    preferredSize = Dimension(JBUI.scale(640), JBUI.scale(520))
-                    verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-                    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-                    verticalScrollBar.unitIncrement = UIUtil.getLineHeight(textArea)
-                }
-            }
-        }
-        dialog.show()
-    }
-
-    private fun sendMessage() {
-        if (sending.get() || !isActionEnabled(sendAction) || !inputArea.isEnabled) {
-            return
-        }
-        val session = currentSession ?: return
-        val text = inputArea.text.trim()
-        val attachments = session.state.draftAttachments.toList()
-        if (text.isEmpty() && attachments.isEmpty()) {
-            return
-        }
-        val provider = resolveSelectedProvider()
-        if (provider == null) {
-            project.errorNotify("智能体", "请先在设置中配置供应方")
-            return
-        }
-        val apiKey = provider.apiKey.trim()
-        if (apiKey.isBlank()) {
-            project.errorNotify("智能体", "请先在供应方配置中填写 API Key")
-            return
-        }
-        val providerType = AgentProviderType.fromId(provider.type)
-        if (providerType == AgentProviderType.ANTHROPIC) {
-            val anthropicModel = session.model.trim().ifBlank { resolveDefaultModel(provider) }
-            val anthropicSettings = anthropicModel.takeIf { it.isNotBlank() }?.let {
-                AgentProviderSupport.findModelSettings(provider, it)
-            }
-            val effectiveMaxTokens = anthropicSettings?.anthropicMaxTokens?.trim()?.toIntOrNull()
-                ?: provider.maxTokens.takeIf { it > 0 }
-            if (effectiveMaxTokens == null || effectiveMaxTokens <= 0) {
-                project.errorNotify("智能体", "请在模型设置或供应方默认值中设置 Max Tokens")
-                return
-            }
-        }
-        val model = session.model.trim().ifBlank { resolveDefaultModel(provider) }
-        if (model.isBlank()) {
-            openModelManager()
-            refreshModelSelector("")
-            return
-        }
-        if (!sending.compareAndSet(false, true)) {
-            return
-        }
-        syncSessionSystemPrompt(session)
-        updateCurrentModel(model)
-        updateCurrentProvider(provider)
-        val maxToolIterations = project.pluginState().agentMaxToolIterations.takeIf { it > 0 } ?: 5
-        val requestId = requestCounter.incrementAndGet()
-        activeRequestId = requestId
-        val token = AgentClient.CancelToken()
-        cancelToken = token
-        clearStreamingRequestState()
-        SwingUtilities.invokeLater { inputArea.text = "" }
-        appendMessage(
-            "用户",
-            AgentAttachmentPresentationSupport.userMessagePreview(text, attachments),
-            collapsible = false,
-            collapsedByDefault = false,
-            attachments = attachments
-        )
-        updateSessionTitle(text.ifBlank { attachments.firstOrNull()?.name.orEmpty() })
-        beginRequestUi()
-        updateStatus()
-
-        val userMessage = JsonObject().apply {
-            addProperty("role", "user")
-            addProperty("content", text)
-            if (attachments.isNotEmpty()) {
-                add("attachments", attachmentJsonArray(attachments))
-            }
-        }
-        session.messages.add(userMessage)
-        session.state.draftAttachments.clear()
-        refreshAttachmentDrafts()
-        syncSessionMessages(session)
-
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val toolkit = AgentScopeToolkit()
-            val resolvedSkills = AgentSkillSupport.resolve(
-                project.pluginState().agentSkills,
-                session.state.enabledSkillIds,
-                toolkit
-            )
-            val toolRegistry = AgentToolRegistry.build(project, resolvedSkills.selectedSkills, session.state.runtime)
-            if (resolvedSkills.warnings.isNotEmpty()) {
-                ApplicationManager.getApplication().invokeLater {
-                    project.infoNotify("Skills", resolvedSkills.warnings.joinToString("\n"))
-                    refreshSkillsAfterChange()
-                }
-            }
-            val result = client.complete(
-                session.state,
-                session.messages,
-                toolRegistry,
-                provider,
-                model,
-                resolvedSkills = resolvedSkills,
-                toolkit = toolkit,
-                onAssistantDelta = { event ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (!isActiveRequest(requestId, token)) {
-                            return@invokeLater
-                        }
-                        renderStreamingTextEvent(
-                            event = event,
-                            role = "助手",
-                            collapsible = false,
-                            collapsedByDefault = false,
-                        )
-                    }
-                },
-                onReasoningDelta = { event ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (!isActiveRequest(requestId, token)) {
-                            return@invokeLater
-                        }
-                        renderStreamingTextEvent(
-                            event = event,
-                            role = "推理",
-                            collapsible = true,
-                            collapsedByDefault = false,
-                        )
-                    }
-                },
-                onToolCall = { event ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (!isActiveRequest(requestId, token)) {
-                            return@invokeLater
-                        }
-                        renderToolCallEvent(event)
-                    }
-                },
-                onToolResult = { event ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (!isActiveRequest(requestId, token)) {
-                            return@invokeLater
-                        }
-                        renderToolResultEvent(event)
-                    }
-                },
-                maxToolIterations = maxToolIterations,
-                cancelToken = token
-            )
-            ApplicationManager.getApplication().invokeLater {
-                if (!isActiveRequest(requestId, token)) {
-                    return@invokeLater
-                }
-                clearStreamingRequestState()
-                if (result.errorMessage != null) {
-                    appendMessage("错误", result.errorMessage, collapsible = false, collapsedByDefault = false)
-                }
-                recordTokenUsage(session, result.usage)
-                syncSessionMessages(session)
-                finishRequestUi()
-            }
+    private fun createAction(
+        description: String,
+        icon: javax.swing.Icon,
+        enabledProvider: (() -> Boolean)? = null,
+        action: () -> Unit,
+    ): AnAction = object : AnAction({ description }, AgentToolbarIconSupport.normalize(icon)) {
+        override fun actionPerformed(e: AnActionEvent) = action()
+        override fun update(e: AnActionEvent) {
+            e.presentation.isEnabled = (enabledProvider?.invoke() ?: true) && isActionEnabled(this)
         }
     }
 
-    private fun appendMessage(
-        role: String,
-        content: String,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-        attachments: List<AgentAttachmentState> = emptyList(),
-    ) {
-        val color = if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground()
-        val item = RenderItem(role, content, collapsible, collapsedByDefault, attachments = attachments.toMutableList())
-        addRenderItem(item)
-        val block = createMessageBlock(role, color, collapsible, collapsedByDefault, item)
-        setBlockContent(block, content)
-        addMessageBlock(block)
+    private fun createToolbar(id: String, group: DefaultActionGroup): JComponent {
+        val toolbar = ActionManager.getInstance().createActionToolbar(id, group, true)
+        toolbar.targetComponent = this
+        toolbar.setMinimumButtonSize(AgentToolbarIconSupport.minimumButtonSize)
+        actionToolbars.add(toolbar)
+        return toolbar.component
     }
 
-    private fun renderStreamingTextEvent(
-        event: AgentTextStreamEvent,
-        role: String,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-    ) {
-        if (event.text.isEmpty()) {
-            return
+    private fun simpleRenderer(textProvider: (Any?) -> String): javax.swing.ListCellRenderer<Any?> =
+        object : javax.swing.DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: javax.swing.JList<*>?,
+                value: Any?,
+                index: Int,
+                isSelected: Boolean,
+                cellHasFocus: Boolean,
+            ): Component = super.getListCellRendererComponent(list, textProvider(value), index, isSelected, cellHasFocus)
         }
-        val block = streamingTextBlocks.getOrPut(streamingBlockKey(role)) {
-            createTrackedMessageBlock(
-                role = role,
-                collapsible = collapsible,
-                collapsedByDefault = collapsedByDefault,
-            )
-        }
-        appendToBlock(block, event.text)
-        if (role == "助手") {
-            assistantBlock = block
-        }
+
+    private fun applyFixedWidth(comboBox: ComboBox<*>, width: Int) {
+        val size = Dimension(width, comboBox.preferredSize.height)
+        comboBox.preferredSize = size
+        comboBox.minimumSize = size
+        comboBox.maximumSize = size
     }
 
-    private fun streamingBlockKey(role: String): String {
-        return role
+    private fun updateToolbars() = actionToolbars.forEach { it.updateActionsAsync() }
+
+    private fun setActionEnabled(action: AnAction, enabled: Boolean) {
+        actionEnabledState[action] = enabled
     }
 
-    private fun renderToolCallEvent(event: ToolCallStreamEvent) {
-        val block = ensureToolBlock()
-        val entry = ensureToolEntryCard(block, event.id, event.index, event.name, "")
-        entry.state.name = event.name.ifBlank { entry.state.name }
-        entry.state.arguments = event.arguments
-        entry.state.status = if (entry.state.result.isNotBlank()) "已完成" else "调用中"
-        updateToolBlockSummary(block)
-        updateToolEntryCard(entry)
-    }
-
-    private fun renderToolResultEvent(event: ToolResultStreamEvent) {
-        val block = ensureToolBlock()
-        val entry = ensureToolEntryCard(block, event.id, -1, event.name, event.arguments)
-        if (entry.state.arguments.isBlank() && event.arguments.isNotBlank()) {
-            entry.state.arguments = event.arguments
-        }
-        entry.state.result += event.result
-        entry.state.status = "已完成"
-        updateToolBlockSummary(block)
-        updateToolEntryCard(entry)
-    }
-
-    private fun ensureToolBlock(): ToolListBlock {
-        return toolBlock ?: createTrackedToolBlock(
-            collapsedByDefault = true,
-            insertBeforeAssistant = true,
-        ).also { toolBlock = it }
-    }
-
-    private fun createTrackedMessageBlock(
-        role: String,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-        insertBeforeAssistant: Boolean = false,
-    ): MessageBlock {
-        val item = RenderItem(role, "", collapsible, collapsedByDefault)
-        val block = createMessageBlock(
-            role,
-            if (role == "推理") JBColor(0x6A6A6A, 0x9A9A9A) else UIUtil.getLabelForeground(),
-            collapsible,
-            collapsedByDefault,
-            item
-        )
-        if (insertBeforeAssistant && assistantBlock != null) {
-            addRenderItem(item, assistantBlock?.renderItem)
-            addMessageBlock(block, assistantBlock)
-        } else {
-            addRenderItem(item)
-            addMessageBlock(block)
-        }
-        if (role == "助手") {
-            assistantBlock = block
-        }
-        return block
-    }
-
-    private fun appendToBlock(block: MessageBlock?, text: String) {
-        block ?: return
-        block.renderItem?.let {
-            it.content += text
-            it.state?.content = it.content
-            setBlockContent(block, it.content, immediate = false)
-        } ?: run {
-            setBlockContent(block, block.rawContent + text, immediate = false)
-        }
-        if (block.contentPanel.isVisible && block.scrollPane != null) {
-            scrollBlockContentToBottom(block.scrollPane)
-        }
-        scrollToBottom()
-    }
-
-    private fun clearStreamingRequestState() {
-        streamingTextBlocks.values.forEach { flushPendingMarkdownRender(it) }
-        assistantBlock = null
-        toolBlock = null
-        streamingTextBlocks.clear()
-    }
-
-    private fun addMessageBlock(block: MessageBlock, before: MessageBlock? = null) {
-        addBlockComponent(block.panel, before?.panel)
-    }
-
-    private fun addBlockComponent(component: JComponent, before: JComponent? = null) {
-        if (before != null) {
-            val index = messageContainer.getComponentZOrder(before)
-            if (index >= 0) {
-                messageContainer.add(component, index)
-            } else {
-                messageContainer.add(component)
-            }
-        } else {
-            messageContainer.add(component)
-        }
-        messageContainer.revalidate()
-        messageContainer.repaint()
-        scrollToBottom()
-    }
-
-    private fun scrollToBottom() {
-        SwingUtilities.invokeLater {
-            val bar = chatScroll.verticalScrollBar
-            bar.value = bar.maximum
-        }
-    }
-
-    private fun scrollBlockContentToTop(scrollPane: JScrollPane) {
-        SwingUtilities.invokeLater {
-            scrollPane.verticalScrollBar.value = 0
-        }
-    }
-
-    private fun scrollBlockContentToBottom(scrollPane: JScrollPane) {
-        SwingUtilities.invokeLater {
-            val bar = scrollPane.verticalScrollBar
-            bar.value = (bar.maximum - bar.visibleAmount).coerceAtLeast(0)
-        }
-    }
-
-    private fun createMessageBlock(
-        title: String,
-        textColor: java.awt.Color,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-        renderItem: RenderItem? = null
-    ): MessageBlock {
-        val panel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-        }
-        val headerLabel = JLabel(title).apply {
-            foreground = if (title == "推理") textColor else UIUtil.getLabelForeground()
-//            font = font.deriveFont(font.style or Font.BOLD)
-        }
-        val rendersMarkdown = title == "助手"
-        val contentArea = if (rendersMarkdown) {
-            createMarkdownPane(textColor)
-        } else {
-            createPlainTextArea(textColor)
-        }
-        val contentPanel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(contentArea, BorderLayout.CENTER)
-            isVisible = !collapsedByDefault
-        }
-        renderItem?.attachments?.takeIf { it.isNotEmpty() }?.let { attachments ->
-            contentPanel.add(createMessageAttachmentPanel(attachments), BorderLayout.SOUTH)
-        }
-
-        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-            isOpaque = false
-        }
-
-        if (collapsible) {
-            val toggle = JButton("▼").apply {
-                isFocusable = false
-                isContentAreaFilled = false
-                isBorderPainted = false
-                margin = JBUI.insets(0)
-            }
-            toggle.text = if (contentPanel.isVisible) "▼" else "▶"
-            toggle.addActionListener {
-                contentPanel.isVisible = !contentPanel.isVisible
-                toggle.text = if (contentPanel.isVisible) "▼" else "▶"
-                panel.revalidate()
-                panel.repaint()
-            }
-            header.add(toggle)
-        }
-        header.add(headerLabel)
-        panel.add(header, BorderLayout.NORTH)
-        panel.add(contentPanel, BorderLayout.CENTER)
-
-        return MessageBlock(panel, contentArea, contentPanel, null, renderItem, rendersMarkdown, textColor)
-    }
-
-    private fun createPlainTextArea(textColor: java.awt.Color): JTextComponent {
-        return JBTextArea().apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            foreground = textColor
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(4, 12, 6, 8)
-            isOpaque = false
-        }
-    }
-
-    private fun createMarkdownPane(textColor: java.awt.Color): JTextComponent {
-        return object : JEditorPane() {
-            override fun getPreferredSize(): Dimension {
-                val parentWidth = parent?.width ?: 0
-                if (parentWidth > 0) {
-                    setSize(parentWidth, Short.MAX_VALUE.toInt())
-                }
-                return super.getPreferredSize()
-            }
-        }.apply {
-            contentType = "text/html"
-            isEditable = false
-            isOpaque = false
-            putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-            foreground = textColor
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty()
-            addHyperlinkListener { event ->
-                if (event.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                    val description = event.description.orEmpty()
-                    if (description.startsWith(RAW_BLOCK_COPY_LINK_PREFIX)) {
-                        val id = description.removePrefix(RAW_BLOCK_COPY_LINK_PREFIX)
-                        (getClientProperty(RAW_BLOCKS_CLIENT_PROPERTY) as? Map<*, *>)
-                            ?.get(id)
-                            ?.toString()
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let {
-                                CopyPasteManager.getInstance().setContents(StringSelection(it))
-                                project.infoNotify("Raw Markdown", "已复制到剪贴板")
-                            }
-                    } else {
-                        event.url?.let { BrowserUtil.browse(it) }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun setBlockContent(block: MessageBlock, content: String, immediate: Boolean = true) {
-        if (!block.rendersMarkdown) {
-            block.rawContent = content
-            block.textComponent.text = content
-            return
-        }
-        block.rawContent = content
-        block.pendingMarkdownContent = content
-        if (immediate) {
-            flushPendingMarkdownRender(block)
-            return
-        }
-        scheduleMarkdownRender(block)
-    }
-
-    private fun scheduleMarkdownRender(block: MessageBlock) {
-        val runningTimer = block.markdownRenderTimer?.takeIf { it.isRunning }
-        if (runningTimer != null) {
-            return
-        }
-        block.markdownRenderTimer = javax.swing.Timer(MARKDOWN_STREAM_RENDER_DELAY_MS) {
-            flushPendingMarkdownRender(block)
-        }.apply {
-            isRepeats = false
-            start()
-        }
-    }
-
-    private fun flushPendingMarkdownRender(block: MessageBlock) {
-        val content = block.pendingMarkdownContent ?: return
-        block.markdownRenderTimer?.stop()
-        block.markdownRenderTimer = null
-        block.pendingMarkdownContent = null
-        if (content == block.lastRenderedMarkdownContent) {
-            return
-        }
-        val rendered = AgentMarkdownRenderer.render(
-            markdown = content,
-            textColor = block.textColor,
-            backgroundColor = UIUtil.getPanelBackground(),
-            borderColor = JBColor.border(),
-            codeBackgroundColor = UIUtil.getTextFieldBackground(),
-            linkColor = JBColor(0x245DB3, 0x6A9BFF),
-            fontFamily = UIUtil.getLabelFont().family,
-            fontSize = UIUtil.getLabelFont().size,
-        )
-        block.textComponent.putClientProperty(RAW_BLOCKS_CLIENT_PROPERTY, rendered.rawBlocks)
-        block.textComponent.text = rendered.html
-        block.lastRenderedMarkdownContent = content
-        block.textComponent.caretPosition = 0
-        block.panel.revalidate()
-        block.panel.repaint()
-        if (block.contentPanel.isVisible) {
-            scrollToBottom()
-        }
-    }
-
-    private fun createTrackedToolBlock(
-        collapsedByDefault: Boolean,
-        insertBeforeAssistant: Boolean = false,
-    ): ToolListBlock {
-        val item = RenderItem("工具", "", collapsible = true, collapsedByDefault = collapsedByDefault)
-        val block = createToolListBlock(item)
-        if (insertBeforeAssistant && assistantBlock != null) {
-            addRenderItem(item, assistantBlock?.renderItem)
-            addBlockComponent(block.panel, assistantBlock?.panel)
-        } else {
-            addRenderItem(item)
-            addBlockComponent(block.panel)
-        }
-        return block
-    }
-
-    private fun createToolListBlock(renderItem: RenderItem): ToolListBlock {
-        val listPanel = JPanel(VerticalLayout(6)).apply {
-            isOpaque = false
-        }
-        val listScroll = JBScrollPane(listPanel).apply {
-            border = JBUI.Borders.empty(4, 8, 6, 8)
-            isOpaque = false
-            viewport.isOpaque = false
-            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-            verticalScrollBar.unitIncrement = UIUtil.getLineHeight(JBTextArea())
-            val visibleHeight = (UIUtil.getLineHeight(JBTextArea()) * TOOL_BLOCK_VISIBLE_LINES) + JBUI.scale(12)
-            minimumSize = Dimension(0, visibleHeight)
-            preferredSize = Dimension(JBUI.scale(480), visibleHeight)
-            maximumSize = Dimension(Int.MAX_VALUE, visibleHeight)
-        }
-        val panel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-        }
-        val headerLabel = JLabel("工具调用").apply {
-            foreground = UIUtil.getLabelForeground()
-//            font = font.deriveFont(font.style or Font.BOLD)
-        }
-        val contentPanel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(listScroll, BorderLayout.CENTER)
-            isVisible = !renderItem.collapsedByDefault
-        }
-        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-            isOpaque = false
-        }
-        val toggle = JButton(if (contentPanel.isVisible) "▼" else "▶").apply {
-            isFocusable = false
-            isContentAreaFilled = false
-            isBorderPainted = false
-            margin = JBUI.insets(0)
-        }
-        toggle.addActionListener {
-            contentPanel.isVisible = !contentPanel.isVisible
-            toggle.text = if (contentPanel.isVisible) "▼" else "▶"
-            if (contentPanel.isVisible) {
-                scrollBlockContentToTop(listScroll)
-            }
-            panel.revalidate()
-            panel.repaint()
-        }
-        header.add(toggle)
-        header.add(headerLabel)
-        panel.add(header, BorderLayout.NORTH)
-        panel.add(contentPanel, BorderLayout.CENTER)
-        return ToolListBlock(panel, contentPanel, listPanel, listScroll, headerLabel, renderItem, linkedMapOf())
-    }
-
-
-    private fun updateToolEntryCard(card: ToolEntryCard) {
-        card.titleLabel.text = buildToolEntryTitle(card.state)
-    }
-
-
-    private fun buildToolEntryTitle(state: AgentToolRenderEntryState): String {
-        val name = state.name.ifBlank { "未命名工具" }
-        val timestamp = if (state.startedAt > 0) formatToolStartedAt(state.startedAt) else "--:--:--"
-        val status = state.status.ifBlank { "调用中" }
-        return "#${state.index + 1} $name · $timestamp · $status"
-    }
-
-    private fun formatToolStartedAt(timestamp: Long): String {
-        return Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-    }
-
-    private fun ensureToolEntryCard(
-        block: ToolListBlock,
-        toolId: String,
-        index: Int,
-        name: String,
-        arguments: String,
-    ): ToolEntryCard {
-        block.entriesById[toolId]?.let { existing ->
-            if (existing.state.name.isBlank() && name.isNotBlank()) {
-                existing.state.name = name
-            }
-            if (existing.state.arguments.isBlank() && arguments.isNotBlank()) {
-                existing.state.arguments = arguments
-            }
-            return existing
-        }
-        val renderState = block.renderItem.state ?: AgentRenderState().also { block.renderItem.state = it }
-        val state = AgentToolRenderEntryState().apply {
-            id = toolId
-            this.index = if (index >= 0) index else renderState.toolEntries.size
-            this.name = name
-            startedAt = System.currentTimeMillis()
-            status = "调用中"
-            this.arguments = arguments
-        }
-        renderState.toolEntries.add(state)
-        val entryCard = createToolEntryCard(state)
-        block.entriesById[toolId] = entryCard
-        block.listPanel.add(entryCard.panel)
-        block.listPanel.revalidate()
-        block.listPanel.repaint()
-        if (block.contentPanel.isVisible) {
-            scrollBlockContentToBottom(block.scrollPane)
-        }
-        return entryCard
-    }
-
-    private fun createToolEntryCard(state: AgentToolRenderEntryState): ToolEntryCard {
-        val titleLabel = JLabel().apply {
-            foreground = UIUtil.getLabelForeground()
-//            font = font.deriveFont(font.style or Font.BOLD)
-        }
-        val previewButton = JButton("查看").apply {
-            isFocusable = false
-            isContentAreaFilled = false
-            isBorderPainted = false
-            margin = JBUI.insets(0)
-            toolTipText = "查看参数和返回值"
-        }
-        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-            isOpaque = false
-            add(titleLabel)
-            add(previewButton)
-        }
-        val panel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            border = BorderFactory.createCompoundBorder(
-                JBUI.Borders.customLine(JBColor.border(), 1),
-                JBUI.Borders.empty(4)
-            )
-            add(header, BorderLayout.NORTH)
-        }
-        previewButton.addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                if (SwingUtilities.isLeftMouseButton(e)) {
-                    showToolDetailPopup(ToolEntryCard(panel, titleLabel, previewButton, state), previewButton, e)
-                }
-            }
-        })
-        return ToolEntryCard(panel, titleLabel, previewButton, state).also {
-            updateToolEntryCard(it)
-        }
-    }
-
-    private fun showToolDetailPopup(card: ToolEntryCard, anchor: JComponent, e: MouseEvent) {
-        val resultText = runCatching {
-            gson.toJson(JsonParser.parseString(card.state.result))
-        }.getOrElse { card.state.result }
-        val argumentText = runCatching {
-            gson.toJson(JsonParser.parseString(card.state.arguments))
-        }.getOrElse { card.state.arguments }
-        val argumentField = createJsonViewer(argumentText)
-        val resultField = createJsonViewer(resultText)
-        val content = JPanel(GridLayout(2, 1, 0, JBUI.scale(6))).apply {
-            isOpaque = true
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(8)
-            add(createToolJsonSection("参数", argumentField, 60))
-            add(createToolJsonSection("返回值", resultField, 200))
-        }
-        JBPopupFactory.getInstance().createComponentPopupBuilder(content, argumentField)
-            .setMovable(true)
-            .setResizable(true)
-            .setFocusable(true)
-            .setRequestFocus(true)
-            .setTitle(card.titleLabel.text)
-            .createPopup()
-            .show(RelativePoint(e))
-    }
-
-
-    private fun createToolJsonSection(title: String, field: LanguageTextField, height: Int): JComponent {
-        return JPanel(BorderLayout(0, JBUI.scale(4))).apply {
-            isOpaque = false
-            add(JLabel(title).apply {
-                foreground = UIUtil.getContextHelpForeground()
-//                font = font.deriveFont(font.style or Font.BOLD, font.size2D - 1f)
-            }, BorderLayout.NORTH)
-            add(field.apply {
-                minimumSize = Dimension(0, height)
-                preferredSize = Dimension(JBUI.scale(500), height)
-                maximumSize = Dimension(Int.MAX_VALUE, height)
-            }, BorderLayout.CENTER)
-        }
-    }
-
-    private fun createJsonViewer(text: String = ""): LanguageTextField {
-        val jsonLanguage = Language.findLanguageByID("JSON5") ?: Language.ANY
-        return object : LanguageTextField(jsonLanguage, project, text, false) {
-            override fun createEditor(): EditorEx {
-                val editor = super.createEditor()
-                editor.isViewer = true
-                editor.setBorder(null)
-                editor.scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-                val settings = editor.settings
-                settings.additionalLinesCount = 0
-                settings.additionalColumnsCount = 1
-                settings.isLineNumbersShown = true
-                settings.isLineMarkerAreaShown = false
-                settings.isIndentGuidesShown = false
-                settings.isFoldingOutlineShown = false
-                settings.isRightMarginShown = false
-                settings.isUseSoftWraps = true
-                return editor
-            }
-        }.apply {
-            isEnabled = true
-            border = JBUI.Borders.customLine(JBColor.border(), 1)
-        }
-    }
-
-
-    private fun updateToolBlockSummary(block: ToolListBlock) {
-        val count = block.entriesById.size
-        val completed = block.entriesById.values.count { it.state.status == "已完成" }
-        val summary = if (count <= 0) {
-            "工具调用"
-        } else {
-            "工具调用 ($completed/$count)"
-        }
-        block.headerLabel.text = summary
-        block.renderItem.content = summary
-        block.renderItem.state?.content = summary
-    }
-
-    private fun resetMessages(session: ChatSession) {
-        session.messages.clear()
-        syncSessionSystemPrompt(session)
-    }
-
-    private fun recordTokenUsage(session: ChatSession, usage: ChatUsage?) {
-        if (usage == null) {
-            return
-        }
-        val input = usage.inputTokens.toLong().coerceAtLeast(0)
-        val output = usage.outputTokens.toLong().coerceAtLeast(0)
-        val total = usage.totalTokens.toLong().takeIf { it > 0 } ?: input + output
-        session.state.lastRequestInputTokens = input
-        session.state.lastRequestOutputTokens = output
-        session.state.lastRequestTotalTokens = total
-        session.state.inputTokensConsumed += input
-        session.state.outputTokensConsumed += output
-        session.state.totalTokensConsumed += total
-        if (session == currentSession) {
-            updateTokenUsageLabel()
-        }
-    }
-
-    private fun resetTokenUsage(session: ChatSession) {
-        session.state.inputTokensConsumed = 0
-        session.state.outputTokensConsumed = 0
-        session.state.totalTokensConsumed = 0
-        session.state.lastRequestInputTokens = 0
-        session.state.lastRequestOutputTokens = 0
-        session.state.lastRequestTotalTokens = 0
-    }
-
-    private fun updateTokenUsageLabel() {
-        val state = currentSession?.state
-        val input = state?.inputTokensConsumed ?: 0
-        val output = state?.outputTokensConsumed ?: 0
-        val total = state?.totalTokensConsumed?.takeIf { it > 0 } ?: input + output
-        val last = state?.lastRequestTotalTokens ?: 0
-        tokenUsageLabel.text = "Tokens: ${formatTokenCount(total)}"
-        tokenUsageLabel.toolTipText = buildString {
-            append("当前会话累计: ${formatTokenCount(total)}")
-            append(" (输入 ${formatTokenCount(input)} / 输出 ${formatTokenCount(output)})")
-            if (last > 0) {
-                append("，上次请求: ${formatTokenCount(last)}")
-            }
-        }
-    }
-
-    private fun formatTokenCount(value: Long): String {
-        return if (value < 1000) {
-            value.toString()
-        } else {
-            val scaled = value / 1000.0
-            val pattern = if (value < 10_000) "%.1fK" else "%.0fK"
-            pattern.format(Locale.US, scaled)
-        }
-    }
+    private fun isActionEnabled(action: AnAction): Boolean = actionEnabledState[action] != false
 
     private fun updateStatus() {
-        val provider = resolveSelectedProvider()
-        val providerType = AgentProviderType.fromId(provider?.type)
-        val apiKey = provider?.apiKey?.trim().orEmpty()
-        val baseUrl = provider?.baseUrl?.trim()
-            ?.ifBlank { AgentProviderSupport.defaultBaseUrl(providerType) }
-            .orEmpty()
-        val model = currentSession?.model?.trim()
-            ?.ifBlank { resolveDefaultModel(provider) }
-            ?: resolveDefaultModel(provider)
-        val modelText = if (model.isBlank()) "未选择" else model
-        val conversationMode = AgentConversationMode.fromId(currentSession?.state?.conversationMode).displayName
-        val promptName = AgentSystemPromptSupport.resolvePromptName(
-            ensureSystemPromptList(),
-            currentSession?.state?.systemPromptId
-        )
-        val modelSettings = if (provider != null && model.isNotBlank()) AgentProviderSupport.findModelSettings(
-            provider,
-            model
-        ) else null
-        val streamText = if (modelSettings?.streamingEnabled != false) "流式" else "非流式"
-        val mcpServers = McpSupport.safeServers(project.pluginState().agentMcpServers)
-        val enabledCount = mcpServers.count { it.enabled }
-        val mcpStatus = if (project.pluginState().agentMcpEnabled) {
-            "MCP: $enabledCount/${mcpServers.size}"
-        } else {
-            "MCP: 未启用"
+        val session = currentSessionId?.let { ChatSessionService.sessionById(it) }
+        val agent = session?.agentId?.let { AgentService.agentById(it) }
+        statusLabel.text = when {
+            session == null -> "无会话"
+            agent == null -> "会话: ${session.title}    未绑定 Agent"
+            else -> "会话: ${session.title}    Agent: ${agent.name}"
         }
-        val skillStatus = "Skills: ${currentSession?.state?.enabledSkillIds?.size ?: 0}"
-        val promptStatus = "提示词: $promptName"
-        statusLabel.text = if (provider == null) {
-            "供应方未配置 | 模型: $modelText | 模式: $conversationMode | $promptStatus | $skillStatus | $mcpStatus"
-        } else if (apiKey.isBlank()) {
-            "API Key 未配置 | 供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $promptStatus | $skillStatus | $mcpStatus"
-        } else {
-            "供应方: ${provider.name} (${providerType.displayName}) | Base URL: $baseUrl | 模型: $modelText | 模式: $conversationMode | $streamText | $promptStatus | $skillStatus | $mcpStatus"
-        }
+        syncBrowserState()
     }
 
+    override fun dispose() {
+        if (chatBrowser.component.parent != null) Disposer.dispose(chatBrowser)
+        Disposer.dispose(managementWindows)
+    }
+
+    /** 面板被选中时刷新会话与 Agent 列表，供入口 action 回调。 */
     fun refreshStatus() {
+        val selectedAgentId = (agentSelector.selectedItem as? AgentRecord)?.id
+        refreshAgentSelector(selectedAgentId)
+        refreshSessionSelector(ChatSessionService.listSessions())
         updateStatus()
     }
 
-    private fun setInputEnabled(enabled: Boolean) {
-        inputArea.isEditable = enabled
-        inputArea.isEnabled = enabled
-        inputArea.isFocusable = enabled
-        inputArea.isRequestFocusEnabled = enabled
-        if (!enabled && inputArea.isFocusOwner) {
-            inputArea.transferFocus()
-        }
-        if (enabled) {
-            inputArea.requestFocusInWindow()
-        }
-        refreshAttachmentDrafts()
-        updateToolbars()
-    }
-
-    private fun resolveCurrentModelSettings(): AgentModelSettings? {
-        val provider = resolveSelectedProvider() ?: return null
-        val model = currentSession?.model?.trim().orEmpty().ifBlank { resolveDefaultModel(provider) }
-        if (model.isBlank()) {
-            return null
-        }
-        return AgentProviderSupport.findModelSettings(provider, model)
-    }
-
-    private fun chooseAttachments() {
-        val descriptor = FileChooserDescriptor(true, false, true, true, false, true).apply {
-            title = "选择附件"
-            isForcedToUseIdeaFileChooser = true
-        }
-        val files = FileChooser.chooseFiles(descriptor, project, null)
-        if (files.isEmpty()) {
-            return
-        }
-        addAttachmentFiles(files.map { File(it.path) })
-    }
-
-    private fun addAttachmentsFromTransferable(transferable: Transferable): Boolean {
-        val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
-        return when {
-            files.isNotEmpty() -> {
-                addAttachmentFiles(files)
+    private fun handleBrowserCommand(command: AgentBrowserCommand): Any? {
+        val payload = command.payload
+        val id = payload.get("id")?.takeUnless { it.isJsonNull }?.asString
+        val text = payload.get("text")?.takeUnless { it.isJsonNull }?.asString
+        return when (command.type) {
+            "ui.ready" -> syncBrowserState()
+            "session.select" -> id?.toLongOrNull()?.let(::switchSession)
+            "session.new" -> createSession()
+            "session.clear" -> clearCurrentSessionFromBrowser()
+            "agent.select" -> id?.toLongOrNull()?.let { agentId ->
+                AgentService.agentById(agentId)?.let(::bindCurrentSessionAgent)
+                refreshAgentSelector(agentId)
             }
-
-            transferable.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
-                val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return false
-                val file = saveClipboardImage(image) ?: return false
-                addAttachmentFiles(listOf(file))
-            }
-
-            else -> addAttachmentFiles(AgentAttachmentClipboardSupport.extractFiles(transferable))
+            "message.send" -> { inputArea.text = text.orEmpty(); sendMessage() }
+            "window.open" -> managementWindows.open(text ?: error("缺少管理页面"))
+            "code.copy" -> CopyPasteManager.getInstance().setContents(StringSelection(text.orEmpty()))
+            "link.open" -> text?.let { BrowserUtil.browse(it) }
+            "attachment.choose" -> chooseAttachments()
+            "attachment.paste" -> pasteAttachmentsFromClipboard()
+            "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
+            "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
+            "message.delete" -> id?.let { messageId -> messageCards.firstOrNull { it.id == messageId }?.delete() }
+            else -> handleBrowserManagementCommand(command.type, payload)
         }
     }
 
-    private fun saveClipboardImage(image: Image): File? {
-        val buffered = if (image is BufferedImage) {
-            image
-        } else {
-            BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB).apply {
-                val graphics = createGraphics()
-                try {
-                    graphics.drawImage(image, 0, 0, null)
-                } finally {
-                    graphics.dispose()
-                }
+    private fun refreshManagementData() {
+        refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
+        refreshSessionSelector(ChatSessionService.listSessions())
+        currentSessionId?.let(::refreshCurrentSessionHistoryIfVisible)
+        syncBrowserState()
+    }
+
+    private fun handleBrowserManagementCommand(type: String, payload: JsonObject): Any? =
+        AgentBrowserManagement.handle(project, type, payload) {
+            val sessions = ChatSessionService.listSessions()
+            if (sessions.isEmpty()) {
+                createSession()
+            } else {
+                if (currentSessionId !in sessions.map { it.id }) currentSessionId = sessions.first().id
+                refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
+                refreshSessionSelector(sessions)
+                currentSessionId?.let(::refreshCurrentSessionHistoryIfVisible)
+                syncBrowserState()
             }
         }
-        return runCatching {
-            File.createTempFile("agent-attachment-", ".png").apply {
-                deleteOnExit()
-                ImageIO.write(buffered, "png", this)
-            }
-        }.getOrNull()
-    }
 
-    private fun addAttachmentFiles(files: List<File>): Boolean {
-        val session = currentSession ?: return false
-        if (files.isEmpty()) {
-            return false
-        }
-        val allowed = AgentInputCapabilitySupport.allowedAttachmentKinds(resolveCurrentModelSettings())
-        if (allowed.isEmpty()) {
-            project.infoNotify("附件", "当前模型未启用附件能力")
-            return false
-        }
-        var added = false
-        files.filter { it.exists() && it.isFile }.forEach { file ->
-            val draft = AgentAttachmentSupport.normalize(
-                AgentAttachmentState(
-                    name = file.name,
-                    path = file.absolutePath,
-                )
-            )
-            if (draft.kind !in allowed) {
-                return@forEach
-            }
-            if (session.state.draftAttachments.none { it.path == draft.path }) {
-                session.state.draftAttachments.add(draft)
-                added = true
+    private fun syncBrowserState() {
+        val sessions = ChatSessionService.listSessions().map { AgentBrowserOption(it.id, it.title) }
+        val agents = AgentService.listAgents().mapNotNull { agent -> agent.id?.let { AgentBrowserOption(it, agent.name) } }
+        val currentAgentId = currentSessionId?.let(ChatSessionService::sessionById)?.agentId
+        val queue = synchronized(queueLock) {
+            chatQueue.filter { it.status == ChatQueueStatus.PENDING || it.status == ChatQueueStatus.PROCESSING }.map { item ->
+                AgentBrowserQueueItem(item.messageId, item.sessionId, ChatSessionService.sessionById(item.sessionId)?.title ?: "会话 ${item.sessionId}", item.prompt.take(40), item.status.label, item.status == ChatQueueStatus.PROCESSING)
             }
         }
-        if (!added) {
-            val alreadyAddFiles = session.state.draftAttachments.map { it.path }.toSet()
-            files.filter { !alreadyAddFiles.contains(it.path) || alreadyAddFiles.isEmpty() }.map { if(it.isFile){"文件: ${it.name},路径: ${it.path} 不支持"}else{"文件夹: ${it.name},路径: ${it.path} 不支持"} }
-                .joinToString { "\n" }.ifNotBlank {
-                    project.infoNotify("附件", "没有可添加的附件，或附件类型当前模型不支持")
-                }
-        }
-        refreshAttachmentDrafts()
-        return added
+        val background = UIUtil.getPanelBackground()
+        chatBrowser.replaceState(AgentBrowserState(
+            dark = ColorUtil.isDark(background),
+            theme = AgentBrowserTheme(
+                background = cssColor(background),
+                panel = cssColor(UIUtil.getPanelBackground()),
+                input = cssColor(UIUtil.getTextFieldBackground()),
+                text = cssColor(UIUtil.getLabelForeground()),
+                muted = cssColor(UIUtil.getContextHelpForeground()),
+                border = cssColor(JBColor.border()),
+                accent = cssColor(JBColor(0x3574F0, 0x548AF7)),
+            ),
+            sessions = sessions,
+            agents = agents,
+            currentSessionId = currentSessionId,
+            currentAgentId = currentAgentId,
+            messages = messageCards.map(AgentChatCard::toBrowserMessage),
+            queue = queue,
+            drafts = draftAttachments.map { AgentBrowserAttachment(it.id, it.name, it.path, it.mimeType, it.size, it.kind) },
+            inputRestore = browserInputRestore,
+        ))
     }
 
-    private fun refreshAttachmentDrafts() {
-        attachmentDraftPanel.removeAll()
-        val session = currentSession
-        val drafts = session?.state?.draftAttachments.orEmpty()
-        val visible = AgentInputCapabilitySupport.attachmentButtonVisible(resolveCurrentModelSettings())
-        attachmentDraftScroll.isVisible = visible && drafts.isNotEmpty()
-        drafts.forEachIndexed { index, draft ->
-            attachmentDraftPanel.add(createAttachmentChip(draft))
-            if (index < drafts.lastIndex) {
-                attachmentDraftPanel.add(Box.createHorizontalStrut(JBUI.scale(6)))
-            }
-        }
-        attachmentDraftPanel.revalidate()
-        attachmentDraftPanel.repaint()
-        attachmentDraftScroll.revalidate()
-        attachmentDraftScroll.repaint()
-        inputCenterPanel.revalidate()
-        inputCenterPanel.repaint()
-        content?.revalidate()
-        content?.repaint()
-        SwingUtilities.invokeLater {
-            val scrollBar = attachmentDraftScroll.horizontalScrollBar
-            val maxValue = (scrollBar.maximum - scrollBar.visibleAmount).coerceAtLeast(0)
-            if (drafts.isEmpty()) {
-                scrollBar.value = 0
-            } else if (scrollBar.value > maxValue) {
-                scrollBar.value = maxValue
-            }
-        }
-        updateToolbars()
-    }
+    private fun cssColor(color: Color): String = "#${ColorUtil.toHex(color)}"
 
-    private fun createAttachmentChip(draft: AgentAttachmentState): JComponent {
-        return AgentAttachmentChipUi.createDraftChip(
-            attachment = draft,
-            onOpen = { openAttachment(draft) },
-            onRemove = {
-                currentSession?.state?.draftAttachments?.removeIf { it.id == draft.id }
-                refreshAttachmentDrafts()
-            }
-        )
-    }
+    // -------- 渲染数据结构 --------
 
-    private fun createMessageAttachmentPanel(attachments: List<AgentAttachmentState>): JComponent {
-        val content = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            border = JBUI.Borders.empty(0, 12, 2, 8)
-            attachments.forEachIndexed { index, attachment ->
-                add(createHistoryAttachmentChip(attachment))
-                if (index < attachments.lastIndex) {
-                    add(Box.createHorizontalStrut(JBUI.scale(6)))
-                }
-            }
-        }
-        return AgentAttachmentChipUi.createHorizontalStrip(content).apply {
-            alignmentX = Component.LEFT_ALIGNMENT
-        }
-    }
-
-    private fun createHistoryAttachmentChip(draft: AgentAttachmentState): JComponent {
-        return AgentAttachmentChipUi.createHistoryChip(
-            attachment = draft,
-            onOpen = { openAttachment(draft) }
-        )
-    }
-
-    private fun openAttachment(attachment: AgentAttachmentState) {
-        val path = attachment.path.trim()
-        if (path.isBlank()) {
-            project.infoNotify("附件", "附件没有可打开的本地路径")
-            return
-        }
-        val file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(path))
-        if (file == null) {
-            project.errorNotify("附件", "未找到文件: $path")
-            return
-        }
-        FileEditorManager.getInstance(project).openFile(file, true)
-    }
-
-    private fun attachmentJsonArray(attachments: List<AgentAttachmentState>): com.google.gson.JsonArray {
-        return com.google.gson.JsonArray().apply {
-            attachments.forEach { attachment ->
-                add(JsonObject().apply {
-                    addProperty("id", attachment.id)
-                    addProperty("name", attachment.name)
-                    addProperty("path", attachment.path)
-                    addProperty("mimeType", attachment.mimeType)
-                    addProperty("size", attachment.size)
-                    addProperty("kind", attachment.kind)
-                    addProperty("deliveryMode", attachment.deliveryMode)
-                })
-            }
-        }
-    }
-
-    private fun createCapabilitySelection(
-        selectedValues: Collection<String>,
-        options: List<AgentCapabilityOption>,
-    ): CapabilitySelection {
-        val selected = selectedValues.toSet()
-        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
-            isOpaque = false
-        }
-        val checkBoxes = linkedMapOf<String, JCheckBox>()
-        options.forEach { option ->
-            val checkBox = JCheckBox(option.label).apply {
-                isOpaque = false
-                isSelected = selected.contains(option.id)
-                toolTipText = option.description
-            }
-            checkBoxes[option.id] = checkBox
-            panel.add(checkBox)
-        }
-        return CapabilitySelection(panel, checkBoxes)
-    }
-
-    private fun selectedCapabilityIds(vararg selections: CapabilitySelection): MutableList<String> {
-        return selections.asSequence()
-            .flatMap { it.checkBoxes.asSequence() }
-            .filter { (_, checkBox) -> checkBox.isSelected }
-            .map { (id, _) -> id }
-            .distinct()
-            .toMutableList()
-    }
-
-    private data class RenderItem(
-        val role: String,
-        var content: String,
-        val collapsible: Boolean,
-        val collapsedByDefault: Boolean,
-        val attachments: MutableList<AgentAttachmentState> = mutableListOf(),
-        var state: AgentRenderState? = null,
+    private data class AgentBrowserState(
+        @SerializedName("dark") val dark: Boolean,
+        @SerializedName("theme") val theme: AgentBrowserTheme,
+        @SerializedName("sessions") val sessions: List<AgentBrowserOption>,
+        @SerializedName("agents") val agents: List<AgentBrowserOption>,
+        @SerializedName("currentSessionId") val currentSessionId: Long?,
+        @SerializedName("currentAgentId") val currentAgentId: Long?,
+        @SerializedName("messages") val messages: List<AgentBrowserMessage>,
+        @SerializedName("queue") val queue: List<AgentBrowserQueueItem>,
+        @SerializedName("drafts") val drafts: List<AgentBrowserAttachment>,
+        @SerializedName("inputRestore") val inputRestore: AgentBrowserInputRestore?,
+    )
+    private data class AgentBrowserInputRestore(
+        @SerializedName("sequence") val sequence: Long,
+        @SerializedName("text") val text: String,
+    )
+    private data class AgentBrowserTheme(
+        @SerializedName("background") val background: String,
+        @SerializedName("panel") val panel: String,
+        @SerializedName("input") val input: String,
+        @SerializedName("text") val text: String,
+        @SerializedName("muted") val muted: String,
+        @SerializedName("border") val border: String,
+        @SerializedName("accent") val accent: String,
+    )
+    private data class AgentBrowserOption(
+        @SerializedName("id") val id: Long,
+        @SerializedName("name") val name: String,
+    )
+    private data class AgentBrowserQueueItem(
+        @SerializedName("id") val id: String,
+        @SerializedName("sessionId") val sessionId: Long,
+        @SerializedName("title") val title: String,
+        @SerializedName("prompt") val prompt: String,
+        @SerializedName("status") val status: String,
+        @SerializedName("processing") val processing: Boolean,
     )
 
-    private data class SystemPromptOption(val id: String, val label: String)
-
-    private data class ModelSettingOption(val label: String, val value: String)
-
-    private data class CapabilitySelection(
-        val panel: JPanel,
-        val checkBoxes: Map<String, JCheckBox>,
-    )
-
-    private class PasteAttachmentAction(
-        private val onFiles: (List<File>) -> Unit,
-        private val onImage: (Image) -> Unit,
-        private val onTextFallback: (String) -> Unit,
-    ) : AnAction() {
-        override fun actionPerformed(e: AnActionEvent) {
-            val transferable = CopyPasteManager.getInstance().contents ?: return
-            val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
-            when {
-                files.isNotEmpty() -> onFiles(files)
-                transferable.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
-                    val image = transferable.getTransferData(DataFlavor.imageFlavor) as? Image ?: return
-                    onImage(image)
-                }
-                transferable.isDataFlavorSupported(DataFlavor.stringFlavor) -> {
-                    val text = transferable.getTransferData(DataFlavor.stringFlavor) as? String ?: return
-                    onTextFallback(text)
-                }
-            }
-        }
+    private enum class ChatQueueStatus(val label: String) {
+        PENDING("排队中"),
+        PROCESSING("进行中"),
+        COMPLETED("已完成"),
+        FAILED("失败"),
+        CANCELLED("已取消"),
     }
 
-    private class ChatSession(
+    private data class ChatQueueItem(
+        val messageId: String,
+        val sessionId: Long,
+        val agentId: Long,
+        val prompt: String,
+        val order: Long,
+        val attachments: List<AgentAttachmentState> = emptyList(),
+        val token: ModelCancel = ModelCancel(),
+        val toolToken: ModelCancel = ModelCancel(),
+        var status: ChatQueueStatus = ChatQueueStatus.PENDING,
+        var runningToolCount: Int = 0,
+        var toolCancelRequested: Boolean = false,
+        var conversationCancelRequested: Boolean = false,
+        var hasAssistantOutput: Boolean = false,
+        var persistedLogId: Long? = null,
+        var responseText: String = "",
+        var reasoningText: String = "",
+        val toolCalls: MutableMap<String, QueuedToolSnapshot> = linkedMapOf(),
+        val toolResults: MutableMap<String, String> = linkedMapOf(),
+        val runningToolIds: MutableSet<String> = linkedSetOf(),
+        val canceledToolIds: MutableSet<String> = linkedSetOf(),
+        var userCard: AgentUserMessageCard? = null,
+        var assistantCard: AgentAssistantMessageCard? = null,
+    )
+
+    private data class QueuedToolSnapshot(
         val id: String,
-        var title: String,
-        var autoTitle: Boolean,
-        var model: String,
-        var providerId: String,
-        val messages: MutableList<JsonObject>,
-        val renders: MutableList<RenderItem>,
-        val state: AgentSessionState,
-    ) {
-        override fun toString(): String = title
+        val name: String,
+        val args: String,
+    )
+
+    private sealed class SessionRenderEntry(open val order: Long, open val tieBreaker: Long) {
+        data class History(val turn: ModelLogService.ChatTurn, override val order: Long) :
+            SessionRenderEntry(order, turn.logId)
+
+        data class Queue(val item: ChatQueueItem, override val order: Long) :
+            SessionRenderEntry(order, item.order)
     }
+
+    private data class AssistantTurnView(
+        val card: AgentAssistantMessageCard,
+    )
 
     private data class MessageBlock(
         val panel: JComponent,
         val textComponent: JTextComponent,
         val contentPanel: JComponent,
-        val scrollPane: JScrollPane?,
-        val renderItem: RenderItem?,
-        val rendersMarkdown: Boolean,
-        val textColor: java.awt.Color,
-        var pendingMarkdownContent: String? = null,
-        var markdownRenderTimer: javax.swing.Timer? = null,
-        var lastRenderedMarkdownContent: String = "",
         var rawContent: String = "",
     )
 
     private data class ToolListBlock(
         val panel: JComponent,
-        val contentPanel: JComponent,
         val listPanel: JPanel,
-        val scrollPane: JScrollPane,
         val headerLabel: JLabel,
-        val renderItem: RenderItem,
-        val entriesById: MutableMap<String, ToolEntryCard>,
+        val cards: LinkedHashMap<String, ToolCard> = LinkedHashMap(),
     )
 
-    private data class ToolEntryCard(
-        val panel: JComponent,
-        val titleLabel: JLabel,
-        val previewButton: JButton,
-        val state: AgentToolRenderEntryState,
+    private data class ToolCard(
+        val id: String,
+        val name: String,
+        val args: String,
+        var result: String = "",
+        var status: String = "调用中",
+        var titleLabel: JLabel? = null,
+        var panel: JComponent? = null,
     )
 }

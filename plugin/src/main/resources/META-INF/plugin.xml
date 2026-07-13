@@ -45,8 +45,6 @@
         <li><b>🧠 Skill Management:</b> Import or edit local SKILL.md skills, attach them per session, and expose skill resources directly to the agent runtime.</li>
         <li><b>📚 Skill Resources:</b> references/examples/scripts resources can be mounted into agent sessions and read through dedicated resource tools.</li>
         <li><b>🔗 Skill Runtime Integration:</b> Skills share the same runtime Toolkit as built-in and plugin tools, keeping SkillBox tool groups aligned with the active agent session.</li>
-        <li><b>🛠️ Built-in Agent Tools:</b> JTools exposes system-level tools for plugin operations, file browsing, skill CRUD, session skill toggles, and MCP management.</li>
-        <li><b>🛡️ Agent Permissions:</b> Per-chat access scopes and dangerous-operation policies control file, shell, plugin, skill, MCP, and dynamically registered tools.</li>
         <li><b>🎚️ Model Tuning:</b> Configure per-model streaming, multimodal capabilities, and advanced OpenAI/Anthropic parameters from a dedicated tuning panel.</li>
         <li><b>🧾 Parameter Guidance:</b> Store provider-level default and recommended parameters to make model configuration more repeatable across sessions.</li>
         <li><b>💾 Session Persistence:</b> Restore sessions, enabled skills, draft attachments, and active context across projects for long-running conversations.</li>
@@ -68,7 +66,6 @@
         <li>Creating lightweight utility tools without full plugin overhead</li>
         <li>Developing custom web-based tools integrated into the IDE</li>
         <li>Building team-specific development tools with easy distribution</li>
-        <li>Running an IDE-native agent workspace with providers, skills, MCP servers, and attachments in one panel</li>
         <li>Connecting private or third-party model services through vendor templates without rebuilding the plugin workflow</li>
     </ul>
 
@@ -112,8 +109,6 @@
         <li><b>🧠 Skills 管理：</b>支持导入或编辑本地 SKILL.md 技能，按会话挂载，并将技能资源直接暴露给智能体运行时。</li>
         <li><b>📚 Skills 资源：</b>references/examples/scripts 等资源文件可随技能挂载，并通过专用资源工具读取。</li>
         <li><b>🔗 Skill 运行时集成：</b>Skills 与内置工具、插件工具共享同一个运行时 Toolkit，使 SkillBox 工具组与当前智能体会话保持一致。</li>
-        <li><b>🛠️ 内置智能体工具：</b>提供插件管理、文件浏览、技能增删改查、会话技能开关与 MCP 管理等系统工具。</li>
-        <li><b>🛡️ 智能体权限：</b>按对话配置访问范围与危险操作策略，统一管控文件、命令、插件、Skills、MCP 和动态注册工具。</li>
         <li><b>🎚️ 模型调优：</b>提供独立模型调优面板，可配置流式输出、多模态能力以及 OpenAI/Anthropic 高级参数。</li>
         <li><b>🧾 参数建议：</b>支持保存供应方默认参数与推荐参数，让模型配置在不同会话中更容易复用。</li>
         <li><b>💾 会话持久化：</b>跨项目保留会话、启用的技能、草稿附件与当前上下文，适合长会话持续协作。</li>
@@ -135,7 +130,6 @@
         <li>创建轻量级实用工具，无需完整插件开销</li>
         <li>开发集成到 IDE 中的自定义 Web 工具</li>
         <li>构建团队专用开发工具，便于分发</li>
-        <li>在 IDE 内运行一体化智能体工作台，统一管理供应方、Skills、MCP 与附件</li>
         <li>通过厂商模板快速接入私有或第三方模型服务，而不必重建整套插件工作流</li>
     </ul>
 
@@ -250,13 +244,11 @@
             <h2>📦 Version v1.1.3.8</h2>
             <ul>
                 <li>🛡️ <b>Agent Permission Controls:</b> Added per-chat access scopes and dangerous-operation policies, with notifications when tool execution is denied</li>
-                <li>🧰 <b>Tool Permission Coverage:</b> Extended permission checks across built-in tools, file operations, shell/PowerShell commands, Skills, MCP, plugin management, environment variables, and dynamically registered tools</li>
                 <li>📂 <b>Path &amp; File Read Safety:</b> Absolute Unix/Windows paths now resolve directly, project-external paths require full access, and <code>read_file</code> uses bounded offset/limit reads to avoid oversized context</li>
                 <li>🔍 <b>Live File Search:</b> <code>glob_search</code> scans the filesystem directly so externally copied files can be discovered without stale cache results</li>
                 <li>🎨 <b>Composer Permission Layout:</b> Moved prompt, access scope, and dangerous-operation controls into a compact top row with concise labels, tooltips, and a scrollable permission help dialog</li>
                 <li>🧹 <b>Runtime Cleanup:</b> Removed the unused PDF extraction path and stale helper code, and synced release metadata to <code>v1.1.3.8</code> / SDK Helper <code>1138</code></li>
                 <li>🛡️ <b>智能体权限控制：</b>对话级新增访问范围与危险操作策略，工具执行被拒绝时会发送通知提示</li>
-                <li>🧰 <b>工具权限覆盖：</b>权限检查覆盖内置工具、文件操作、Shell/PowerShell 命令、Skills、MCP、插件管理、环境变量和动态注册工具</li>
                 <li>📂 <b>路径与读取安全：</b>Unix/Windows 完整路径会直接解析，项目外路径需要完全访问；<code>read_file</code> 改为带 offset/limit 的受限读取，避免一次性撑爆上下文</li>
                 <li>🔍 <b>实时文件搜索：</b><code>glob_search</code> 直接扫描文件系统，外部复制进来的文件不再依赖过期缓存结果</li>
                 <li>🎨 <b>输入区权限布局：</b>提示词、访问范围、危险操作移到输入区顶部横向排列，并提供简短标签、完整提示和可滚动权限说明弹窗</li>
@@ -265,12 +257,10 @@
 
             <h2>📦 Version v1.1.3.7</h2>
             <ul>
-                <li>🧰 <b>Lean Tool Surface:</b> Consolidated MCP management around <code>jtools_mcp_update_server</code> and the unified <code>jtools_mcp_query</code>, removing several low-frequency tools to reduce schema/token overhead</li>
                 <li>✍️ <b>Write Session Limit Alignment:</b> Unified <code>jtools_append_write_session</code> schema, prompt text, and runtime checks to allow up to 2048 characters per append</li>
                 <li>🎛️ <b>Layered Model Parameters:</b> Reworked request option mapping so provider defaults, common model parameters, and vendor-specific model parameters are applied in layers, allowing model-level settings to override provider defaults correctly</li>
                 <li>🧭 <b>Max Tokens Fallback Semantics:</b> Changed provider <code>maxTokens</code> into an optional fallback value instead of a hardcoded default, with Anthropic validation now accepting either a model-level value or a provider default</li>
                 <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.3.7</code> and aligned SDK helper version metadata to <code>1137</code></li>
-                <li>🧰 <b>工具面收缩：</b>收敛 MCP 管理工具为 <code>jtools_mcp_update_server</code> + <code>jtools_mcp_query</code> 的 upsert/聚合查询模型，并移除多组低频冗余工具以降低 schema/token 开销</li>
                 <li>✍️ <b>写入会话上限统一：</b><code>jtools_append_write_session</code> 的参数 schema、提示文案和运行时限制统一为单次最多 2048 个字符</li>
                 <li>🎛️ <b>参数分层生效：</b>重构请求参数映射链路，按“供应方默认值 -> 模型通用参数 -> 厂商定制参数”分层应用，让模型级设置可以正确覆盖供应方默认值</li>
                 <li>🧭 <b>Max Tokens 回退语义：</b>供应方 <code>maxTokens</code> 改为可选回退值，不再强制写死默认值；Anthropic 发送前校验也改为接受“模型级值或供应方默认值”任一来源</li>
@@ -355,7 +345,6 @@
                 <li>📚 <b>Skill Resources:</b> Added resource listing/reading support so imported skills can expose references, examples, and scripts to tools</li>
                 <li>🎚️ <b>Model Tuning:</b> Added per-model tuning for streaming, multimodal capabilities, and advanced OpenAI/Anthropic parameters</li>
                 <li>🧩 <b>Provider Templates:</b> Expanded provider configuration with DashScope/OpenAI-Compatible/Anthropic/Gemini/Ollama types, vendor templates, and parameter recommendations</li>
-                <li>🛠️ <b>System Tool Suite:</b> Added built-in tools for skill CRUD, session skill toggles, MCP management, and richer agent-side operations</li>
                 <li>💾 <b>Session Persistence:</b> Persisted active session state, draft attachments, and enabled skills by project</li>
                 <li>📎 <b>附件工作流：</b>新增模型感知的文件/图片附件能力，支持剪贴板粘贴与媒体上传优化</li>
                 <li>🖼️ <b>多模态输入：</b>新增按模型维度控制图片/音频/视频/文件能力，并可抽取可读文件内容作为上下文</li>
@@ -363,7 +352,6 @@
                 <li>📚 <b>Skills 资源：</b>新增资源列举与读取能力，导入技能可向工具侧暴露 references、examples、scripts 等文件</li>
                 <li>🎚️ <b>模型调优：</b>新增按模型维度配置流式输出、多模态能力与 OpenAI/Anthropic 高级参数</li>
                 <li>🧩 <b>供应方模板：</b>扩展供应方配置，支持 DashScope/OpenAI Compatible/Anthropic/Gemini/Ollama 接入类型、厂商模板与参数建议</li>
-                <li>🛠️ <b>系统工具套件：</b>新增技能增删改查、会话技能开关、MCP 管理等内置工具能力</li>
                 <li>💾 <b>会话持久化：</b>按项目保存当前会话、草稿附件与启用技能状态</li>
             </ul>
 
@@ -387,10 +375,6 @@
 
             <h2>📦 Version v1.1.2.8</h2>
             <ul>
-                <li>🔌 <b>MCP Client:</b> Added external MCP server support with stdio/SSE/streamable HTTP transports</li>
-                <li>🔌 <b>MCP 客户端：</b>新增外部 MCP 服务支持，覆盖 stdio/SSE/streamable HTTP 传输</li>
-                <li>🧭 <b>MCP Config:</b> New multi-server manager UI with tool/resource/prompt lists and refresh actions</li>
-                <li>🧭 <b>MCP 配置：</b>新增多服务管理界面，支持工具/资源/提示列表与刷新</li>
                 <li>📶 <b>Availability Monitor:</b> Background ping checks with status badges and notifications</li>
                 <li>📶 <b>可用性监控：</b>后台定时检测并显示状态，失败通过通知提示</li>
                 <li>🧰 <b>Toolbar UX:</b> Switched to action toolbars with icons and fixed enable/disable states</li>
@@ -578,7 +562,7 @@
     <depends optional="true" config-file="maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="gradle.xml">com.intellij.gradle</depends>
     <depends optional="true" config-file="gradle-dsl.xml">org.jetbrains.idea.gradle.dsl</depends>
-    <idea-version since-build="251" until-build="263.*" />
+    <idea-version since-build="251" until-build="265.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

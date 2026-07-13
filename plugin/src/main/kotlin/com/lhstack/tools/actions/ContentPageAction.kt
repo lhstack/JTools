@@ -2,7 +2,10 @@ package com.lhstack.tools.actions
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
@@ -81,13 +84,13 @@ class ContentPageAction(
     init {
         contentPanel = JPanel(cardLayout)
         rootContainer = SplitablePageContainer(project, this)
-        
+
         contentPanel.add(rootContainer, cardView)
         contentPanel.add(EmptyPanel(goToPluginButton, "没有内容,请在插件列表中打开一个插件吧"), cardEmpty)
-        
+
         // Initial state check
         checkEmptyState()
-        
+
         messageBusConnection = project.messageBus.connect()
         messageBusConnection.subscribe(ProjectPluginListener.TOPIC, this)
         Disposer.register(project, this)
@@ -126,18 +129,24 @@ class ContentPageAction(
                 return
             }
         }
-        
+
         plugin.catch("创建插件面板") {
             val pluginPanel = plugin.createPanel(project)
             val pluginTabPanel =
-                PluginTabPanel(pluginInfo, plugin, pluginPanel, null, UUID.randomUUID().toString()) // tabsPanel set later
+                PluginTabPanel(
+                    pluginInfo,
+                    plugin,
+                    pluginPanel,
+                    null,
+                    UUID.randomUUID().toString()
+                ) // tabsPanel set later
             pluginTabPanel.layout = BorderLayout()
             pluginTabPanel.add(pluginPanel, BorderLayout.CENTER)
             val tabInfo = TabInfo(pluginTabPanel)
             tabInfo.setIcon(plugin.pluginTabIcon())
             tabInfo.setText(pluginInfo.name)
             tabInfo.setTooltipText(plugin.pluginDesc())
-            
+
             // Tab Label Actions (Close)
             tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
                 override fun update(e: AnActionEvent) {
@@ -149,7 +158,7 @@ class ContentPageAction(
                 override fun actionPerformed(e: AnActionEvent) {
                     rootContainer.removeTab(tabInfo)
                     plugin.catch("插件面板关闭回调") { plugin.closePanel(project, pluginPanel) }
-                    checkEmptyState() 
+                    checkEmptyState()
                 }
 
                 override fun getActionUpdateThread(): ActionUpdateThread {
@@ -164,12 +173,12 @@ class ContentPageAction(
 
             cardLayout.show(contentPanel, cardView)
             rootContainer.addTab(tabInfo)
-            
+
             plugin.catch("插件面板显示回调") { plugin.showPanel(project, pluginPanel) }
             goToPage()
         }
     }
-    
+
     // Helper access to IPlugin methods if not visible directly
     private fun IPlugin.createPanel(project: Project): JComponent = this.createPanel(project)
     private fun IPlugin.showPanel(project: Project, panel: JComponent) = this.showPanel(project, panel)

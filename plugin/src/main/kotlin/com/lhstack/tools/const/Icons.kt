@@ -14,16 +14,6 @@ class Icons {
 
         fun settingIcon() = findIcon("icons/setting.svg")
 
-        fun modelTuningIcon() = findIcon("icons/model_tuning.svg")
-
-        fun attachmentIcon() = findIcon("icons/attachment.svg")
-
-        fun providerConfigIcon() = findIcon("icons/provider_config.svg")
-
-        fun promptManageIcon() = findIcon("icons/prompt_manage.svg")
-
-        fun mcpConfigIcon() = findIcon("icons/mcp_config.svg")
-
         fun addIcon() = findIcon("icons/add.svg")
 
         fun addHoverIcon() = findIcon("icons/add_hover.svg")
@@ -42,9 +32,28 @@ class Icons {
 
         fun jsIcon() = findIcon("icons/js.svg")
 
-        fun closeAllIcon() = findIcon("icons/session_clear.svg")
+        fun agentSessionNewIcon() = findIcon("icons/agent_session_new.svg")
 
-        fun newTabIcon() = findIcon("icons/new_tab.svg")
+        fun agentSessionClearIcon() = findIcon("icons/agent_session_clear.svg")
+
+        fun agentSessionManageIcon() = findIcon("icons/agent_session_manage.svg")
+
+        fun agentModelIcon() = findIcon("icons/agent_model.svg")
+
+ fun agentModelLogIcon() = findIcon("icons/agent_model_log.svg")
+
+        fun agentPromptIcon() = findIcon("icons/agent_prompt.svg")
+
+        fun agentManageIcon() = findIcon("icons/agent_manage.svg")
+
+
+        fun agentSkillsIcon() = findIcon("icons/agent_skills.svg")
+
+        fun agentGlobalConfigIcon() = findIcon("icons/agent_global_config.svg")
+
+        fun agentAttachmentIcon() = findIcon("icons/agent_attachment.svg")
+
+        fun closeAllIcon() = findIcon("icons/session_clear.svg")
 
         fun closeOtherIcon() = findIcon("icons/close_other.svg")
 
@@ -52,46 +61,10 @@ class Icons {
 
         fun libraryIcon() = findIcon("icons/session_manage.svg")
 
-        fun sessionSkillsIcon() = findIcon("icons/session_skills.svg")
-
-        fun skillsManageIcon() = findIcon("icons/skills_manage.svg")
-
         fun openConsolePanel() = findIcon("icons/console.svg")
 
-        fun movecopy() = findIcon("icons/movecopy.svg")
-        
         fun moveright() = findIcon("icons/moveright.svg")
-        
-        fun moveleft() = findIcon("icons/moveleft.svg")
 
         fun movedown() = findIcon("icons/movedown.svg")
-        
-        fun unsplitIcon() = findIcon("icons/unsplit.svg")
-
-        fun runIcon() = findIcon("icons/run.svg")
-
-        fun mcpAddIcon() = findIcon("icons/mcp_add.svg")
-
-        fun mcpCopyIcon() = findIcon("icons/mcp_copy.svg")
-
-        fun mcpDeleteIcon() = findIcon("icons/mcp_delete.svg")
-
-        fun mcpInsertContentIcon() = findIcon("icons/mcp_insert_content.svg")
-
-        fun mcpInsertUriIcon() = findIcon("icons/mcp_insert_uri.svg")
-
-        fun mcpInsertPromptIcon() = findIcon("icons/mcp_insert_prompt.svg")
-
-        fun mcpTestIcon() = findIcon("icons/mcp_test.svg")
-
-        fun mcpRefreshIcon() = findIcon("icons/mcp_refresh.svg")
-
-        fun mcpSaveIcon() = findIcon("icons/mcp_save.svg")
-
-        fun mcpRefreshToolsIcon() = findIcon("icons/mcp_refresh_tools.svg")
-
-        fun mcpRefreshResourcesIcon() = findIcon("icons/mcp_refresh_resources.svg")
-
-        fun mcpRefreshPromptsIcon() = findIcon("icons/mcp_refresh_prompts.svg")
     }
 }

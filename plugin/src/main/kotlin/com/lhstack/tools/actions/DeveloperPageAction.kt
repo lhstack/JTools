@@ -46,9 +46,9 @@ import com.intellij.psi.xml.XmlFile
 import com.intellij.ui.awt.RelativePoint
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.dev.DevPluginRegistry
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
-import com.lhstack.tools.dev.DevPluginRegistry
 import com.lhstack.tools.plugins.CefCacheManager
 import com.lhstack.tools.plugins.IPlugin
 import com.lhstack.tools.plugins.PluginType
@@ -599,7 +599,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             ?.use { stream ->
                                 String(stream.readAllBytes(), StandardCharsets.UTF_8)
                             }
-                        
+
                         if (dtsContent != null) {
                             // 写入到项目目录
                             val targetFile = File(projectDir.presentableUrl, "jtools-sdk.d.ts")
@@ -607,7 +607,11 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 it.write(dtsContent.toByteArray(StandardCharsets.UTF_8))
                             }
                             project.refresh {
-                                project.notify("导出成功", "类型声明文件已导出到: ${targetFile.absolutePath}", NotificationType.INFORMATION)
+                                project.notify(
+                                    "导出成功",
+                                    "类型声明文件已导出到: ${targetFile.absolutePath}",
+                                    NotificationType.INFORMATION
+                                )
                             }
                         } else {
                             project.errorNotify("导出失败", "无法读取类型声明文件")
@@ -687,7 +691,12 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     return developerState.jsCache[key]
                 }
 
-                override fun getOrDefault(global: Boolean, project: Project, key: String, defaultValue: String): String {
+                override fun getOrDefault(
+                    global: Boolean,
+                    project: Project,
+                    key: String,
+                    defaultValue: String
+                ): String {
                     return developerState.jsCache[key] ?: defaultValue
                 }
 
@@ -1000,7 +1009,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                         PsiDocumentManager.getInstance(project).getDocument(this)?.apply {
                                             FileDocumentManager.getInstance().saveDocument(this)
                                         }
-                                        MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                        MavenProjectsManager.getInstance(project)
+                                            .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                     }
 
                                 }
@@ -1072,7 +1082,8 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                             FileDocumentManager.getInstance().saveDocument(this)
                                         }
                                     }
-                                    MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                                    MavenProjectsManager.getInstance(project)
+                                        .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                                 }
                             }
                         }

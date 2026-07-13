@@ -1,0 +1,2 @@
+<script setup>defineProps({items:Array,selected:[String,Number],label:{type:String,default:'name'}});defineEmits(['select','create'])</script>
+<template><aside class="list-editor"><el-button class="new" type="primary" plain @click="$emit('create')">＋ 新建</el-button><el-scrollbar><button v-for="x in items" :key="x.id??x.name" :class="{active:(x.id??x.name)===selected}" @click="$emit('select',x)">{{x[label]}}</button></el-scrollbar></aside></template>

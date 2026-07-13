@@ -7,12 +7,7 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
-import java.awt.FlowLayout
-import javax.swing.JButton
-import javax.swing.JComponent
-import javax.swing.JLabel
-import javax.swing.JPanel
-import javax.swing.ScrollPaneConstants
+import javax.swing.*
 
 object AgentAttachmentChipUi {
     private val draftChipSize: Dimension

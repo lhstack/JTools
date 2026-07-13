@@ -4,7 +4,10 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
-import com.intellij.openapi.fileChooser.*
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
@@ -36,11 +39,9 @@ import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.util.Comparator
 import java.util.concurrent.CompletableFuture
 import javax.swing.Icon
 import javax.swing.JComponent
-import javax.swing.SwingUtilities
 import kotlin.math.min
 
 @State(name = "cef", storages = [Storage("ToolsPluginState.xml")])
@@ -108,7 +109,7 @@ class CefPluginImpl(
                         val queryCommand = this.gson.fromJson(request, CefQueryCommand::class.java)
                         //cefQuery({request:JSON.stringify({"type":"log",commands:["debug","this is debug log"]}),onSuccess: res => console.log(res),onFailure: (code,msg) => console.log(code,msg)})
                         when (queryCommand.type) {
-                            
+
                             // ==================== 帮助文档 ====================
                             "help" -> {
                                 val apiDoc = JS_PLUGIN_API_DOC
@@ -198,9 +199,11 @@ class CefPluginImpl(
                                 val content = queryCommand.commands[1]
                                 val append = queryCommand.commands.getOrElse(2) { "false" }.toBoolean()
                                 if (append) {
-                                    Files.writeString(path, content, StandardCharsets.UTF_8, 
-                                        java.nio.file.StandardOpenOption.CREATE, 
-                                        java.nio.file.StandardOpenOption.APPEND)
+                                    Files.writeString(
+                                        path, content, StandardCharsets.UTF_8,
+                                        java.nio.file.StandardOpenOption.CREATE,
+                                        java.nio.file.StandardOpenOption.APPEND
+                                    )
                                 } else {
                                     Files.writeString(path, content, StandardCharsets.UTF_8)
                                 }
@@ -432,8 +435,10 @@ class CefPluginImpl(
                                         queryCommand.commands.getOrElse(0) { "保存文件" }, // title
                                         queryCommand.commands.getOrElse(1) { "" } // description
                                     )
-                                    val dialog = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project)
-                                    val wrapper = dialog.save(queryCommand.commands.getOrElse(2) { "file.txt" }) // default filename
+                                    val dialog =
+                                        FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project)
+                                    val wrapper =
+                                        dialog.save(queryCommand.commands.getOrElse(2) { "file.txt" }) // default filename
                                     if (wrapper != null) {
                                         future.complete(wrapper.file.absolutePath)
                                     } else {
@@ -456,7 +461,7 @@ class CefPluginImpl(
                                 val command = queryCommand.commands[0]
                                 val workDir = queryCommand.commands.getOrElse(1) { project.basePath ?: "." }
                                 val timeout = queryCommand.commands.getOrElse(2) { "30000" }.toLong()
-                                
+
                                 CompletableFuture.supplyAsync {
                                     try {
                                         val processBuilder = ProcessBuilder()
@@ -467,22 +472,28 @@ class CefPluginImpl(
                                         }
                                         processBuilder.directory(java.io.File(workDir))
                                         processBuilder.redirectErrorStream(true)
-                                        
+
                                         val process = processBuilder.start()
                                         val output = StringBuilder()
-                                        BufferedReader(InputStreamReader(process.inputStream, StandardCharsets.UTF_8)).use { reader ->
+                                        BufferedReader(
+                                            InputStreamReader(
+                                                process.inputStream,
+                                                StandardCharsets.UTF_8
+                                            )
+                                        ).use { reader ->
                                             var line: String?
                                             while (reader.readLine().also { line = it } != null) {
                                                 output.append(line).append("\n")
                                             }
                                         }
-                                        
-                                        val completed = process.waitFor(timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+                                        val completed =
+                                            process.waitFor(timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
                                         if (!completed) {
                                             process.destroyForcibly()
                                             throw RuntimeException("Command timeout after ${timeout}ms")
                                         }
-                                        
+
                                         mapOf(
                                             "exitCode" to process.exitValue(),
                                             "output" to output.toString().trim()
@@ -691,7 +702,11 @@ class CefPluginImpl(
                 }
             }, jbBrowser.cefBrowser)
             jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
-                override fun onLoadStart(browser: CefBrowser, frame: CefFrame?, transitionType: CefRequest.TransitionType?) {
+                override fun onLoadStart(
+                    browser: CefBrowser,
+                    frame: CefFrame?,
+                    transitionType: CefRequest.TransitionType?
+                ) {
                     // 在页面开始加载时注入 SDK，确保用户代码执行前 JTools 已可用
                     if (frame?.isMain == true) {
                         injectJToolsSDK(browser)
@@ -712,7 +727,8 @@ class CefPluginImpl(
                     val url = request?.url ?: return null
                     // 只处理我们的虚拟域名和 cp:// 协议
                     if (url.startsWith("http://jtools.plugin", ignoreCase = true) ||
-                        url.startsWith("cp://", ignoreCase = true)) {
+                        url.startsWith("cp://", ignoreCase = true)
+                    ) {
                         return object : CefResourceRequestHandlerAdapter() {
                             override fun getResourceHandler(
                                 browser: CefBrowser?,
@@ -811,7 +827,7 @@ class CefPluginImpl(
     }
 
     override fun pluginIcon(): Icon {
-        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader.urlClassLoader) 
+        return IconLoader.findIcon(cefPluginInfo.pluginIcon, classLoader.urlClassLoader)
             ?: IconLoader.getIcon("/icons/plugin.svg", CefPluginImpl::class.java)
     }
 
@@ -863,7 +879,7 @@ class CefResourceHandler(private var url: String, private val classLoader: Plugi
                 }
                 offset = 0
                 isOpen = bytes != null
-                
+
                 // 调试：如果加载失败，打印日志
                 if (!isOpen) {
                     System.err.println("[JTools] Resource not found: $resourcePath (original url: $url)")
@@ -891,6 +907,7 @@ class CefResourceHandler(private var url: String, private val classLoader: Plugi
             url.startsWith("http://jtools.plugin/", ignoreCase = true) -> {
                 url.substring("http://jtools.plugin/".length)
             }
+
             url.startsWith("http://jtools.plugin", ignoreCase = true) -> {
                 url.substring("http://jtools.plugin".length)
             }
@@ -898,9 +915,10 @@ class CefResourceHandler(private var url: String, private val classLoader: Plugi
             url.contains("://") -> {
                 url.substringAfter("://").substringAfter("/", "")
             }
+
             else -> url
         }
-        
+
         // 移除开头的斜杠，统一为相对路径；移除查询参数
         return path.removePrefix("/").substringBefore("?").substringBefore("#")
     }
@@ -1552,7 +1570,7 @@ private val JS_PLUGIN_API_MARKDOWN: String by lazy {
 
     // 按分类分组
     val grouped = JS_PLUGIN_API_DOC.groupBy { it["category"] as String }
-    
+
     grouped.forEach { (category, apis) ->
         sb.appendLine("## $category")
         sb.appendLine()

@@ -15,7 +15,6 @@ import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.modules
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -23,6 +22,21 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.openapi.wm.WindowManager
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.awt.RelativePoint
+import com.intellij.util.ui.JBUI
+import java.awt.Color
+import java.awt.Component
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JPanel
 import com.intellij.util.containers.stream
 import com.lhstack.tools.ToolsMainWindowFactory
 import com.lhstack.tools.const.Const
@@ -48,11 +62,11 @@ import javax.swing.Icon
 import kotlin.io.path.Path
 
 
-fun Project.sysLogger(): Logger{
+fun Project.sysLogger(): Logger {
     var loggerImpl = this.getUserData<Logger>(JTOOLS_SYS_LOGGER)
-    if(loggerImpl == null){
-        loggerImpl = LoggerImpl("JTools","",this.getConsoleLog(),this)
-        this.putUserData(JTOOLS_SYS_LOGGER,loggerImpl)
+    if (loggerImpl == null) {
+        loggerImpl = LoggerImpl("JTools", "", this.getConsoleLog(), this)
+        this.putUserData(JTOOLS_SYS_LOGGER, loggerImpl)
     }
     return loggerImpl
 }
@@ -110,18 +124,18 @@ fun String?.equalsIgnoreCase(other: String?): Boolean {
     }
 }
 
-fun File.refresh(){
+fun File.refresh() {
     ApplicationManager.getApplication().invokeLater {
-        VfsUtil.markDirtyAndRefresh(false,true,true,this)
-        LocalFileSystem.getInstance().findFileByIoFile(this)?.refresh(false,true)
+        VfsUtil.markDirtyAndRefresh(false, true, true, this)
+        LocalFileSystem.getInstance().findFileByIoFile(this)?.refresh(false, true)
     }
 }
 
-fun Project.refresh(async:Boolean = false,invoke:() -> Unit){
+fun Project.refresh(async: Boolean = false, invoke: () -> Unit) {
     this.basePath?.let { path ->
         ApplicationManager.getApplication().invokeLater {
             VirtualFileManager.getInstance().findFileByNioPath(Path(path))?.let { file ->
-                VfsUtil.markDirtyAndRefresh(async,true,true,file)
+                VfsUtil.markDirtyAndRefresh(async, true, true, file)
                 FileDocumentManager.getInstance().reloadFiles(file)
                 invoke()
             }
@@ -132,7 +146,59 @@ fun Project.refresh(async:Boolean = false,invoke:() -> Unit){
 
 
 fun <T> T.infoNotify(title: String, msg: String) {
-    this.notify(title, msg, NotificationType.INFORMATION)
+    val project = this as? Project ?: return
+    val text = listOf(title, msg).filter { it.isNotBlank() }.joinToString("：")
+    showCenterToast(project, text)
+}
+
+/** 在当前 IDE 窗口中央显示一个短暂的成功浮层，用于替代状态栏提示。 */
+private fun showCenterToast(project: Project, text: String) {
+    ApplicationManager.getApplication().invokeLater {
+        val frame = WindowManager.getInstance().getFrame(project) ?: return@invokeLater
+        val rootPane = frame.rootPane ?: return@invokeLater
+        val content = buildCenterToastContent(text)
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(content, null)
+            .setFocusable(false)
+            .setRequestFocus(false)
+            .setCancelOnClickOutside(false)
+            .setCancelOnWindowDeactivation(false)
+            .setCancelKeyEnabled(false)
+            .setShowBorder(false)
+            .setShowShadow(true)
+            .createPopup()
+        popup.show(RelativePoint.getCenterOf(rootPane))
+        javax.swing.Timer(1200) { popup.cancel() }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+}
+
+private fun buildCenterToastContent(text: String): JComponent {
+    val panel = object : JPanel() {
+        override fun paintComponent(g: Graphics) {
+            val g2 = g.create() as Graphics2D
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = Color(0, 0, 0, 205)
+            g2.fillRoundRect(0, 0, width, height, JBUI.scale(16), JBUI.scale(16))
+            g2.dispose()
+        }
+    }.apply {
+        isOpaque = false
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(18, 30)
+    }
+    val icon = JLabel(AllIcons.General.InspectionsOK).apply { alignmentX = Component.CENTER_ALIGNMENT }
+    val label = JLabel(text).apply {
+        alignmentX = Component.CENTER_ALIGNMENT
+        foreground = Color.WHITE
+        font = font.deriveFont(font.size2D + JBUI.scale(1).toFloat())
+    }
+    panel.add(icon)
+    panel.add(Box.createVerticalStrut(JBUI.scale(8)))
+    panel.add(label)
+    return panel
 }
 
 fun <T> T.errorNotify(title: String, msg: String) {
@@ -333,7 +399,7 @@ fun Project.activeConsolePanel() {
             }
         }
         if (!flag) {
-            if(PluginState.getInstance().state.consoleLogEnabled){
+            if (PluginState.getInstance().state.consoleLogEnabled) {
                 val contentManager = toolWindow.contentManager
                 val factory = contentManager.factory
                 val content = factory.createContent(getConsoleLog(), Const.TOOLS_WINDOW_ID, false)
@@ -342,7 +408,7 @@ fun Project.activeConsolePanel() {
                 contentManager.setSelectedContent(content)
                 it.activate { }
             }
-        }else {
+        } else {
             it.activate { }
         }
     }
@@ -354,7 +420,7 @@ fun Project.deActiveConsolePanel() {
     toolWindow?.let {
         it.contentManager.contents.forEach { c ->
             if (c.displayName == Const.TOOLS_WINDOW_ID) {
-                it.contentManager.removeContent(c,false)
+                it.contentManager.removeContent(c, false)
             }
         }
     }

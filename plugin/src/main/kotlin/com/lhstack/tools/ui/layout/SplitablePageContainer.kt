@@ -2,39 +2,37 @@ package com.lhstack.tools.ui.layout
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
-import com.intellij.ui.MouseDragHelper
-import com.intellij.ui.JBSplitter
 import com.intellij.ui.JBColor
+import com.intellij.ui.JBSplitter
+import com.intellij.ui.MouseDragHelper
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.tabs.JBEditorTabsBase
 import com.intellij.ui.tabs.JBTabsFactory
 import com.intellij.ui.tabs.TabInfo
 import com.intellij.ui.tabs.TabsListener
-import com.intellij.ui.awt.RelativePoint
+import com.intellij.util.ui.ImageUtil
+import com.intellij.util.ui.JBUI
+import com.lhstack.tools.components.FloatingDialog
 import com.lhstack.tools.components.PluginTabPanel
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.ext.catch
 import com.lhstack.tools.plugins.PluginInfo
-import com.intellij.util.ui.ImageUtil
-import com.intellij.util.ui.JBUI
-import com.lhstack.tools.components.FloatingDialog
-import java.util.UUID
 import java.awt.BorderLayout
+import java.awt.GraphicsEnvironment
 import java.awt.Image
 import java.awt.Point
-import java.awt.GraphicsEnvironment
-import java.awt.Rectangle
-import java.awt.image.BufferedImage
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.ImageIcon
-import javax.swing.JDialog
-import javax.swing.JLabel
-import javax.swing.JPanel
-import javax.swing.SwingUtilities
+import java.awt.image.BufferedImage
+import java.util.*
+import javax.swing.*
 import javax.swing.border.Border
 import javax.swing.border.EmptyBorder
 
@@ -46,32 +44,33 @@ class SplitablePageContainer(
 
     private var tabs: JBEditorTabsBase? = null
     private var splitter: Splitter? = null
-    
+
     // Child containers if split
     private var firstChild: SplitablePageContainer? = null
     private var secondChild: SplitablePageContainer? = null
-    
+
     // Parent container
     var parentContainer: SplitablePageContainer? = parent
-    
+
     val isSplit: Boolean
         get() = splitter != null
-        
+
     val hasContent: Boolean
         get() = isSplit || (tabs?.tabCount ?: 0) > 0
-        
+
     // Track active leaf for adding new tabs
     private var lastActiveLeaf: SplitablePageContainer? = null
-    
+
     // Flag to prevent reentrant merge during split
     private var isSplitting: Boolean = false
+
     // Guard to suppress auto-merge while moving tabs across containers
     private var transferDepth: Int = 0
 
     private var defaultTabsBorder: Border? = null
     private var dropHighlight: Boolean = false
     private var highlightedDropContainer: SplitablePageContainer? = null
-    
+
     private data class DragOutState(
         val tab: TabInfo,
         val source: SplitablePageContainer,
@@ -87,7 +86,6 @@ class SplitablePageContainer(
     private var dragOutState: DragOutState? = null
     private val dragOutDelegate: TabInfo.DragOutDelegate = ToolTabDragOutDelegate()
 
-    
 
     init {
         Disposer.register(rootDisposable, this)
@@ -95,7 +93,7 @@ class SplitablePageContainer(
         // Default self as active
         lastActiveLeaf = this
     }
-    
+
     private fun getRoot(): SplitablePageContainer {
         var root = this
         while (root.parentContainer != null) {
@@ -103,11 +101,11 @@ class SplitablePageContainer(
         }
         return root
     }
-    
+
     private fun updateActiveLeaf(leaf: SplitablePageContainer) {
         getRoot().propagateActiveLeaf(leaf)
     }
-    
+
     private fun propagateActiveLeaf(leaf: SplitablePageContainer) {
         lastActiveLeaf = leaf
         firstChild?.propagateActiveLeaf(leaf)
@@ -343,12 +341,12 @@ class SplitablePageContainer(
 
     fun findContainerAtScreen(screenPoint: java.awt.Point): SplitablePageContainer? {
         if (!isShowing) return null
-        
+
         val bounds = java.awt.Rectangle(locationOnScreen, size)
         if (!bounds.contains(screenPoint)) return null
-        
+
         return if (isSplit) {
-            firstChild?.findContainerAtScreen(screenPoint) 
+            firstChild?.findContainerAtScreen(screenPoint)
                 ?: secondChild?.findContainerAtScreen(screenPoint)
         } else {
             this
@@ -375,7 +373,7 @@ class SplitablePageContainer(
             (t as? Disposable)?.let { Disposer.dispose(it) }
         }
         tabs = null
-        
+
         // Children are registered with Disposer, they will be disposed automatically
         // But we should clear references
         firstChild = null
@@ -409,24 +407,24 @@ class SplitablePageContainer(
 
         // Collect all tabs BEFORE any mutation
         val allTabs = currentTabs.tabs.toList()
-        
+
         // Remove all tabs from current (without disposing components)
         allTabs.forEach { info ->
             currentTabs.removeTab(info)
         }
-        
+
         // Now dispose the old JBTabs wrapper (empty now, won't dispose components)
         remove(currentTabs.component)
         (currentTabs as? Disposable)?.let { Disposer.dispose(it) }
         this.tabs = null
-        
+
         // Init Splitter
         val newSplitter = JBSplitter(vertical, 0.5f)
-        
+
         // Create child containers
         val child1 = SplitablePageContainer(project, rootDisposable, this)
         val child2 = SplitablePageContainer(project, rootDisposable, this)
-        
+
         // Move existing TabInfo objects into children
         allTabs.forEach { info ->
             if (effectiveMoveTarget && info == tabToSplit) {
@@ -439,19 +437,19 @@ class SplitablePageContainer(
         if (clonedTab != null) {
             child2.addExistingTab(clonedTab)
         }
-        
+
         newSplitter.firstComponent = child1
         newSplitter.secondComponent = child2
-        
+
         this.splitter = newSplitter
         this.firstChild = child1
         this.secondChild = child2
-        
+
         add(newSplitter, BorderLayout.CENTER)
-        
+
         // Clear the splitting flag
         isSplitting = false
-        
+
         // Select target tab in new split
         if (effectiveMoveTarget) {
             tabToSplit?.let { child2.tabs?.select(it, true) }
@@ -470,11 +468,11 @@ class SplitablePageContainer(
                 updateActiveLeaf(child1)
             }
         }
-        
+
         revalidate()
         repaint()
     }
-    
+
     fun removeTab(tabInfo: TabInfo) {
         val container = findContainerOf(tabInfo)
         container?.closeTab(tabInfo)
@@ -487,7 +485,7 @@ class SplitablePageContainer(
         target.addExistingTab(tabInfo)
         target.tabs?.select(tabInfo, true)
     }
-    
+
     private fun findTargetContainer(): SplitablePageContainer {
         // Use tracked active leaf if available, valid (not split), and still attached
         val active = lastActiveLeaf
@@ -498,25 +496,25 @@ class SplitablePageContainer(
         // Fallback: Find first leaf with tabs, or just first leaf
         return findFirstLeafWithTabs() ?: findFirstLeaf()
     }
-    
+
     private fun isDescendant(container: SplitablePageContainer): Boolean {
         if (container === this) return true
         if (!isSplit) return false
         return firstChild?.isDescendant(container) == true || secondChild?.isDescendant(container) == true
     }
-    
+
     private fun findFirstLeafWithTabs(): SplitablePageContainer? {
         if (!isSplit) {
             return if ((tabs?.tabCount ?: 0) > 0) this else null
         }
         return firstChild?.findFirstLeafWithTabs() ?: secondChild?.findFirstLeafWithTabs()
     }
-    
+
     private fun findFirstLeaf(): SplitablePageContainer {
         if (!isSplit) return this
         return firstChild?.findFirstLeaf() ?: secondChild?.findFirstLeaf() ?: this
     }
-    
+
     fun addExistingTab(info: TabInfo) {
         val t = tabs ?: return
         ensureDragOutDelegate(info)
@@ -526,7 +524,7 @@ class SplitablePageContainer(
             (info.component as PluginTabPanel).tabsPanel = t
         }
     }
-    
+
     /**
      * 在指定位置插入 Tab
      * @param info 要插入的 Tab
@@ -544,15 +542,15 @@ class SplitablePageContainer(
     }
 
     // --- Merging Logic ---
-    
+
     override fun tabRemoved(tabToRemove: TabInfo) {
         checkEmpty()
     }
-    
+
     fun checkEmpty() {
         // Don't trigger merge during split operation
         if (isSplitting || isTabTransferInProgress()) return
-        
+
         val t = tabs
         if (t != null && t.tabCount == 0) {
             // This container is empty.
@@ -560,41 +558,41 @@ class SplitablePageContainer(
             parentContainer?.mergeChild(this)
         }
     }
-    
+
     fun mergeChild(emptyChild: SplitablePageContainer) {
         if (!isSplit) return
-        
+
         val survivor = if (firstChild == emptyChild) secondChild else firstChild
         if (survivor == null) return // Should not happen
-        
+
         // Structure: THIS (Splitter) -> [EmptyChild, Survivor]
         // We want THIS to become Survivor.
-        
+
         // 1. Remove Splitter from UI
         remove(splitter)
         splitter = null
-        
+
         // 2. Absorb Survivor
         // If Survivor is Split, we become Split (adopt its children)
         // If Survivor is Leaf, we become Leaf (adopt its tabs)
-        
+
         if (survivor.isSplit) {
             // Adopt survivor's splitter and children
             this.splitter = survivor.splitter
             this.firstChild = survivor.firstChild?.also { it.parentContainer = this }
             this.secondChild = survivor.secondChild?.also { it.parentContainer = this }
-            
+
             // Clear survivor's refs so it doesn't dispose them
-            survivor.splitter = null 
+            survivor.splitter = null
             survivor.firstChild = null
             survivor.secondChild = null
-            
+
             add(this.splitter, BorderLayout.CENTER)
         } else {
             // Survivor is Leaf with Tabs
             val survivorTabs = survivor.tabs
             val tabInfos = survivorTabs?.tabs?.toList() ?: emptyList()
-            
+
             // Remove tabs from survivor without disposing components
             if (survivorTabs != null) {
                 val wasSplitting = survivor.isSplitting
@@ -603,95 +601,95 @@ class SplitablePageContainer(
                 survivor.isSplitting = wasSplitting
                 survivor.remove(survivorTabs.component)
             }
-            
+
             survivor.tabs = null
-            
+
             // Init our tabs
             val newTabs = JBTabsFactory.createEditorTabs(project, this)
             configureTabs(newTabs)
             this.tabs = newTabs
             add(newTabs.component, BorderLayout.CENTER)
-            
+
             // Move existing TabInfo objects into this container
             tabInfos.forEach { info ->
                 addExistingTab(info)
             }
         }
-        
+
         // Clear child references BEFORE disposing
         this.firstChild = null
         this.secondChild = null
-        
+
         // Update lastActiveLeaf to point to 'this' (the merged container)
         updateActiveLeaf(this)
-        
+
         // Now safe to dispose the container wrappers (they no longer own the components)
         Disposer.dispose(emptyChild)
         Disposer.dispose(survivor)
-        
+
         revalidate()
         repaint()
-        
+
         // Recurse check
         if (this.tabs?.tabCount == 0 && !this.isSplit) {
             parentContainer?.mergeChild(this)
         }
     }
-    
+
     /**
      * 取消分屏 - 将所有Tab合并到一个容器
      */
     private fun unsplit() {
         val parent = parentContainer ?: return
-        
+
         // 收集当前容器及兄弟容器的所有 Tab
         val sibling = if (parent.firstChild == this) parent.secondChild else parent.firstChild
         val allTabInfos = mutableListOf<TabInfo>()
-        
+
         collectAllTabInfos(this, allTabInfos)
         sibling?.let { collectAllTabInfos(it, allTabInfos) }
-        
+
         // 在父容器中重建所有 Tab
-        
+
         // 1. 如果父容器是分屏状态，移除分屏器
         if (parent.isSplit) {
             parent.remove(parent.splitter)
             parent.splitter = null
         }
-        
+
         // 2. 清理子容器引用
         parent.firstChild = null
         parent.secondChild = null
-        
+
         // 3. 重建父容器的 tabs
         val newTabs = JBTabsFactory.createEditorTabs(project, parent)
         parent.configureTabs(newTabs)
-        
+
         // 4. 添加所有收集到的 Tab
         parent.tabs = newTabs
         allTabInfos.forEach { info ->
             parent.addExistingTab(info)
         }
-        
+
         parent.add(newTabs.component, BorderLayout.CENTER)
-        
+
         // 更新最后活动叶子节点
         parent.updateActiveLeaf(parent)
-        
+
         // 重新验证父容器
         parent.revalidate()
         parent.repaint()
-        
+
         // 销毁当前容器和兄弟容器
         Disposer.dispose(this)
         sibling?.let { Disposer.dispose(it) }
     }
-    
+
     private fun collectAllTabInfos(container: SplitablePageContainer, result: MutableList<TabInfo>) {
         if (container.isSplit) {
             container.firstChild?.let { collectAllTabInfos(it, result) }
             container.secondChild?.let { collectAllTabInfos(it, result) }
-            
+
             // 递归清理分裂的子容器
             container.splitter = null
             // 注意：不要在这里 dispose，因为 unsplit 会统一处理顶级子容器，
@@ -700,7 +698,7 @@ class SplitablePageContainer(
             // 所以原来的容器结构只要不再引用就会被垃圾回收（或显式 dispose）。
             // 实际上，unsplit 会销毁当前层级的子容器，其内部的孙子容器也会随之 dispose。
             // 但我们需要先把 TabInfo 从原来的 Tabs 中移除，避免 dispose 时连带 dispose 了组件内容。
-            
+
         } else {
             // 是叶子节点，转移 Tab
             val cTabs = container.tabs ?: return
@@ -715,14 +713,14 @@ class SplitablePageContainer(
             container.tabs = null
         }
     }
-    
+
     private fun configureTabs(newTabs: JBEditorTabsBase) {
         newTabs.addListener(this)
         defaultTabsBorder = newTabs.component.border
         if (dropHighlight) {
             newTabs.component.border = dropHighlightBorder()
         }
-        
+
         // Listen for selection to update active leaf (same as in initTabs)
         newTabs.addListener(object : TabsListener {
             override fun selectionChanged(oldSelection: TabInfo?, newSelection: TabInfo?) {
@@ -731,12 +729,12 @@ class SplitablePageContainer(
                 }
             }
         })
-        
+
         // Enable built-in drag
         newTabs.presentation.setTabDraggingEnabled(true)
         MouseDragHelper.setComponentDraggable(newTabs.component, true)
         newTabs.tabs.toList().forEach { ensureDragOutDelegate(it) }
-        
+
         // Track active leaf on click
         newTabs.addTabMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
@@ -747,10 +745,10 @@ class SplitablePageContainer(
                 updateActiveLeaf(this@SplitablePageContainer)
             }
         })
-        
+
         // Setup Popup (Copy from init)
         val tabsPopupGroup = DefaultActionGroup()
-        
+
         // Helper function to get the right-clicked tab from ActionEvent
         fun getTargetTab(e: AnActionEvent): TabInfo? {
             newTabs.targetInfo?.let { return it }
@@ -771,7 +769,7 @@ class SplitablePageContainer(
             val panel = info?.component as? PluginTabPanel ?: return true
             return panel.plugin.supportMultiOpens()
         }
-        
+
         tabsPopupGroup.add(object : AnAction({ "关闭" }, Icons.closeAllIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
                 getTargetTab(e)?.let { closeTab(it) }
@@ -785,7 +783,7 @@ class SplitablePageContainer(
         })
         tabsPopupGroup.add(object : AnAction({ "关闭所有" }, Icons.closeAllIcon()) {
             override fun actionPerformed(e: AnActionEvent) {
-                 newTabs.tabs.toList().forEach { closeTab(it) }
+                newTabs.tabs.toList().forEach { closeTab(it) }
             }
         })
         tabsPopupGroup.addSeparator()
@@ -793,7 +791,7 @@ class SplitablePageContainer(
             override fun actionPerformed(e: AnActionEvent) {
                 getTargetTab(e)?.let {
                     it.isHidden = true
-                    FloatingDialog(project,it.text,it.component){
+                    FloatingDialog(project, it.text, it.component) {
                         it.isHidden = false
                     }.isVisible = true
                 }
@@ -801,8 +799,9 @@ class SplitablePageContainer(
         })
         tabsPopupGroup.add(object : AnAction({ "向右分屏" }, Icons.moveright()) {
             override fun actionPerformed(e: AnActionEvent) {
-                 split(false, getTargetTab(e), moveTarget = false)
+                split(false, getTargetTab(e), moveTarget = false)
             }
+
             override fun update(e: AnActionEvent) {
                 e.presentation.isVisible = newTabs.tabCount > 1
                 val target = getTargetTab(e)
@@ -811,8 +810,9 @@ class SplitablePageContainer(
         })
         tabsPopupGroup.add(object : AnAction({ "向右分屏并移动" }, Icons.moveright()) {
             override fun actionPerformed(e: AnActionEvent) {
-                 split(false, getTargetTab(e), moveTarget = true)
+                split(false, getTargetTab(e), moveTarget = true)
             }
+
             override fun update(e: AnActionEvent) {
                 e.presentation.isVisible = newTabs.tabCount > 1
                 e.presentation.isEnabled = (newTabs.tabCount ?: 0) > 0
@@ -820,8 +820,9 @@ class SplitablePageContainer(
         })
         tabsPopupGroup.add(object : AnAction({ "向下分屏" }, Icons.movedown()) {
             override fun actionPerformed(e: AnActionEvent) {
-                 split(true, getTargetTab(e), moveTarget = false)
+                split(true, getTargetTab(e), moveTarget = false)
             }
+
             override fun update(e: AnActionEvent) {
                 e.presentation.isVisible = newTabs.tabCount > 1
                 val target = getTargetTab(e)
@@ -830,14 +831,15 @@ class SplitablePageContainer(
         })
         tabsPopupGroup.add(object : AnAction({ "向下分屏并移动" }, Icons.movedown()) {
             override fun actionPerformed(e: AnActionEvent) {
-                 split(true, getTargetTab(e), moveTarget = true)
+                split(true, getTargetTab(e), moveTarget = true)
             }
+
             override fun update(e: AnActionEvent) {
                 e.presentation.isVisible = newTabs.tabCount > 1
                 e.presentation.isEnabled = (newTabs.tabCount ?: 0) > 0
             }
         })
-        
+
         // 只有存在分屏时才显示取消分屏选项
         if (parentContainer != null) {
             tabsPopupGroup.addSeparator()
@@ -856,8 +858,8 @@ class SplitablePageContainer(
             root.dragOutState?.let { existing ->
                 val sourceTabs = existing.sourceTabs
                 val stale = !existing.source.isDisplayable ||
-                    !sourceTabs.component.isDisplayable ||
-                    !sourceTabs.component.isShowing
+                        !sourceTabs.component.isDisplayable ||
+                        !sourceTabs.component.isShowing
                 if (stale) {
                     root.clearDropOver(existing)
                     root.dragOutState = null
@@ -977,63 +979,63 @@ class SplitablePageContainer(
         if (info.component is PluginTabPanel) {
             val panel = info.component as PluginTabPanel
             panel.plugin.catch("关闭面板") {
-                 // Call close on plugin?
-                 // Needs access to method closePanel
+                // Call close on plugin?
+                // Needs access to method closePanel
             }
-             Disposer.dispose(panel)
+            Disposer.dispose(panel)
         }
     }
 
     override fun selectionChanged(oldSelection: TabInfo?, newSelection: TabInfo?) {}
     override fun beforeSelectionChanged(oldSelection: TabInfo?, newSelection: TabInfo?) {}
     override fun tabsMoved() {}
-    
+
     // --- Public API for ContentPageAction ---
-    
+
     fun findContainerOf(tabInfo: TabInfo): SplitablePageContainer? {
         if (isSplit) {
             return firstChild?.findContainerOf(tabInfo) ?: secondChild?.findContainerOf(tabInfo)
         } else {
-             if (tabs?.tabs?.contains(tabInfo) == true) return this
-             return null
+            if (tabs?.tabs?.contains(tabInfo) == true) return this
+            return null
         }
     }
-    
-     fun findActiveContainer(): SplitablePageContainer? {
-         // Return leaf that has focus or last valid?
-         // Simplification: if leaf, return this. If split, recurse?
-         // We might need a global tracker or just traverse.
-         if (!isSplit) return this
-         
-         // Try to find one with selection? 
-         return firstChild?.findActiveContainer() ?: secondChild?.findActiveContainer()
-     }
-     
-     fun closePluginTabs(pluginInfo: PluginInfo) {
-         if (isSplit) {
-             firstChild?.closePluginTabs(pluginInfo)
-             secondChild?.closePluginTabs(pluginInfo)
-         } else {
-             val toRemove = tabs?.tabs?.filter { 
-                 (it.component as? PluginTabPanel)?.pluginInfo?.id == pluginInfo.id 
-             } ?: emptyList()
-             toRemove.forEach { closeTab(it) }
-         }
-     }
-     
-     fun selectPluginTab(pluginInfo: PluginInfo): Boolean {
-          if (isSplit) {
-             if (firstChild?.selectPluginTab(pluginInfo) == true) return true
-             return secondChild?.selectPluginTab(pluginInfo) == true
-         } else {
-             val found = tabs?.tabs?.find { 
-                 (it.component as? PluginTabPanel)?.pluginInfo?.id == pluginInfo.id 
-             }
-             if (found != null) {
-                 tabs?.select(found, true)
-                 return true
-             }
-             return false
-         }
-     }
+
+    fun findActiveContainer(): SplitablePageContainer? {
+        // Return leaf that has focus or last valid?
+        // Simplification: if leaf, return this. If split, recurse?
+        // We might need a global tracker or just traverse.
+        if (!isSplit) return this
+
+        // Try to find one with selection?
+        return firstChild?.findActiveContainer() ?: secondChild?.findActiveContainer()
+    }
+
+    fun closePluginTabs(pluginInfo: PluginInfo) {
+        if (isSplit) {
+            firstChild?.closePluginTabs(pluginInfo)
+            secondChild?.closePluginTabs(pluginInfo)
+        } else {
+            val toRemove = tabs?.tabs?.filter {
+                (it.component as? PluginTabPanel)?.pluginInfo?.id == pluginInfo.id
+            } ?: emptyList()
+            toRemove.forEach { closeTab(it) }
+        }
+    }
+
+    fun selectPluginTab(pluginInfo: PluginInfo): Boolean {
+        if (isSplit) {
+            if (firstChild?.selectPluginTab(pluginInfo) == true) return true
+            return secondChild?.selectPluginTab(pluginInfo) == true
+        } else {
+            val found = tabs?.tabs?.find {
+                (it.component as? PluginTabPanel)?.pluginInfo?.id == pluginInfo.id
+            }
+            if (found != null) {
+                tabs?.select(found, true)
+                return true
+            }
+            return false
+        }
+    }
 }
