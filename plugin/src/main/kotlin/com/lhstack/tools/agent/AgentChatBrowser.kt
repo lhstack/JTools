@@ -16,7 +16,10 @@ import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefDragHandler
+import org.cef.handler.CefKeyboardHandler
+import org.cef.handler.CefKeyboardHandlerAdapter
 import org.cef.callback.CefDragData
+import java.awt.event.KeyEvent
 import java.nio.charset.StandardCharsets
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -27,6 +30,7 @@ internal class AgentChatBrowser(
     private val page: String = "chat",
     private val onReady: (() -> Unit)? = null,
     private val onDropFiles: ((List<java.io.File>) -> Unit)? = null,
+    private val onEscapeKey: (() -> Boolean)? = null,
 ) : Disposable {
     private val browser: JBCefBrowser?
     private var ready = false
@@ -69,6 +73,18 @@ internal class AgentChatBrowser(
                 }.getOrElse { JBCefJSQuery.Response("", 500, it.message ?: "Command failed") }
             }
             Disposer.register(this, query)
+            if (onEscapeKey != null) {
+                client.addKeyboardHandler(object : CefKeyboardHandlerAdapter() {
+                    override fun onKeyEvent(browser: CefBrowser, event: CefKeyboardHandler.CefKeyEvent): Boolean {
+                        if (event.type == CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN &&
+                            event.windows_key_code == KeyEvent.VK_ESCAPE && !event.is_system_key
+                        ) {
+                            return onEscapeKey.invoke()
+                        }
+                        return false
+                    }
+                }, created.cefBrowser)
+            }
             if (onDropFiles != null) {
                 client.addDragHandler(object : CefDragHandler {
                     override fun onDragEnter(browser: CefBrowser, dragData: CefDragData, mask: Int): Boolean {

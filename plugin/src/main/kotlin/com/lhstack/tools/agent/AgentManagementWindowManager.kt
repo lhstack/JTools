@@ -3,14 +3,13 @@ package com.lhstack.tools.agent
 import com.google.gson.Gson
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.ui.JBUI
 import java.awt.Dimension
-import java.awt.event.KeyEvent
 import javax.swing.Action
-import javax.swing.KeyStroke
 import javax.swing.JComponent
 
 internal class AgentManagementWindowManager(
@@ -44,14 +43,15 @@ internal class AgentManagementWindowManager(
     }
 
     private inner class ManagementDialog(private val page: String) : DialogWrapper(project, false) {
-        private val browser = AgentChatBrowser(gson, ::handleCommand, page)
+        @Volatile
+        private var browserPopupOpen = false
+        private val browser = AgentChatBrowser(gson, ::handleCommand, page, onEscapeKey = ::onBrowserEscape)
 
         init {
             title = TITLES.getValue(page)
             setModal(false)
             setResizable(true)
             init()
-            rootPane.unregisterKeyboardAction(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0))
             window?.background = com.intellij.util.ui.UIUtil.getPanelBackground()
         }
 
@@ -62,6 +62,19 @@ internal class AgentManagementWindowManager(
 
         override fun createActions(): Array<Action> = emptyArray()
 
+        override fun doCancelAction() {
+            if (browserPopupOpen) return
+            super.doCancelAction()
+        }
+
+        private fun onBrowserEscape(): Boolean {
+            if (browserPopupOpen) return false
+            ApplicationManager.getApplication().invokeLater {
+                if (isShowing && !browserPopupOpen) close(CANCEL_EXIT_CODE)
+            }
+            return true
+        }
+
         override fun dispose() {
             windows.remove(page, this)
             Disposer.dispose(browser)
@@ -71,9 +84,15 @@ internal class AgentManagementWindowManager(
         fun refreshTheme() = browser.replaceState(themeState())
 
         private fun handleCommand(command: AgentBrowserCommand): Any? {
-            if (command.type == "ui.ready") {
-                browser.replaceState(themeState())
-                return Unit
+            when (command.type) {
+                "ui.ready" -> {
+                    browser.replaceState(themeState())
+                    return Unit
+                }
+                "ui.popupState" -> {
+                    browserPopupOpen = command.payload.get("open")?.asBoolean == true
+                    return Unit
+                }
             }
             return AgentBrowserManagement.handle(project, command.type, command.payload) { onChanged() }
         }

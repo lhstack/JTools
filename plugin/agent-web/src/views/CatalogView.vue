@@ -112,7 +112,7 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
       <footer><el-tag :type="g.provider.enabled?'success':'info'" size="small">{{g.provider.enabled?'启用':'禁用'}}</el-tag><el-button link type="danger" @click.stop="removeProvider(g)">删除</el-button></footer>
     </article>
   </div>
-  <el-dialog :close-on-press-escape="false" v-model="dialog" :title="provider.name||'新增供应商'" width="min(1080px, calc(100vw - 30px))" class="catalog-dialog" :lock-scroll="false">
+  <el-dialog v-model="dialog" :title="provider.name||'新增供应商'" width="min(1080px, calc(100vw - 30px))" class="catalog-dialog" :lock-scroll="false">
     <el-scrollbar class="dialog-scroll">
       <el-collapse v-model="sections" class="config-collapse">
         <el-collapse-item name="provider">
