@@ -51,6 +51,7 @@ dependencies {
     implementation("dnsjava:dnsjava:3.6.5")
     implementation("org.jsoup:jsoup:1.22.2")
     implementation("org.htmlunit:htmlunit:4.21.0")
+    implementation("io.modelcontextprotocol.sdk:mcp:1.1.3")
     implementation("org.commonmark:commonmark:0.28.0")
     implementation("org.commonmark:commonmark-ext-autolink:0.28.0")
     implementation("org.commonmark:commonmark-ext-gfm-tables:0.28.0")

@@ -42,6 +42,7 @@ object BuiltinTools {
         BuiltinToolInfo("skills_view", "skills", "Load one skill resource from the configured skills directory."),
         BuiltinToolInfo("bash", "shell", "Run a shell command and return stdout, stderr, and exit code."),
         BuiltinToolInfo("web_fetch", "http", "Send an HTTP request with optional proxy, headers, and request body."),
+        BuiltinToolInfo("cli", "cli", "Execute structured JTools CLI commands such as mcp.list, mcp.create, mcp.test, and mcp.call."),
     )
 
     /** 照抄 builtin_tools：按配置的多模态资源类型追加 view_* 工具。 */

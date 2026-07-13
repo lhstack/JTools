@@ -11,6 +11,8 @@ import com.lhstack.tools.agent.model.llm.ToolResult
 import com.lhstack.tools.agent.model.llm.ToolResultContent
 import com.lhstack.tools.agent.model.llm.UserContent
 import java.util.concurrent.Callable
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ExecutionException
 
 /**
  * 工具调用运行时。完全照抄 awake-claw 的 ToolRuntime（src/service/model_provider.rs）。
@@ -27,6 +29,7 @@ class ToolRuntime(
     private val hook: ToolHook,
     private val eventSink: ToolEventSink?,
     private val toolCancel: com.lhstack.tools.agent.model.http.ModelCancel? = null,
+ private val conversationCancel: com.lhstack.tools.agent.model.http.ModelCancel? = null,
 ) {
 
     /** 对齐 execute_tool_calls：先发 tool_call 事件，并发执行，再发 tool_result 事件。 */
@@ -64,7 +67,24 @@ class ToolRuntime(
         val futures = calls.map { call ->
             AgentExecutors.shared.submit(Callable { executeToolCall(call) })
         }
-        return futures.map { it.get() }
+        val cancelFutures = { futures.forEach { it.cancel(true) }; Unit }
+        val toolInterruptId = toolCancel?.registerInterrupt(cancelFutures)
+        val conversationInterruptId = conversationCancel?.registerInterrupt(cancelFutures)
+        try {
+            return futures.map { future ->
+                try {
+                    future.get()
+                } catch (_: CancellationException) {
+                    "用户手动取消"
+                } catch (error: ExecutionException) {
+                    val cause = error.cause ?: error
+                    "工具调用失败: ${cause.message ?: cause.toString()}"
+                }
+            }
+        } finally {
+            toolInterruptId?.let { toolCancel?.clearInterrupt(it) }
+            conversationInterruptId?.let { conversationCancel?.clearInterrupt(it) }
+        }
     }
 
     private fun recordToolResults(calls: List<ProviderToolCall>, outputs: List<String>) {

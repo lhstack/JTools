@@ -19,6 +19,7 @@ object RuntimeTools {
         WebFetchTool.NAME,
         SkillsListTool.NAME,
         SkillsViewTool.NAME,
+        CliTool.NAME,
     )
 
     fun create(
@@ -52,6 +53,7 @@ object RuntimeTools {
         if (enabled(SkillsViewTool.NAME)) {
             tools.add(SkillsViewTool(workspaceTools, skillsRootDir, enabledSkills))
         }
+        if (enabled(CliTool.NAME)) tools.add(CliTool(cancel))
         return tools
     }
 }

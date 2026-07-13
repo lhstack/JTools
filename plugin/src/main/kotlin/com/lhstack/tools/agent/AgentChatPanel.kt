@@ -1150,7 +1150,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        if (item.runningToolCount > 0 && !item.toolCancelRequested) {
+        if (item.runningToolCount > 0) {
+            if (item.toolCancelRequested) return
             item.toolCancelRequested = true
             item.toolToken.cancel()
             val runningIds = item.runningToolIds.toList()
@@ -1158,8 +1159,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             runningIds.forEach { toolId ->
                 item.assistantCard?.updateToolResult(toolId, "用户手动取消")
             }
-            item.runningToolIds.clear()
-            item.runningToolCount = 0
             refreshQueuePanel()
             updateActiveStopButton()
             return
@@ -1311,11 +1310,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         item.runningToolIds.remove(result.id)
         item.runningToolCount = item.runningToolIds.size
         if (item.canceledToolIds.remove(result.id) && item.canceledToolIds.isEmpty()) {
-            item.toolToken.reset()
-            item.toolCancelRequested = false
+            resetCancelledTools(item)
         }
         refreshQueuePanel()
         updateActiveStopButton()
+    }
+
+    private fun resetCancelledTools(item: ChatQueueItem) {
+        item.toolToken.reset()
+        item.toolCancelRequested = false
     }
 
     private fun scrollQueueItemIfVisible(item: ChatQueueItem) {

@@ -20,11 +20,9 @@ class SseParser(
     private val cancelCall: (() -> Unit)? = null,
 ) : AutoCloseable {
 
-    init {
-        cancel?.registerInterrupt {
-            cancelCall?.invoke()
-            response.close()
-        }
+    private val interruptId = cancel?.registerInterrupt {
+        cancelCall?.invoke()
+        response.close()
     }
 
     fun next(): SseEvent? {
@@ -63,7 +61,7 @@ class SseParser(
     }
 
     override fun close() {
-        cancel?.clearInterrupt()
+        interruptId?.let { cancel?.clearInterrupt(it) }
         response.close()
     }
 

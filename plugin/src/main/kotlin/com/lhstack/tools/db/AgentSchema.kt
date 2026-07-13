@@ -16,6 +16,19 @@ object AgentSchema {
         );
         """.trimIndent(),
         """
+        create table if not exists mcp_servers (
+            id integer primary key autoincrement,
+            name text not null,
+            enabled integer not null default 1,
+            transport text not null,
+            command text,
+            args text not null default '[]',
+            env text not null default '{}',
+            url text,
+            headers text not null default '{}'
+        );
+        """.trimIndent(),
+        """
         create table if not exists providers (
             id integer primary key autoincrement,
             name text not null,

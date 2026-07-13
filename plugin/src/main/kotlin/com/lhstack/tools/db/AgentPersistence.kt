@@ -3,6 +3,7 @@ package com.lhstack.tools.db
 import com.lhstack.tools.db.mapper.AgentMapper
 import com.lhstack.tools.db.mapper.GlobalConfigMapper
 import com.lhstack.tools.db.mapper.ModelMapper
+import com.lhstack.tools.db.mapper.McpServerMapper
 import com.lhstack.tools.db.mapper.ChatSessionMapper
 import com.lhstack.tools.db.mapper.ModelRequestLogMapper
 import com.lhstack.tools.db.mapper.PromptTemplateMapper
@@ -34,6 +35,7 @@ object AgentPersistence {
                 ModelRequestLogMapper::class.java,
                 ChatSessionMapper::class.java,
                 GlobalConfigMapper::class.java,
+                McpServerMapper::class.java,
             )
             AgentDatabase.init()
             seedSettings()

@@ -30,14 +30,14 @@ class ModelHttpExecutor(
         body: String,
         cancel: ModelCancel?,
     ): String {
-        val response = execute(jsonRequest(url, headers, body), cancel)
+        val (response, interruptId) = execute(jsonRequest(url, headers, body), cancel)
         response.use {
             try {
                 val text = it.body?.string().orEmpty()
                 ensureSuccess(it, text)
                 return text
             } finally {
-                cancel?.clearInterrupt()
+                interruptId?.let { cancel?.clearInterrupt(it) }
             }
         }
     }
@@ -59,14 +59,14 @@ class ModelHttpExecutor(
             .get()
             .applyHeaders(headers)
             .build()
-        val response = execute(request, cancel)
+        val (response, interruptId) = execute(request, cancel)
         response.use {
             try {
                 val text = it.body?.string().orEmpty()
                 ensureSuccess(it, text)
                 return text
             } finally {
-                cancel?.clearInterrupt()
+                interruptId?.let { cancel?.clearInterrupt(it) }
             }
         }
     }
@@ -82,11 +82,11 @@ class ModelHttpExecutor(
             throw ModelRequestCancelledException()
         }
         val call = client.newCall(jsonRequest(url, headers, body))
-        cancel?.registerInterrupt { call.cancel() }
+        val interruptId = cancel?.registerInterrupt { call.cancel() }
         val response = try {
             call.execute()
         } catch (error: IOException) {
-            cancel?.clearInterrupt()
+            interruptId?.let { cancel?.clearInterrupt(it) }
             if (cancel?.isCancelled() == true || call.isCanceled()) {
                 throw ModelRequestCancelledException()
             }
@@ -98,24 +98,25 @@ class ModelHttpExecutor(
                 val text = responseBody.string()
                 throw ModelHttpStatusException(response.code, text)
             }
+            interruptId?.let { cancel?.clearInterrupt(it) }
             return SseParser(response, responseBody.source(), cancel, call::cancel)
         } catch (error: Throwable) {
-            cancel?.clearInterrupt()
+            interruptId?.let { cancel?.clearInterrupt(it) }
             response.close()
             throw error
         }
     }
 
-    private fun execute(request: Request, cancel: ModelCancel?): Response {
+    private fun execute(request: Request, cancel: ModelCancel?): Pair<Response, Long?> {
         if (cancel?.isCancelled() == true) {
             throw ModelRequestCancelledException()
         }
         val call = client.newCall(request)
-        cancel?.registerInterrupt { call.cancel() }
+        val interruptId = cancel?.registerInterrupt { call.cancel() }
         return try {
-            call.execute()
+            call.execute() to interruptId
         } catch (error: IOException) {
-            cancel?.clearInterrupt()
+            interruptId?.let { cancel?.clearInterrupt(it) }
             if (cancel?.isCancelled() == true || call.isCanceled()) {
                 throw ModelRequestCancelledException()
             }

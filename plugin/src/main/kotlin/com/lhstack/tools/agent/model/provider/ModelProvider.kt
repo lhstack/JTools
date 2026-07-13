@@ -72,6 +72,7 @@ object ModelProvider {
             hook = request.hook,
             eventSink = request.eventSink,
             toolCancel = request.toolCancel,
+            conversationCancel = request.cancel,
         )
         val round = executeProviderRound(executor, request, messages, toolRuntime)
         messages.addAll(round.providerMessages)

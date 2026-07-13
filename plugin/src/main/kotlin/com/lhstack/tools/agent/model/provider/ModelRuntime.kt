@@ -81,7 +81,6 @@ object ModelRuntime {
         val output = try {
             ModelProvider.execute(executor, request)
         } catch (e: Throwable) {
-            e.printStackTrace()
             val message = e.message ?: e.toString()
             if (cancel?.isCancelled() == true) {
                 ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
