@@ -43,6 +43,13 @@ object BuiltinTools {
         BuiltinToolInfo("bash", "shell", "Run a shell command and return stdout, stderr, and exit code."),
         BuiltinToolInfo("web_fetch", "http", "Send an HTTP request with optional proxy, headers, and request body."),
         BuiltinToolInfo("cli", "cli", "Execute structured JTools CLI commands such as mcp.list, mcp.create, mcp.test, and mcp.call."),
+        BuiltinToolInfo("read_file", "ide", "Read project, dependency source, JAR resource, or decompiled IDE file content by fine-grained line ranges."),
+        BuiltinToolInfo("write_file", "ide", "Create or fully write a project text file through JetBrains VFS/Document."),
+        BuiltinToolInfo("replace_text_in_file", "ide", "Precisely replace text in a project file through the current IDE Document."),
+        BuiltinToolInfo("find_files", "ide", "Find project files by name, optionally including dependency and JAR entries."),
+        BuiltinToolInfo("search_text", "ide", "Search project contents with the JetBrains Find engine and structured line context."),
+        BuiltinToolInfo("format_file", "ide", "Format one project source file using JetBrains code style."),
+        BuiltinToolInfo("get_file_problems", "ide", "Run JetBrains code analysis and return structured file diagnostics."),
     )
 
     /** 照抄 builtin_tools：按配置的多模态资源类型追加 view_* 工具。 */

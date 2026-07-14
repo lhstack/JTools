@@ -98,6 +98,7 @@ object AgentRuntime {
             skillsRootDir = request.skillsRootDir,
             toolEnvVars = request.toolEnvVars,
             cancel = request.toolCancel ?: request.cancel,
+            project = request.project,
         ) + pluginFunctionTools(agent.extConfig, request) + viewResourceTools(agent.extConfig, request) + request.extraTools
 
         val preamble = buildPreamble(agent, request, enabledSkills, request.skillsRootDir)
@@ -278,11 +279,12 @@ object AgentRuntime {
         append("- 系统 bash 工具默认编码：${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}（bash 工具执行命令时按此编码解码 stdout/stderr）\n")
         append("- 文件输出编码：${projectFileEncodingName(request)}（写入文件时请按该编码输出内容）\n")
 
-        append("\n## Bash 文件操作编码约定\n")
-        append("- 使用 `bash` 查找、读取、编写或修改项目文件时，工作目录默认是工作空间；用户未提供完整路径时，应先在工作空间内定位目标，不要猜测路径。\n")
-        append("- 使用 `bash` 写入、覆盖、追加或替换项目源码、配置、测试及文档时，必须显式按 JetBrains 项目文件编码 `${projectFileEncodingName(request)}` 写入；不要依赖 PowerShell/cmd 的默认编码、重定向符 `>`/`>>`、`Out-File` 或未指定编码的 `Set-Content`。\n")
-        append("- Windows PowerShell/pwsh 下优先使用能够显式指定编码且不会附加 BOM 的写法；写入后应按同一编码读取并校验内容，避免把 UTF-8 文件写成 GBK/UTF-16 或产生混合编码。\n")
-        append("- `bash` 返回 stdout/stderr 时按系统 bash 工具默认编码 `${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}` 解码；该编码只用于命令输出，不代表项目文件编码。\n")
+        append("\n## 项目文件与代码操作约定\n")
+        append("- 查找、读取、创建或修改项目文件时，优先使用 `find_files`、`search_text`、`read_file`、`write_file` 和 `replace_text_in_file`；不要用 `bash` 代替 IDE 原生文件工具。\n")
+        append("- 修改现有文件时优先使用 `replace_text_in_file` 做精确局部替换；新建文件或确需完整重写时才使用 `write_file`。\n")
+        append("- 文件写入由 JetBrains VFS/Document 按项目文件编码 `${projectFileEncodingName(request)}` 保存；修改源码后使用 `format_file` 格式化，并使用 `get_file_problems` 检查 IDE 诊断。\n")
+        append("- `find_files` 可按需包含依赖/JAR 条目，返回的 `jar://`、`jrt://` 或 `file://` 路径可直接交给 `read_file`。`search_text` 包含库时只搜索依赖源码和文本资源，不批量反编译二进制 `.class`。\n")
+        append("- 编译、测试、Git、npm、Gradle/Maven 自定义任务和外部脚本使用 `bash`；`bash` 返回 stdout/stderr 时按 `${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}` 解码，该编码不代表项目文件编码。\n")
 
         val template = agent.promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
         appendSection("以下是系统提示词", template)

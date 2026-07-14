@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent.model.tools
 
+import com.intellij.openapi.project.Project
 import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import java.io.File
@@ -20,6 +21,13 @@ object RuntimeTools {
         SkillsListTool.NAME,
         SkillsViewTool.NAME,
         CliTool.NAME,
+        ReadFileTool.NAME,
+        WriteFileTool.NAME,
+        ReplaceTextInFileTool.NAME,
+        FindFilesTool.NAME,
+        SearchTextTool.NAME,
+        FormatFileTool.NAME,
+        GetFileProblemsTool.NAME,
     )
 
     fun create(
@@ -29,6 +37,7 @@ object RuntimeTools {
         skillsRootDir: File? = null,
         toolEnvVars: Map<String, String> = emptyMap(),
         cancel: ModelCancel? = null,
+        project: Project? = null,
     ): List<ToolDyn> {
         val workspaceTools = WorkspaceTools(workspace)
         val tools = mutableListOf<ToolDyn>()
@@ -54,6 +63,16 @@ object RuntimeTools {
             tools.add(SkillsViewTool(workspaceTools, skillsRootDir, enabledSkills))
         }
         if (enabled(CliTool.NAME)) tools.add(CliTool(cancel))
+        if (project != null) {
+            val ide = IdeProjectSupport(workspaceTools, project)
+            if (enabled(ReadFileTool.NAME)) tools.add(ReadFileTool(ide))
+            if (enabled(WriteFileTool.NAME)) tools.add(WriteFileTool(ide))
+            if (enabled(ReplaceTextInFileTool.NAME)) tools.add(ReplaceTextInFileTool(ide))
+            if (enabled(FindFilesTool.NAME)) tools.add(FindFilesTool(ide))
+            if (enabled(SearchTextTool.NAME)) tools.add(SearchTextTool(ide))
+            if (enabled(FormatFileTool.NAME)) tools.add(FormatFileTool(ide))
+            if (enabled(GetFileProblemsTool.NAME)) tools.add(GetFileProblemsTool(ide))
+        }
         return tools
     }
 }
