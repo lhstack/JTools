@@ -12,7 +12,11 @@ object AgentAttachmentPresentationSupport {
         }
         val header = "已附加 ${attachments.size} 个文件:"
         val lines = attachments.joinToString("\n") { attachment ->
-            "- ${kindLabel(attachment)} ${attachment.name.ifBlank { File(attachment.path).name.ifBlank { "附件" } }}${sizeLabel(attachment.size)}"
+            "- ${kindLabel(attachment)} ${attachment.name.ifBlank { File(attachment.path).name.ifBlank { "附件" } }}${
+                sizeLabel(
+                    attachment.size
+                )
+            }"
         }
         return listOf(trimmed.takeIf { it.isNotBlank() }, header, lines)
             .filterNotNull()
@@ -37,7 +41,7 @@ object AgentAttachmentPresentationSupport {
             }
             if (AgentAttachmentKind.fromId(attachment.kind) == AgentAttachmentKind.FILE) {
                 append("\n")
-                append("普通文件会先作为附件上下文注入；如启用工具或 MCP，可继续读取真实内容。")
+                append("普通文件会先作为附件上下文注入；如启用工具，可继续读取真实内容。")
             }
         }
     }

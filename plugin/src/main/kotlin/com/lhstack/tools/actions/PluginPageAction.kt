@@ -91,7 +91,7 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
                                             ApplicationManager.getApplication().restart()
                                             return@install
                                         }
-                                        p.openProject(openProject,pluginInfo!!.logImpl(openProject)) {
+                                        p.openProject(openProject, pluginInfo!!.logImpl(openProject)) {
                                             if (plugin.pluginType() != PluginType.JAVA_NON_UI) {
                                                 //需要打开Tools面板
                                                 openProject.openThisWindow()
@@ -221,12 +221,12 @@ class PluginPageAction(windowPanel: SimpleToolWindowPanel, private val project: 
 
                 //这里需要调用关闭项目函数
                 ProjectManager.getInstance().openProjects.forEach {
-                    this.catch("${pluginInfo.name}-${pluginInfo.version}: 插件卸载,调用项目关闭回调"){
+                    this.catch("${pluginInfo.name}-${pluginInfo.version}: 插件卸载,调用项目关闭回调") {
                         plugin.closeProject(it)
                     }
                 }
 
-                this.catch("${pluginInfo.name}-${pluginInfo.version}: 插件卸载,app关闭回调"){
+                this.catch("${pluginInfo.name}-${pluginInfo.version}: 插件卸载,app关闭回调") {
                     plugin.appClose()
                 }
 

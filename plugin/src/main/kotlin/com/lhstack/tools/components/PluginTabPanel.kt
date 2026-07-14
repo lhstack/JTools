@@ -7,7 +7,13 @@ import com.lhstack.tools.plugins.PluginInfo
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-class PluginTabPanel(val pluginInfo: PluginInfo, val plugin: IPlugin,val pluginPanel:JComponent,var tabsPanel: JBEditorTabsBase?,var identity:String) : JPanel(),
+class PluginTabPanel(
+    val pluginInfo: PluginInfo,
+    val plugin: IPlugin,
+    val pluginPanel: JComponent,
+    var tabsPanel: JBEditorTabsBase?,
+    var identity: String
+) : JPanel(),
     Disposable {
     override fun dispose() {
 

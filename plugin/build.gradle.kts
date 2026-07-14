@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.4.2"
+version = "1.1.4.5"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -22,16 +22,40 @@ repositories {
     mavenCentral()
 }
 
+configurations.configureEach {
+    exclude(group = "org.slf4j", module = "slf4j-api")
+    exclude(group = "org.slf4j", module = "slf4j-simple")
+    exclude(group = "org.slf4j", module = "slf4j-nop")
+    exclude(group = "org.slf4j", module = "slf4j-log4j12")
+    exclude(group = "org.slf4j", module = "slf4j-reload4j")
+}
+
+intellijPlatform {
+    // This plugin has no applicationConfigurable/projectConfigurable extensions.
+    // Running traverseUI generates no plugin-owned settings index and may collide with
+    // an active runIde instance that uses the same sandbox.
+    buildSearchableOptions.set(false)
+}
+
 dependencies {
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
-    implementation("io.agentscope:agentscope:1.0.12")
-    implementation("com.anthropic:anthropic-java:2.16.1")
-    implementation("com.google.genai:google-genai:1.43.0")
     implementation("cn.hutool:hutool-core:5.8.37")
-    implementation("io.modelcontextprotocol.sdk:mcp:0.17.2")
+    // sqlite + mybatis-plus + hikaricp (persistence)
+    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    implementation("com.zaxxer:HikariCP:4.0.3")
+    implementation("com.baomidou:mybatis-plus:3.5.3.1")
+    implementation("org.springframework:spring-core:5.3.39")
+    implementation("org.springframework:spring-jdbc:5.3.39")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("dnsjava:dnsjava:3.6.5")
     implementation("org.jsoup:jsoup:1.22.2")
     implementation("org.htmlunit:htmlunit:4.21.0")
+    implementation("io.modelcontextprotocol.sdk:mcp:1.1.3")
+    implementation("org.commonmark:commonmark:0.28.0")
+    implementation("org.commonmark:commonmark-ext-autolink:0.28.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.28.0")
+    implementation("org.commonmark:commonmark-ext-task-list-items:0.28.0")
     implementation(project(":sdk"))
     testImplementation(kotlin("test"))
     testImplementation(platform("org.junit:junit-bom:5.12.2"))
@@ -67,22 +91,17 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
     "-keep class com.lhstack.tools.plugins.PluginState { *; }",
+    "-keep class com.lhstack.tools.db.entity.** { *; }",
+    "-keep class com.lhstack.tools.db.mapper.** { *; }",
+    "-keep class * implements com.baomidou.mybatisplus.core.handlers.MetaObjectHandler { *; }",
+    "-keep interface com.baomidou.mybatisplus.core.handlers.MetaObjectHandler { *; }",
+    "-keep class com.lhstack.tools.db.AgentMetaObjectHandler { *; }",
     "-keep class com.lhstack.tools.plugins.PluginState\$State { *; }",
     "-keep class com.lhstack.tools.actions.DeveloperState { *; }",
     "-keep class com.lhstack.tools.actions.DeveloperState\$State { *; }",
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState { *; }",
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState\$State { *; }",
-    "-keep class com.lhstack.tools.agent.AgentProviderState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentModelSettings { *; }",
-    "-keep class com.lhstack.tools.agent.AgentSessionState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentSystemPromptState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentRenderState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentToolRenderEntryState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentSessionRuntimeState { *; }",
     "-keep class com.lhstack.tools.agent.AgentAttachmentState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentSkillState { *; }",
-    "-keep class com.lhstack.tools.agent.AgentSkillResourceState { *; }",
-    "-keep class com.lhstack.tools.agent.McpServerState { *; }",
     "-keepclassmembers class * implements com.intellij.openapi.Disposable { public void dispose(); }",
     "-keepclassmembers class * { void dispose(); }",
     "-keepclassmembers class com.lhstack.tools.plugins.PluginState** { *; }",
@@ -134,24 +153,6 @@ val proguardRules = listOf(
             public *;
             protected *;
         }
-
-        -keep class com.lhstack.tools.agent.McpAvailabilityService { *; }
-        -keep class com.lhstack.tools.agent.McpClient { *; }
-        -keep class com.lhstack.tools.agent.McpClientManager { *; }
-        -keep class com.lhstack.tools.agent.McpConfigPanel { *; }
-        -keep class com.lhstack.tools.agent.McpServerState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.McpServerState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.AgentSessionState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.AgentSystemPromptState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.AgentRenderState { *; }
-        -keep class com.lhstack.tools.agent.AgentProviderState { *; }
-        -keep class com.lhstack.tools.agent.AgentProxyType { *; }
-        -keep class com.lhstack.tools.agent.AgentProviderType { *; }
-        -keepclassmembers class com.lhstack.tools.agent.AgentProviderState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.McpToolDescriptorState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.McpResourceDescriptorState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.McpPromptArgumentState { *; }
-        -keepclassmembers class com.lhstack.tools.agent.McpPromptDescriptorState { *; }
 
         -keepclassmembers class com.lhstack.tools.dev.** {
             public *;
@@ -259,7 +260,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("251")
-        untilBuild.set("263.*")
+        untilBuild.set("265.*")
     }
 
     signPlugin {

@@ -1,8 +1,8 @@
 package com.lhstack.tools.agent
 
-import com.intellij.util.xmlb.annotations.Tag
 import java.util.UUID
 
+/** 附件类型。按 MIME / 扩展名归类，决定发送时如何转成模型内容块。 */
 enum class AgentAttachmentKind(val id: String) {
     IMAGE("image"),
     AUDIO("audio"),
@@ -10,25 +10,11 @@ enum class AgentAttachmentKind(val id: String) {
     FILE("file");
 
     companion object {
-        fun fromId(id: String?): AgentAttachmentKind {
-            return entries.firstOrNull { it.id == id } ?: FILE
-        }
+        fun fromId(id: String?): AgentAttachmentKind = entries.firstOrNull { it.id == id } ?: FILE
     }
 }
 
-enum class AgentAttachmentDeliveryMode(val id: String) {
-    AUTO("auto"),
-    CONTENT_ONLY("content_only"),
-    METADATA_ONLY("metadata_only");
-
-    companion object {
-        fun fromId(id: String?): AgentAttachmentDeliveryMode {
-            return entries.firstOrNull { it.id == id } ?: AUTO
-        }
-    }
-}
-
-@Tag("attachment")
+/** 会话草稿附件。仅在发送当次使用，不做持久化；回显依赖 model_logs 的请求快照。 */
 data class AgentAttachmentState(
     var id: String = UUID.randomUUID().toString(),
     var name: String = "",
@@ -36,26 +22,4 @@ data class AgentAttachmentState(
     var mimeType: String = "",
     var size: Long = 0,
     var kind: String = AgentAttachmentKind.FILE.id,
-    var deliveryMode: String = AgentAttachmentDeliveryMode.AUTO.id,
-)
-
-data class AgentFileContextEntry(
-    val name: String,
-    val mimeType: String,
-    val path: String,
-    val resourceRef: String,
-    val content: String? = null,
-    val metadataOnly: Boolean = false,
-)
-
-data class AgentAttachmentMappingResult(
-    val mediaBlocks: List<io.agentscope.core.message.ContentBlock> = emptyList(),
-    val fileContext: List<AgentFileContextEntry> = emptyList(),
-    val blockedAttachments: List<AgentAttachmentState> = emptyList(),
-)
-
-data class AgentConversationDraft(
-    val message: io.agentscope.core.message.Msg,
-    val fileContext: List<AgentFileContextEntry>,
-    val blockedAttachments: List<AgentAttachmentState>,
 )

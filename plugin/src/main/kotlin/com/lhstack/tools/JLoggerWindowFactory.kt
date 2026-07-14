@@ -23,7 +23,7 @@ class JLoggerWindowFactory : ToolWindowFactory {
             val editorEx = it as EditorEx
             editorEx.settings.isUseSoftWraps = true
         }
-        project.putUserData(Const.LOG_CONSOLE_KEY,consoleView)
+        project.putUserData(Const.LOG_CONSOLE_KEY, consoleView)
         toolWindow.setIcon(AllIcons.Toolwindows.ToolWindowRun)
     }
 
@@ -31,7 +31,7 @@ class JLoggerWindowFactory : ToolWindowFactory {
         project: Project,
         toolWindow: ToolWindow,
     ) {
-        if(PluginState.getInstance().state.consoleLogEnabled){
+        if (PluginState.getInstance().state.consoleLogEnabled) {
             val contentManager = toolWindow.contentManager
             val factory = contentManager.factory
             val content = factory.createContent(project.getConsoleLog(), Const.TOOLS_WINDOW_ID, false)

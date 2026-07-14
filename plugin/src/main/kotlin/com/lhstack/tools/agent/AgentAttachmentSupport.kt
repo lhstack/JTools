@@ -1,14 +1,11 @@
 package com.lhstack.tools.agent
 
-import io.agentscope.core.message.AudioBlock
-import io.agentscope.core.message.Base64Source
-import io.agentscope.core.message.ContentBlock
-import io.agentscope.core.message.ImageBlock
-import io.agentscope.core.message.URLSource
-import io.agentscope.core.message.VideoBlock
+import com.google.gson.JsonObject
+import com.lhstack.tools.agent.model.llm.AudioMediaType
+import com.lhstack.tools.agent.model.llm.ImageMediaType
+import com.lhstack.tools.agent.model.llm.UserContent
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
-import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -18,7 +15,27 @@ import javax.imageio.ImageIO
 import javax.imageio.plugins.jpeg.JPEGImageWriteParam
 import javax.imageio.stream.FileImageOutputStream
 
+/**
+ * 附件到 LLM 用户内容（UserContent）的映射。
+ *
+ * 图片：压缩到模型可接收尺寸后转 base64 图片块；音频：转 base64 音频块；
+ * 文本文件：读取内容作为文本块；其余文件：仅注入元数据文本。
+ * 所有映射产出 UserContent，直接拼进 Message.User，不经过任何旧的消息结构。
+ */
 object AgentAttachmentSupport {
+
+    /** 附件回显快照：字段与会话历史读取一致（id/name/path/mimeType/size/kind）。 */
+    fun snapshotOf(draft: AgentAttachmentState): JsonObject = normalize(draft).let { normalized ->
+        JsonObject().apply {
+            addProperty("id", normalized.id)
+            addProperty("name", normalized.name)
+            addProperty("path", normalized.path)
+            addProperty("mimeType", normalized.mimeType)
+            addProperty("size", normalized.size)
+            addProperty("kind", normalized.kind)
+        }
+    }
+
     private val imageExtensions = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
     private val audioExtensions = setOf("mp3", "wav", "m4a", "ogg", "flac")
     private val videoExtensions = setOf("mp4", "mov", "avi", "mkv", "webm")
@@ -29,6 +46,7 @@ object AgentAttachmentSupport {
     private const val MAX_IMAGE_DIMENSION = 1568
     private const val MAX_IMAGE_BYTES = 3L * 1024 * 1024
 
+    /** 规范化附件：识别 MIME、类型与文件大小。 */
     fun normalize(draft: AgentAttachmentState): AgentAttachmentState {
         val resolvedMime = resolveMimeType(draft)
         val resolvedKind = when {
@@ -40,90 +58,77 @@ object AgentAttachmentSupport {
         return draft.apply {
             mimeType = resolvedMime
             kind = resolvedKind.id
-            deliveryMode = AgentAttachmentDeliveryMode.fromId(deliveryMode).id
             if (size <= 0 && path.isNotBlank()) {
                 runCatching { Files.size(Paths.get(path)) }.getOrNull()?.let { size = it }
             }
         }
     }
 
-    fun prepareForUpload(draft: AgentAttachmentState): AgentAttachmentState {
+    /**
+     * 把附件映射为一个 LLM 用户内容块。
+     *
+     * modalities 是当前模型声明的多模态能力（image/audio/video/text）。只有模型具备对应
+     * 模态能力时才内联 base64 内容，否则降级为元数据文本；文本文件始终按文本注入。
+     * 无法读取内容时统一返回元数据文本。
+     */
+    fun toUserContent(draft: AgentAttachmentState, modalities: Set<String>): UserContent {
         val normalized = normalize(draft)
         return when (AgentAttachmentKind.fromId(normalized.kind)) {
-            AgentAttachmentKind.IMAGE -> optimizeImage(normalized)
-            else -> normalized
+            AgentAttachmentKind.IMAGE ->
+                if ("image" in modalities) imageContent(normalized) ?: metadataContent(normalized)
+                else metadataContent(normalized)
+            AgentAttachmentKind.AUDIO ->
+                if ("audio" in modalities) audioContent(normalized) ?: metadataContent(normalized)
+                else metadataContent(normalized)
+            AgentAttachmentKind.VIDEO -> metadataContent(normalized)
+            AgentAttachmentKind.FILE -> textContent(normalized) ?: metadataContent(normalized)
         }
     }
 
-    fun toMediaBlock(draft: AgentAttachmentState): ContentBlock? {
-        val normalized = prepareForUpload(draft)
-        if (normalized.path.isBlank()) {
-            return null
-        }
-        val source = buildSource(normalized)
-        return when (AgentAttachmentKind.fromId(normalized.kind)) {
-            AgentAttachmentKind.IMAGE -> ImageBlock.builder().source(source).build()
-            AgentAttachmentKind.AUDIO -> AudioBlock.builder().source(source).build()
-            AgentAttachmentKind.VIDEO -> VideoBlock.builder().source(source).build()
-            AgentAttachmentKind.FILE -> null
-        }
+    private fun imageContent(draft: AgentAttachmentState): UserContent? {
+        val optimized = optimizeImage(draft)
+        val path = Paths.get(optimized.path)
+        if (!Files.exists(path) || !Files.isRegularFile(path)) return null
+        val base64 = Base64.getEncoder().encodeToString(Files.readAllBytes(path))
+        val mediaType = ImageMediaType.fromMimeType(optimized.mimeType) ?: ImageMediaType.PNG
+        return UserContent.imageBase64(base64, mediaType, null)
     }
 
-    fun toFileContext(draft: AgentAttachmentState): AgentFileContextEntry? {
-        val normalized = normalize(draft)
-        val extracted = extractText(normalized)
-        val deliveryMode = AgentAttachmentDeliveryMode.fromId(normalized.deliveryMode)
-        if (extracted == null && deliveryMode == AgentAttachmentDeliveryMode.CONTENT_ONLY) {
-            return null
-        }
-        return AgentFileContextEntry(
-            name = normalized.name.ifBlank { Paths.get(normalized.path).fileName?.toString().orEmpty() },
-            mimeType = normalized.mimeType,
-            path = normalized.path,
-            resourceRef = buildResourceRef(normalized),
-            content = when (deliveryMode) {
-                AgentAttachmentDeliveryMode.METADATA_ONLY -> null
-                else -> extracted
-            },
-            metadataOnly = deliveryMode == AgentAttachmentDeliveryMode.METADATA_ONLY || extracted.isNullOrBlank(),
-        )
-    }
-
-    fun extractText(draft: AgentAttachmentState): String? {
-        if (draft.path.isBlank()) {
-            return null
-        }
+    private fun audioContent(draft: AgentAttachmentState): UserContent? {
         val path = Paths.get(draft.path)
-        if (!Files.exists(path) || Files.isDirectory(path)) {
-            return null
-        }
-        val extension = extensionOf(draft)
-        if (extension !in textExtensions && !draft.mimeType.startsWith("text/")) {
-            return null
-        }
-        return Files.readString(path, StandardCharsets.UTF_8)
-            .trim()
-            .takeIf { it.isNotBlank() }
+        if (!Files.exists(path) || !Files.isRegularFile(path)) return null
+        val mediaType = AudioMediaType.fromMimeType(draft.mimeType) ?: return null
+        val base64 = Base64.getEncoder().encodeToString(Files.readAllBytes(path))
+        return UserContent.audio(base64, mediaType)
     }
 
-    private fun buildResourceRef(draft: AgentAttachmentState): String {
-        return if (draft.path.isNotBlank()) {
-            Paths.get(draft.path).toUri().toString()
-        } else {
-            "attachment://${draft.id}/${draft.name.ifBlank { "unnamed" }}"
-        }
+    private fun textContent(draft: AgentAttachmentState): UserContent? {
+        val text = extractText(draft) ?: return null
+        val name = draft.name.ifBlank { Paths.get(draft.path).fileName?.toString().orEmpty() }
+        return UserContent.text("[附件文件 $name]\n$text")
+    }
+
+    private fun metadataContent(draft: AgentAttachmentState): UserContent {
+        val name = draft.name.ifBlank { Paths.get(draft.path).fileName?.toString().orEmpty() }
+        val sizeText = if (draft.size > 0) "，大小 ${draft.size / 1024} KB" else ""
+        return UserContent.text("[附件 $name（${draft.mimeType}$sizeText），未内联内容，可用工具读取路径：${draft.path}]")
+    }
+
+    private fun extractText(draft: AgentAttachmentState): String? {
+        if (draft.path.isBlank()) return null
+        val path = Paths.get(draft.path)
+        if (!Files.exists(path) || Files.isDirectory(path)) return null
+        val extension = extensionOf(draft)
+        if (extension !in textExtensions && !draft.mimeType.startsWith("text/")) return null
+        return Files.readString(path, StandardCharsets.UTF_8).trim().takeIf { it.isNotBlank() }
     }
 
     private fun resolveMimeType(draft: AgentAttachmentState): String {
         val explicit = draft.mimeType.trim()
-        if (explicit.isNotBlank()) {
-            return explicit
-        }
+        if (explicit.isNotBlank()) return explicit
         if (draft.path.isNotBlank()) {
-            runCatching { Files.probeContentType(Paths.get(draft.path)) }
-                .getOrNull()
-                ?.takeIf { it.isNotBlank() }
-                ?.let { return it }
+            runCatching { Files.probeContentType(Paths.get(draft.path)) }.getOrNull()
+                ?.takeIf { it.isNotBlank() }?.let { return it }
         }
         return when (extensionOf(draft)) {
             in imageExtensions -> "image/${extensionOf(draft).replace("jpg", "jpeg")}"
@@ -144,119 +149,38 @@ object AgentAttachmentSupport {
         return source.substringAfterLast('.', "").lowercase()
     }
 
-    private fun buildSource(draft: AgentAttachmentState): io.agentscope.core.message.Source {
-        return if (draft.path.isNotBlank()) {
-            val path = Paths.get(draft.path)
-            if (Files.exists(path) && Files.isRegularFile(path)) {
-                val encoded = Base64.getEncoder().encodeToString(Files.readAllBytes(path))
-                Base64Source.builder()
-                    .data(encoded)
-                    .mediaType(draft.mimeType)
-                    .build()
-            } else {
-                URLSource.builder().url(path.toUri().toString()).build()
-            }
-        } else {
-            URLSource.builder().url("").build()
-        }
-    }
-
     private fun optimizeImage(draft: AgentAttachmentState): AgentAttachmentState {
-        if (draft.path.isBlank()) {
-            return draft
-        }
+        if (draft.path.isBlank()) return draft
         val path = Paths.get(draft.path)
-        if (!Files.exists(path) || Files.isDirectory(path)) {
-            return draft
-        }
+        if (!Files.exists(path) || Files.isDirectory(path)) return draft
         val size = if (draft.size > 0) draft.size else runCatching { Files.size(path) }.getOrDefault(0)
         val sourceImage = runCatching { ImageIO.read(path.toFile()) }.getOrNull() ?: return draft
-        if (sourceImage.width <= MAX_IMAGE_DIMENSION &&
-            sourceImage.height <= MAX_IMAGE_DIMENSION &&
-            size in 1..MAX_IMAGE_BYTES
-        ) {
+        if (sourceImage.width <= MAX_IMAGE_DIMENSION && sourceImage.height <= MAX_IMAGE_DIMENSION && size in 1..MAX_IMAGE_BYTES) {
             return draft
         }
         val scaled = scaleImage(sourceImage, MAX_IMAGE_DIMENSION)
-        val optimizedFile = writeOptimizedImage(scaled, draft) ?: return draft
-        return draft.copy(
-            path = optimizedFile.absolutePath,
-            mimeType = if (optimizedFile.extension.equals("jpg", true)) "image/jpeg" else "image/png",
-            size = optimizedFile.length(),
-        )
+        val optimizedFile = kotlin.io.path.createTempFile("jtools-agent-image-", ".jpg").toFile()
+        val writer = ImageIO.getImageWritersByFormatName("jpg").next()
+        val params = writer.defaultWriteParam as JPEGImageWriteParam
+        params.compressionMode = JPEGImageWriteParam.MODE_EXPLICIT
+        params.compressionQuality = 0.86f
+        FileImageOutputStream(optimizedFile).use { output ->
+            writer.output = output
+            writer.write(null, IIOImage(scaled, null, null), params)
+        }
+        writer.dispose()
+        return draft.copy(path = optimizedFile.absolutePath, mimeType = "image/jpeg", size = optimizedFile.length())
     }
 
     private fun scaleImage(source: BufferedImage, maxDimension: Int): BufferedImage {
-        val ratio = minOf(
-            1.0,
-            maxDimension.toDouble() / source.width.toDouble(),
-            maxDimension.toDouble() / source.height.toDouble(),
-        )
-        if (ratio >= 1.0) {
-            return source
-        }
+        val ratio = minOf(maxDimension.toDouble() / source.width, maxDimension.toDouble() / source.height, 1.0)
         val width = (source.width * ratio).toInt().coerceAtLeast(1)
         val height = (source.height * ratio).toInt().coerceAtLeast(1)
-        val scaled = BufferedImage(width, height, if (source.colorModel.hasAlpha()) BufferedImage.TYPE_INT_ARGB else BufferedImage.TYPE_INT_RGB)
-        val graphics = scaled.createGraphics()
-        try {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            graphics.drawImage(source, 0, 0, width, height, null)
-        } finally {
-            graphics.dispose()
-        }
-        return scaled
-    }
-
-    private fun writeOptimizedImage(image: BufferedImage, draft: AgentAttachmentState): File? {
-        val tempDir = Files.createTempDirectory("agent-attachment-img").toFile().apply { deleteOnExit() }
-        val pngFile = File(tempDir, "${File(draft.name.ifBlank { "attachment" }).nameWithoutExtension}-optimized.png")
-        if (image.colorModel.hasAlpha()) {
-            if (ImageIO.write(image, "png", pngFile) && pngFile.length() <= MAX_IMAGE_BYTES) {
-                pngFile.deleteOnExit()
-                return pngFile
-            }
-        }
-        val jpgFile = File(tempDir, "${File(draft.name.ifBlank { "attachment" }).nameWithoutExtension}-optimized.jpg")
-        listOf(0.88f, 0.8f, 0.72f, 0.64f).forEach { quality ->
-            if (writeJpeg(image, jpgFile, quality) && jpgFile.length() in 1..MAX_IMAGE_BYTES) {
-                jpgFile.deleteOnExit()
-                return jpgFile
-            }
-        }
-        if (jpgFile.exists()) {
-            jpgFile.deleteOnExit()
-            return jpgFile
-        }
-        return null
-    }
-
-    private fun writeJpeg(image: BufferedImage, target: File, quality: Float): Boolean {
-        val rgb = if (image.type == BufferedImage.TYPE_INT_RGB) image else BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_RGB).also { copy ->
-            val graphics = copy.createGraphics()
-            try {
-                graphics.color = java.awt.Color.WHITE
-                graphics.fillRect(0, 0, copy.width, copy.height)
-                graphics.drawImage(image, 0, 0, null)
-            } finally {
-                graphics.dispose()
-            }
-        }
-        val writer = ImageIO.getImageWritersByFormatName("jpg").asSequence().firstOrNull() ?: return false
-        return runCatching {
-            FileImageOutputStream(target).use { output ->
-                writer.output = output
-                val params = JPEGImageWriteParam(null).apply {
-                    compressionMode = JPEGImageWriteParam.MODE_EXPLICIT
-                    compressionQuality = quality
-                }
-                writer.write(null, IIOImage(rgb, null, null), params)
-            }
-            true
-        }.getOrDefault(false).also {
-            writer.dispose()
-        }
+        val output = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        val graphics = output.createGraphics()
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        graphics.drawImage(source, 0, 0, width, height, null)
+        graphics.dispose()
+        return output
     }
 }

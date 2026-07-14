@@ -9,9 +9,9 @@ import java.awt.event.WindowEvent
 import javax.swing.JComponent
 import javax.swing.JFrame
 import javax.swing.JPanel
-import javax.swing.WindowConstants
 
-class FloatingDialog(project: Project, title: String, private val component: JComponent,val disposable: Disposable) : JFrame(title) {
+class FloatingDialog(project: Project, title: String, private val component: JComponent, val disposable: Disposable) :
+    JFrame(title) {
 
 
     init {

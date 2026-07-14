@@ -7,19 +7,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.startup.StartupActivity
 import com.lhstack.tools.exception.PluginException
-import com.lhstack.tools.ext.fullMsg
-import com.lhstack.tools.ext.logImpl
-import com.lhstack.tools.ext.notify
-import com.lhstack.tools.ext.openThisWindow
-import com.lhstack.tools.ext.sysLogger
+import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager
-import com.lhstack.tools.agent.McpAvailabilityService
 
-class ProjectStartupActivity : StartupActivity,ProjectActivity, DumbAware {
+class ProjectStartupActivity : StartupActivity, ProjectActivity, DumbAware {
 
     override fun runActivity(project: Project) {
-        McpAvailabilityService.getInstance(project)
         ApplicationManager.getApplication().invokeLater {
             this.pluginManager().plugins { pluginInfo, plugin ->
                 try {

@@ -14,7 +14,7 @@ class JsonConverter : Converter<HashMap<String, PluginInfo>>() {
     }
 
     override fun fromString(value: String): HashMap<String, PluginInfo>? {
-        if(StringUtils.isEmpty(value)){
+        if (StringUtils.isEmpty(value)) {
             return hashMapOf()
         }
         return gson.fromJson(value, object : TypeToken<HashMap<String, PluginInfo>>() {}.type)

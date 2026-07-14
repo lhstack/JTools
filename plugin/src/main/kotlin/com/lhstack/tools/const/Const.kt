@@ -8,6 +8,8 @@ class Const {
     companion object {
         const val TOOLS_WINDOW_ID = "JTools"
 
+        const val AGENT_BROWSER_WINDOW_ID = "AI Browser"
+
         val JTOOLS_PLUGIN_HOME = "${System.getProperty("user.home")}/.jtools".replace("\\", "/")
 
         val JTOOLS_SDK_INSTALL_PATH = "${JTOOLS_PLUGIN_HOME}/sdk/sdk.jar"

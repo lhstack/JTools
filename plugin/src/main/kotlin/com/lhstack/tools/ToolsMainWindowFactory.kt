@@ -7,7 +7,10 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.lhstack.tools.const.Icons
 import com.lhstack.tools.exception.PluginException
-import com.lhstack.tools.ext.*
+import com.lhstack.tools.ext.fullMsg
+import com.lhstack.tools.ext.logImpl
+import com.lhstack.tools.ext.notify
+import com.lhstack.tools.ext.openThisWindow
 import com.lhstack.tools.listener.ProjectPluginListener
 import com.lhstack.tools.plugins.PluginType
 import com.lhstack.tools.plugins.pluginManager

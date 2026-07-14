@@ -1,0 +1,1 @@
+{"name":"jtools-agent-web","private":true,"version":"1.0.0","type":"module","scripts":{"build":"vite build"},"dependencies":{"@element-plus/icons-vue":"2.3.2","dompurify":"3.4.9","element-plus":"2.14.1","marked":"18.0.5","vue":"3.5.38"},"devDependencies":{"@vitejs/plugin-vue":"6.0.3","vite":"7.3.0"}}

@@ -19,8 +19,8 @@ object AgentAttachmentClipboardSupport {
             return files.orEmpty().filterIsInstance<File>()
         }
         transferable.transferDataFlavors.forEach { flavor ->
-            if (flavor.mimeType.contains("uri-list", ignoreCase = true)) {
-                val text = runCatching { transferable.getTransferData(flavor).toString() }.getOrNull().orEmpty()
+            if (flavor.mimeType.contains("uri-list", ignoreCase = true) || flavor.isFlavorTextType) {
+                val text = transferableText(transferable, flavor)
                 val files = parseFiles(text)
                 if (files.isNotEmpty()) {
                     return files
@@ -28,6 +28,15 @@ object AgentAttachmentClipboardSupport {
             }
         }
         return emptyList()
+    }
+
+    private fun transferableText(transferable: Transferable, flavor: DataFlavor): String {
+        val data = runCatching { transferable.getTransferData(flavor) }.getOrNull() ?: return ""
+        return when (data) {
+            is java.io.Reader -> data.readText()
+            is java.io.InputStream -> data.bufferedReader().readText()
+            else -> data.toString()
+        }
     }
 
     fun parseFiles(raw: String): List<File> {
