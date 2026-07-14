@@ -11,6 +11,16 @@ const sending = ref(false)
 const dragging = ref(false)
 const drafts = computed(() => s.drafts || [])
 const queue = computed(() => s.queue || [])
+const previewSrc = ref('')
+const previewVisible = ref(false)
+function openAttachment(att) {
+  if (att.kind === 'image' && att.previewUrl) {
+    previewSrc.value = att.previewUrl
+    previewVisible.value = true
+  } else {
+    invoke('attachment.open', { text: att.path })
+  }
+}
 
 watch(
   () => s.inputRestore?.sequence,
@@ -135,12 +145,13 @@ function drop(event) {
 
       <div v-if="drafts.length" class="draft-strip">
         <div v-for="item in drafts" :key="item.id" class="draft-chip">
-          <span class="draft-icon">{{ item.kind === 'image' ? '▣' : '▤' }}</span>
-          <div>
+          <span v-if="item.kind==='image'&&item.previewUrl" class="draft-thumb" @click="openAttachment(item)"><img :src="item.previewUrl" :alt="item.name"/></span>
+          <span v-else class="draft-icon" @click="openAttachment(item)">▤</span>
+          <div @click="openAttachment(item)">
             <b>{{ item.name }}</b>
             <small>{{ item.mimeType || item.kind }} · {{ Math.max(1, Math.ceil(item.size / 1024)) }} KB</small>
           </div>
-          <el-button :icon="Close" text @click="invoke('attachment.remove', { id: item.id })" />
+          <el-button :icon="Close" text @click.stop="invoke('attachment.remove', { id: item.id })" />
         </div>
       </div>
 
@@ -169,5 +180,7 @@ function drop(event) {
     </footer>
 
     <div v-if="dragging" class="drop-overlay"><div>释放文件以添加附件</div></div>
+
+    <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
   </main>
 </template>

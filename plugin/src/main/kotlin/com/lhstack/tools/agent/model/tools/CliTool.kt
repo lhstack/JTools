@@ -13,20 +13,26 @@ import com.lhstack.tools.agent.model.http.ModelCancel
 
 /** Structure-first CLI Function Calling entry. Commands use `domain.action`, for example `mcp.list`. */
 class CliTool(
+    private val workspace: WorkspaceTools? = null,
+    private val project: com.intellij.openapi.project.Project? = null,
     private val cancel: ModelCancel? = null,
 ) : ToolDyn {
     override fun definition(prompt: String): ToolDefinition = ToolDefinition(
         name = NAME,
-        description = "Execute a structured JTools CLI command. Use command `--help` to list commands, or " +
-            "`mcp.list --help`, `mcp.get --help`, etc. to inspect one command before calling it. " +
-            "Currently supports MCP management and runtime operations for stdio, SSE, HTTP, and Streamable HTTP.",
+        description = "Execute a structured JTools CLI command (single tool covering multiple domains).\n" +
+            "Domains and when to use them:\n" +
+            "- file.read / file.write / file.patch: read, create/overwrite, or precisely edit a workspace text file. Prefer file.patch for small edits, file.write for whole-file content.\n" +
+            "- file.find: locate files by glob (for example **/*.kt). file.grep / file.glob_grep: search file contents by regex, glob_grep restricts to a glob.\n" +
+            "- mcp.*: manage and call MCP servers (list/get/create/update/delete/test/tools/resources/read_resource/call).\n" +
+            "File paths are relative to the workspace root and constrained inside it.\n" +
+            "If you do not remember a command\u0027s exact arguments, call command=\u0027doc\u0027 once to get the full parameter reference for every command, then call the command you need.",
         parameters = JsonParser.parseString(
             """
             {
               "type":"object",
               "properties":{
-                "command":{"type":"string","description":"Command name, for example --help, mcp.list, or mcp.list --help."},
-                "arguments":{"type":"object","description":"Structured command arguments. Omit for --help and list commands."}
+                "command":{"type":"string","description":"Command name, for example doc, mcp.list, file.read, or file.grep. Call doc first to see every command and its arguments."},
+                "arguments":{"type":"object","description":"Structured command arguments. Omit for doc and list commands."}
               },
               "required":["command"]
             }
@@ -36,10 +42,8 @@ class CliTool(
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.requireObject("cli arguments")
-        val rawCommand = input.string("command")
-        val command = rawCommand.removeSuffix(" --help").trim()
-        val wantsHelp = rawCommand == "--help" || rawCommand.endsWith(" --help")
-        if (wantsHelp) return if (command == "--help") rootHelp() else commandHelp(command)
+        val command = input.string("command").trim()
+        if (command == "doc") return doc()
         val arguments = input.get("arguments")?.requireObject("arguments") ?: JsonObject()
         return execute(command, arguments)
     }
@@ -55,6 +59,12 @@ class CliTool(
         "mcp.resources" -> runtime(args).resources()
         "mcp.read_resource" -> runtime(args).readResource(args.string("uri"))
         "mcp.call" -> runtime(args).callTool(args.string("tool"), args.get("arguments")?.requireObject("arguments") ?: JsonObject())
+        "file.read" -> FileToolSupport.read(workspaceOrThrow(), project, args.string("path"), args.optionalInt("offset"), args.optionalInt("limit"))
+        "file.write" -> FileToolSupport.write(workspaceOrThrow(), project, args.string("path"), args.string("content"))
+        "file.patch" -> FileToolSupport.patch(workspaceOrThrow(), project, args.string("path"), args.string("old_string"), args.get("new_string")?.takeUnless { it.isJsonNull }?.asString ?: "", args.boolean("replace_all", false))
+        "file.find" -> FileToolSupport.find(workspaceOrThrow(), project, args.string("pattern"), args.optionalString("path"))
+        "file.grep" -> FileToolSupport.grep(workspaceOrThrow(), project, args.string("pattern"), args.optionalString("path"), args.optionalString("glob"), args.boolean("ignore_case", false), args.optionalInt("max_results") ?: 200)
+        "file.glob_grep" -> FileToolSupport.grep(workspaceOrThrow(), project, args.string("pattern"), args.optionalString("path"), args.string("glob"), args.boolean("ignore_case", false), args.optionalInt("max_results") ?: 200)
         else -> throw IllegalArgumentException("未知 CLI 指令 `$command`，请调用 `--help`")
     }
 
@@ -102,6 +112,8 @@ class CliTool(
         )
     }
 
+    private fun workspaceOrThrow(): WorkspaceTools =
+        workspace ?: throw IllegalArgumentException("file commands require an active workspace")
     private fun requireServer(id: Long): McpServerEntity =
         McpService.get(id) ?: throw IllegalArgumentException("MCP 服务 `$id` 不存在")
 
@@ -112,34 +124,19 @@ class CliTool(
         else -> throw IllegalArgumentException("transport 仅支持 stdio、sse、streamable_http")
     }
 
-    private fun rootHelp(): JsonObject = help(
-        "cli",
-        "使用 command='mcp.list --help' 查看子指令；使用 arguments 传递结构化参数。",
-        COMMANDS.map { it.first },
-        JsonObject(),
-    ).apply {
-        add("examples", JsonArray().apply {
-            add(JsonObject().apply { addProperty("command", "mcp.list") })
-            add(JsonObject().apply { addProperty("command", "mcp.create --help") })
+    /** 一次性输出全部命令的完整参数说明，模型无需多轮 help 即可自描述调用。 */
+    private fun doc(): JsonObject = JsonObject().apply {
+        addProperty("tool", NAME)
+        addProperty("usage", "调用方式：{\"command\":\"<name>\",\"arguments\":{...}}。arguments 按下面每个命令的字段填写。")
+        add("commands", JsonArray().apply {
+            COMMANDS.forEach { (name, description, arguments) ->
+                add(JsonObject().apply {
+                    addProperty("command", name)
+                    addProperty("description", description)
+                    add("arguments", arguments)
+                })
+            }
         })
-    }
-
-    private fun commandHelp(command: String): JsonObject {
-        val spec = COMMANDS.firstOrNull { it.first == command }
-            ?: throw IllegalArgumentException("未知 CLI 指令 `$command`")
-        return help(command, spec.second, emptyList(), spec.third).apply {
-            add("usage", JsonObject().apply {
-                addProperty("command", command)
-                if (spec.third.size() > 0) add("arguments", JsonObject())
-            })
-        }
-    }
-
-    private fun help(command: String, description: String, commands: List<String>, arguments: JsonObject): JsonObject = JsonObject().apply {
-        addProperty("command", command)
-        addProperty("description", description)
-        if (commands.isNotEmpty()) add("commands", JsonArray().apply { commands.forEach(::add) })
-        add("arguments", arguments)
     }
 
     private fun props(vararg values: Pair<String, JsonElement>): JsonObject = JsonObject().apply {
@@ -156,6 +153,7 @@ class CliTool(
         val id = field("integer", true, "MCP 服务 ID")
         val timeout = field("integer", false, "连接/调用超时秒数，1-300，默认 30")
         listOf(
+            Triple("doc", "\u8fd4\u56de\u6240\u6709\u547d\u4ee4\u53ca\u5176\u5b8c\u6574\u53c2\u6570\u8bf4\u660e\uff08\u65e0\u8bb0\u5fc6\u65f6\u5148\u8c03\u7528\u5b83\uff09\u3002", JsonObject()),
             Triple("mcp.list", "列出全部 MCP 服务。", JsonObject()),
             Triple("mcp.get", "获取一个 MCP 服务的完整配置。", props("id" to id)),
             Triple("mcp.create", "新增 MCP 服务。transport 支持 stdio、sse、streamable_http。", props(
@@ -176,7 +174,39 @@ class CliTool(
             Triple("mcp.resources", "获取 MCP 服务公开的资源列表。", props("id" to id, "timeout_secs" to timeout)),
             Triple("mcp.read_resource", "按 URI 读取 MCP 资源。", props("id" to id, "uri" to field("string", true, "资源 URI"), "timeout_secs" to timeout)),
             Triple("mcp.call", "调用 MCP 服务工具。", props("id" to id, "tool" to field("string", true, "工具名称"), "arguments" to field("object", false, "工具参数，默认 {}"), "timeout_secs" to timeout)),
-        )
+            Triple("file.read", "Read a UTF-8 text file inside the workspace, optionally by line range.", props(
+                "path" to field("string", true, "Workspace-relative file path"),
+                "offset" to field("integer", false, "0-based start line, default 0"),
+                "limit" to field("integer", false, "Max lines to return, default all"),
+            )),
+            Triple("file.write", "Create or overwrite a UTF-8 text file inside the workspace (parent dirs are created).", props(
+                "path" to field("string", true, "Workspace-relative file path"),
+                "content" to field("string", true, "Full file content to write"),
+            )),
+            Triple("file.patch", "Replace an exact substring in a workspace file. old_string must be unique unless replace_all=true.", props(
+                "path" to field("string", true, "Workspace-relative file path"),
+                "old_string" to field("string", true, "Exact text to replace (with surrounding context to stay unique)"),
+                "new_string" to field("string", false, "Replacement text, default empty (delete)"),
+                "replace_all" to field("boolean", false, "Replace every occurrence, default false"),
+            )),
+            Triple("file.find", "Find files by glob pattern under the workspace (ignores VCS/build dirs).", props(
+                "pattern" to field("string", true, "Glob like **/*.kt or src/**/*Test.kt"),
+                "path" to field("string", false, "Base directory, default workspace root"),
+            )),
+            Triple("file.grep", "Search file contents by regex under the workspace, returning path/line_number/line.", props(
+                "pattern" to field("string", true, "Regular expression"),
+                "path" to field("string", false, "Base directory, default workspace root"),
+                "glob" to field("string", false, "Only search files matching this glob"),
+                "ignore_case" to field("boolean", false, "Case-insensitive match, default false"),
+                "max_results" to field("integer", false, "Cap results, default 200, hard limit 2000"),
+            )),
+            Triple("file.glob_grep", "Regex content search restricted to files matching a required glob (grep + glob).", props(
+                "pattern" to field("string", true, "Regular expression"),
+                "glob" to field("string", true, "Glob filter like **/*.kt"),
+                "path" to field("string", false, "Base directory, default workspace root"),
+                "ignore_case" to field("boolean", false, "Case-insensitive match, default false"),
+                "max_results" to field("integer", false, "Cap results, default 200, hard limit 2000"),
+            )),        )
     }
 
     private fun JsonElement.requireObject(name: String): JsonObject =
@@ -193,6 +223,9 @@ class CliTool(
 
     private fun JsonObject.optionalLong(name: String): Long? =
         get(name)?.takeUnless { it.isJsonNull }?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
+
+    private fun JsonObject.optionalInt(name: String): Int? =
+        get(name)?.takeUnless { it.isJsonNull }?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
 
     private fun JsonObject.boolean(name: String, default: Boolean): Boolean =
         get(name)?.takeUnless { it.isJsonNull }?.asBoolean ?: default

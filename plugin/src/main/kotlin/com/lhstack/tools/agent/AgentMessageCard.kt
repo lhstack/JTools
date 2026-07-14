@@ -163,13 +163,13 @@ internal data class AgentBrowserAttachment(
     @SerializedName("previewUrl") val previewUrl: String? = null,
 )
 
-private fun AgentAttachmentState.toBrowserAttachment() = AgentBrowserAttachment(
+internal fun AgentAttachmentState.toBrowserAttachment() = AgentBrowserAttachment(
     id, name, path, mimeType, size, kind,
     previewUrl = takeIf { kind == AgentAttachmentKind.IMAGE.id }
         ?.let { attachment -> imagePreviewUrl(attachment) },
 )
 
-private fun imagePreviewUrl(attachment: AgentAttachmentState): String? = runCatching {
+internal fun imagePreviewUrl(attachment: AgentAttachmentState): String? = runCatching {
     val bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(attachment.path))
     "data:${attachment.mimeType.ifBlank { "image/png" }};base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
 }.getOrNull()
@@ -184,3 +184,5 @@ private fun compactCreatedAt(value: String?): String? {
     if (text.isBlank()) return null
     return text.replace('T', ' ').substringBefore('.').takeIf { it.isNotBlank() }
 }
+
+

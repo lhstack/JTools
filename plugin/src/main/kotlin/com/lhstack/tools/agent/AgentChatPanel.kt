@@ -1721,7 +1721,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openAttachment(attachment: AgentAttachmentState) {
-        val path = attachment.path.trim().ifBlank { return }
+        openAttachmentPath(attachment.path)
+    }
+
+    private fun openAttachmentPath(rawPath: String) {
+        val path = rawPath.trim().ifBlank { return }
         val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path) ?: return
         FileEditorManager.getInstance(project).openFile(virtualFile, true)
     }
@@ -2211,6 +2215,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.choose" -> chooseAttachments()
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
+            "attachment.open" -> text?.let(::openAttachmentPath)
             "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
             "message.delete" -> id?.let { messageId -> messageCards.firstOrNull { it.id == messageId }?.delete() }
             else -> handleBrowserManagementCommand(command.type, payload)
@@ -2265,7 +2270,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             currentAgentId = currentAgentId,
             messages = messageCards.map(AgentChatCard::toBrowserMessage),
             queue = queue,
-            drafts = draftAttachments.map { AgentBrowserAttachment(it.id, it.name, it.path, it.mimeType, it.size, it.kind) },
+            drafts = draftAttachments.map { it.toBrowserAttachment() },
             inputRestore = browserInputRestore,
         ))
     }
@@ -2387,3 +2392,4 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         var panel: JComponent? = null,
     )
 }
+

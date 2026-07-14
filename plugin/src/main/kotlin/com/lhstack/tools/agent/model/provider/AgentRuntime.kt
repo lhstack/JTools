@@ -1,6 +1,8 @@
 package com.lhstack.tools.agent.model.provider
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.encoding.EncodingProjectManager
+import java.nio.charset.Charset
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonPrimitive
@@ -96,6 +98,7 @@ object AgentRuntime {
             skillsRootDir = request.skillsRootDir,
             toolEnvVars = request.toolEnvVars,
             cancel = request.toolCancel ?: request.cancel,
+            project = request.project,
         ) + pluginFunctionTools(agent.extConfig, request) + viewResourceTools(agent.extConfig, request) + request.extraTools
 
         val preamble = buildPreamble(agent, request, enabledSkills, request.skillsRootDir)
@@ -251,6 +254,15 @@ object AgentRuntime {
         return enabledSet
     }
 
+    /** JetBrains 项目文件默认编码；无 project 时退回 JVM 默认编码。 */
+    private fun projectFileEncodingName(request: Request): String {
+        val project = request.project ?: return Charset.defaultCharset().name()
+        return runCatching { EncodingProjectManager.getInstance(project).defaultCharsetName }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: Charset.defaultCharset().name()
+    }
+
     private fun buildPreamble(
         agent: AgentRecord,
         request: Request,
@@ -263,6 +275,9 @@ object AgentRuntime {
         append("- 工作空间 / 默认CWD：${File(request.workspace).canonicalPath}\n")
         append("- CWD规则：工作空间就是默认 cwd；当工具调用或命令没有显式指定 cwd 时，cwd 等于工作空间。\n")
         append("- 技能目录：${skillsRootDir?.canonicalPath ?: "未配置"}\n")
+        append("- 操作系统：${System.getProperty("os.name")} ${System.getProperty("os.version")}（${System.getProperty("os.arch")}）\n")
+        append("- 系统默认编码：${Charset.defaultCharset().name()}\n")
+        append("- 文件输出编码：${projectFileEncodingName(request)}（写入文件时请按该编码输出内容）\n")
 
         val template = agent.promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
         appendSection("以下是系统提示词", template)
