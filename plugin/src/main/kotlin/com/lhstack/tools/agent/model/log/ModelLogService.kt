@@ -32,6 +32,7 @@ data class ModelLogContext(
 class ModelRequestException(
     val logId: Long,
     override val message: String,
+    val partialResponse: JsonObject? = null,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
 
@@ -195,6 +196,39 @@ object ModelLogService {
         val pageSize: Int,
     )
 
+    fun hasAgentRunDelivery(runId: String): Boolean = AgentDatabase.execute { session ->
+        session.getMapper(ModelRequestLogMapper::class.java)
+            .selectCount(
+                QueryWrapper<ModelRequestLogEntity>()
+                    .eq("message_type", "chat_turn")
+                    .like("request_data", "\"source_agent_run_id\":\"$runId\"")
+            ) > 0
+    }
+
+    fun agentRunLogByRunId(runId: String): ModelLogRecord? = AgentDatabase.execute { session ->
+        session.getMapper(ModelRequestLogMapper::class.java)
+            .selectOne(
+                QueryWrapper<ModelRequestLogEntity>()
+                    .eq("message_type", "agent_run")
+                    .like("request_data", "\"agent_run_id\":\"$runId\"")
+                    .orderByDesc("id")
+                    .last("limit 1")
+            )
+            ?.let(::toModelLogRecord)
+    }
+
+    fun listAgentRunLogs(sourceId: String): List<ModelLogRecord> = AgentDatabase.execute { session ->
+        session.getMapper(ModelRequestLogMapper::class.java)
+            .selectList(
+                QueryWrapper<ModelRequestLogEntity>()
+                    .eq("source_type", "agent")
+                    .eq("source_id", sourceId)
+                    .eq("message_type", "agent_run")
+                    .orderByAsc("id")
+            )
+            .map(::toModelLogRecord)
+    }
+
     fun listModelLogs(limit: Int = 200): List<ModelLogRecord> = modelLogPage(1, limit.coerceIn(1, 1000)).rows
 
     fun modelLogPage(page: Int, pageSize: Int): ModelLogPage = AgentDatabase.execute { session ->
@@ -288,6 +322,29 @@ object ModelLogService {
      * 按会话来源读取全部对话轮次，按 id 升序。
      * source_id 约定为 "$agentId:$sessionId"，source_type 固定为 chat。
      */
+    internal fun sessionSourcePattern(sessionId: Long): String = "%:$sessionId"
+
+    fun listChatTurnsForSession(sessionId: Long): List<ChatTurn> = AgentDatabase.execute { session ->
+        session.getMapper(ModelRequestLogMapper::class.java)
+            .selectList(
+                QueryWrapper<ModelRequestLogEntity>()
+                    .eq("source_type", "agent")
+                    .like("source_id", sessionSourcePattern(sessionId))
+                    .orderByAsc("id")
+            )
+            .map { entity ->
+                ChatTurn(
+                    logId = entity.id ?: 0,
+                    status = entity.status,
+                    requestData = parseObject(entity.requestData),
+                    responseData = parseObject(entity.responseData),
+                    errorData = entity.errorData,
+                    createdAt = entity.createdAt,
+                    messageType = entity.messageType,
+                )
+            }
+    }
+
     fun listChatTurns(sourceType: String, sourceId: String): List<ChatTurn> = AgentDatabase.execute { session ->
         session.getMapper(ModelRequestLogMapper::class.java)
             .selectList(
@@ -324,6 +381,16 @@ object ModelLogService {
     }
 
     /** 删除某会话来源的全部日志（清空会话历史 / 删除会话时使用）。 */
+    fun deleteChatTurnsForSession(sessionId: Long) = AgentDatabase.execute { session ->
+        session.getMapper(ModelRequestLogMapper::class.java)
+            .delete(
+                QueryWrapper<ModelRequestLogEntity>()
+                    .eq("source_type", "agent")
+                    .like("source_id", sessionSourcePattern(sessionId))
+            )
+        Unit
+    }
+
     fun deleteChatTurns(sourceType: String, sourceId: String) = AgentDatabase.execute { session ->
         session.getMapper(ModelRequestLogMapper::class.java)
             .delete(

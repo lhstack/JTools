@@ -7,7 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableId
 import com.baomidou.mybatisplus.annotation.TableName
 
 /**
- * chat_sessions 表实体。会话只承载「会话名 + 关联 Agent」。
+ * chat_sessions 表实体。会话承载名称、关联 Agent、会话类型和项目归属。
  *
  * 请求与响应的持久化全部落在 model_request_logs（source_id = "$agentId:$sessionId"），
  * 会话本身不再存储消息或附件，因此不设 chat_messages / chat_attachments。
@@ -23,6 +23,12 @@ class ChatSessionEntity {
 
     @TableField("agent_id")
     var agentId: Long? = null
+
+    @TableField("session_type")
+    var sessionType: String = "global"
+
+    @TableField("project_path")
+    var projectPath: String? = null
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     var createdAt: String? = null

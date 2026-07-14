@@ -3,6 +3,7 @@ import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 plugins {
     id("java")
@@ -273,8 +274,13 @@ tasks {
         token.set(System.getenv("PUBLISH_TOKEN"))
     }
 
-    named("prepareSandbox") {
+    named<PrepareSandboxTask>("prepareSandbox") {
         dependsOn(applyObfuscationOutputs)
+        val stagingDirectory = layout.buildDirectory.dir("run-ide-plugin")
+        defaultDestinationDirectory.set(stagingDirectory)
+        doFirst {
+            delete(stagingDirectory)
+        }
     }
     named("buildPlugin") {
         dependsOn(applyObfuscationOutputs)

@@ -20,6 +20,7 @@ import com.lhstack.tools.agent.model.llm.UserContent
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import com.lhstack.tools.agent.model.log.ModelLogContext
 import com.lhstack.tools.agent.model.params.ModelResolver
+import com.lhstack.tools.agent.model.params.ModelParams
 import com.lhstack.tools.agent.model.tools.PluginFunctionTool
 import com.lhstack.tools.agent.model.tools.ResourceKind
 import com.lhstack.tools.agent.model.tools.RuntimeTools
@@ -48,6 +49,7 @@ object AgentRuntime {
         val triggerType: String = "direct_run",
         val triggerId: String? = null,
         val workspace: String,
+        val sessionId: Long? = null,
         val skillsRootDir: File? = null,
         val history: List<Message> = emptyList(),
         /** 附件内容块，作为多模态用户内容拼进本轮 prompt 消息。 */
@@ -66,6 +68,7 @@ object AgentRuntime {
         val logMessageType: String? = null,
         val logPromptMessage: String? = null,
         val project: Project? = null,
+        val requestMetadata: JsonObject? = null,
     )
 
     /** 照抄 execute_agent_prompt：按 Agent id 执行一次直接提示。 */
@@ -101,6 +104,10 @@ object AgentRuntime {
             project = request.project,
         ) + pluginFunctionTools(agent.extConfig, request) + viewResourceTools(agent.extConfig, request) + request.extraTools
 
+        ModelParams.validateContextBudget(
+            runtimeModel.params.contextWindow,
+            ModelParams.runtimeOutputTokens(runtimeModel),
+        )
         val preamble = buildPreamble(agent, request, enabledSkills, request.skillsRootDir)
         val promptMessage = buildPromptMessage(request.prompt, request.attachments)
         val logContext = ModelLogContext(
@@ -116,6 +123,7 @@ object AgentRuntime {
                     agent.runtimeParams.maxHistoryMessages?.let { addProperty("max_history_messages", it) }
                     agent.runtimeParams.toolCallRetentionRounds?.let { addProperty("tool_call_retention_rounds", it) }
                 })
+                request.requestMetadata?.entrySet()?.forEach { (key, value) -> add(key, value.deepCopy()) }
                 add("agent_preamble", JsonPrimitive(preamble))
                 add("registered_tools", JsonArray().apply {
                     tools.map { it.definition("").name }.forEach { add(it) }
@@ -273,18 +281,19 @@ object AgentRuntime {
         append("- Agent ID：${agent.id ?: request.agentId}\n")
         append("- Agent 名称：${agent.name}\n")
         append("- 工作空间 / 默认CWD：${File(request.workspace).canonicalPath}\n")
+        request.sessionId?.let { append("- 当前会话 ID：$it\n") }
         append("- CWD规则：工作空间就是默认 cwd；当工具调用或命令没有显式指定 cwd 时，cwd 等于工作空间。\n")
         append("- 技能目录：${skillsRootDir?.canonicalPath ?: "未配置"}\n")
         append("- 操作系统：${System.getProperty("os.name")} ${System.getProperty("os.version")}（${System.getProperty("os.arch")}）\n")
-        append("- 系统 bash 工具默认编码：${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}（bash 工具执行命令时按此编码解码 stdout/stderr）\n")
-        append("- 文件输出编码：${projectFileEncodingName(request)}（写入文件时请按该编码输出内容）\n")
+        append("- bash 工具系统编码：${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}\n")
+        append("- 项目环境编码：${projectFileEncodingName(request)}\n")
 
         append("\n## 项目文件与代码操作约定\n")
-        append("- 查找、读取、创建或修改项目文件时，优先使用 `find_files`、`search_text`、`read_file`、`write_file` 和 `replace_text_in_file`；不要用 `bash` 代替 IDE 原生文件工具。\n")
-        append("- 修改现有文件时优先使用 `replace_text_in_file` 做精确局部替换；新建文件或确需完整重写时才使用 `write_file`。\n")
-        append("- 文件写入由 JetBrains VFS/Document 按项目文件编码 `${projectFileEncodingName(request)}` 保存；修改源码后使用 `format_file` 格式化，并使用 `get_file_problems` 检查 IDE 诊断。\n")
-        append("- `find_files` 可按需包含依赖/JAR 条目，返回的 `jar://`、`jrt://` 或 `file://` 路径可直接交给 `read_file`。`search_text` 包含库时只搜索依赖源码和文本资源，不批量反编译二进制 `.class`。\n")
-        append("- 编译、测试、Git、npm、Gradle/Maven 自定义任务和外部脚本使用 `bash`；`bash` 返回 stdout/stderr 时按 `${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}` 解码，该编码不代表项目文件编码。\n")
+        append("- 查找、搜索、读取、创建和修改项目文件时，使用 `find_files`、`search_text`、`read_file`、`write_file`、`replace_text_in_file` 等 IDE 原生文件工具，不要用 `bash` 代替。\n")
+        append("- 修改现有文件前先读取相关内容，再用 `replace_text_in_file` 精确修改必要范围；仅在新建文件或确需完整重写时使用 `write_file`。\n")
+        append("- 项目文件由 JetBrains VFS/Document 按项目环境编码保存；修改源码后使用 `format_file` 格式化，并使用 `get_file_problems` 检查 IDE 诊断。\n")
+        append("- 查询依赖源码或资源时，可让 `find_files` 包含依赖/JAR，并将返回的 `jar://`、`jrt://` 或 `file://` 路径交给 `read_file`；不要批量反编译二进制 `.class`。\n")
+        append("- 编译、测试、Git、npm、Gradle/Maven 任务和外部脚本使用 `bash`；bash 输出按 bash 工具系统编码处理，项目文件按项目环境编码处理。\n")
 
         val template = agent.promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
         appendSection("以下是系统提示词", template)
@@ -330,11 +339,12 @@ object AgentRuntime {
         "schedule" -> "schedule"
         "environment_distillation" -> "environment_distillation"
         "distillation" -> "agent_distillation"
+        "agent_run" -> "agent_run"
         else -> "agent"
     }
 
     private fun sourceId(request: Request, agentId: Long): String? =
-        if (request.triggerType in setOf("workflow", "schedule", "environment_distillation", "distillation")) {
+        if (request.triggerType in setOf("workflow", "schedule", "environment_distillation", "distillation", "agent_run")) {
             request.triggerId
         } else {
             "$agentId:${request.triggerId ?: "direct"}"

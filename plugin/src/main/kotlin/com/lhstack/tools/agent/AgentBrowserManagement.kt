@@ -8,6 +8,7 @@ import com.lhstack.tools.db.entity.PromptTemplateEntity
 import com.lhstack.tools.db.entity.ProviderEntity
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ChatSessionService
+import com.lhstack.tools.db.service.ChatSessionType
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.db.service.SettingService
 import com.lhstack.tools.db.service.AgentService
@@ -43,15 +44,38 @@ internal object AgentBrowserManagement {
     )
 
     fun handle(project: Project, type: String, payload: JsonObject, changed: () -> Unit): Any? = when (type) {
-        "sessions.list" -> ChatSessionService.listSessions().map { mapOf("id" to it.id, "title" to it.title, "agentId" to it.agentId, "createdAt" to it.createdAt, "updatedAt" to it.updatedAt) }
-        "session.rename" -> { ChatSessionService.renameSession(long(payload, "id"), string(payload, "title")); changed(); Unit }
+        "sessions.list" -> ChatSessionService.listVisibleSessions(projectPath(project)).map { session ->
+            mapOf(
+                "id" to session.id,
+                "title" to session.title,
+                "agentId" to session.agentId,
+                "sessionType" to session.sessionType.value,
+                "projectPath" to session.projectPath,
+                "createdAt" to session.createdAt,
+                "updatedAt" to session.updatedAt,
+            )
+        }
+        "session.create" -> {
+            val type = ChatSessionType.from(string(payload, "sessionType"))
+            ChatSessionService.createSession(
+                payload.stringOrNull("title") ?: "新会话",
+                payload.longOrNull("agentId"),
+                type,
+                projectPath(project).takeIf { type == ChatSessionType.PROJECT },
+            )
+            changed()
+            Unit
+        }
+        "session.rename" -> {
+            val session = requireVisibleSession(project, long(payload, "id"))
+            ChatSessionService.renameSession(session.id, string(payload, "title"))
+            changed()
+            Unit
+        }
         "session.delete" -> {
             val id = long(payload, "id")
-            val session = requireNotNull(ChatSessionService.sessionById(id)) { "会话不存在" }
-            ModelLogService.deleteChatTurns(
-                ChatSessionService.SESSION_SOURCE_TYPE,
-                ChatSessionService.sessionSourceId(session.agentId, session.id),
-            )
+            val session = requireVisibleSession(project, id)
+            ModelLogService.deleteChatTurnsForSession(session.id)
             ChatSessionService.deleteSession(id)
             changed()
             Unit
@@ -110,6 +134,14 @@ internal object AgentBrowserManagement {
         "config.save" -> { payload.getAsJsonObject("values").entrySet().forEach { (key, value) -> SettingService.setSetting(key, value.asString) }; Unit }
         else -> error("Unsupported Agent UI command: $type")
     }
+
+    private fun requireVisibleSession(project: Project, id: Long) =
+        requireNotNull(ChatSessionService.visibleSessionById(id, projectPath(project))) { "会话不存在或不属于当前项目" }
+
+    private fun projectPath(project: Project): String =
+        ChatSessionService.normalizeProjectPath(
+            project.basePath ?: throw IllegalStateException("当前项目没有项目路径")
+        )
 
     private fun pollRemoteModelJob(jobId: String): Map<String, Any> {
         val job = requireNotNull(remoteModelJobs[jobId]) { "远端模型获取任务不存在或已结束" }

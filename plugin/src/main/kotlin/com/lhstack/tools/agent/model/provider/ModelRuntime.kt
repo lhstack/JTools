@@ -7,6 +7,7 @@ import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.http.ModelHttpClientFactory
 import com.lhstack.tools.agent.model.http.ModelHttpTrace
 import com.lhstack.tools.agent.model.llm.Message
+import com.lhstack.tools.agent.model.llm.Usage
 import com.lhstack.tools.agent.model.llm.ToolDefinition
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import com.lhstack.tools.agent.model.log.ModelLogContext
@@ -57,6 +58,7 @@ object ModelRuntime {
         val httpTrace = ModelHttpTrace(UUID.randomUUID().toString())
         val modelLogId = ModelLogService.createModelLog(model, logContext, httpTrace.requestData())
         val hook = TraceHook()
+        val partialOutput = PartialOutputRecorder(streamSink)
         val executor = ModelHttpClientFactory.executorFor(model.baseUrl, model.proxyUrl)
 
         val request = ModelProviderRequest(
@@ -71,7 +73,7 @@ object ModelRuntime {
             maxRetries = maxRetries,
             streamed = streamed,
             hook = hook,
-            streamSink = streamSink,
+            streamSink = partialOutput,
             eventSink = eventSink,
             httpTrace = httpTrace,
             cancel = cancel,
@@ -82,13 +84,17 @@ object ModelRuntime {
             ModelProvider.execute(executor, request)
         } catch (e: Throwable) {
             val message = e.message ?: e.toString()
-            if (cancel?.isCancelled() == true) {
-                ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
-                throw ModelRequestException(modelLogId, message, e)
-            }
+            val partialResponse = partialOutput.structuredValue(hook)
             ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
-            ModelLogService.finishModelLogError(modelLogId, httpTrace.responseData(null), message)
-            throw ModelRequestException(modelLogId, message, e)
+            if (cancel?.isCancelled() == true) {
+                throw ModelRequestException(modelLogId, message, partialResponse, e)
+            }
+            ModelLogService.finishModelLogError(
+                modelLogId,
+                httpTrace.responseData(partialResponse),
+                message,
+            )
+            throw ModelRequestException(modelLogId, message, partialResponse, e)
         }
 
         val value = output.structuredValue(hook.events())
@@ -121,5 +127,39 @@ object ModelRuntime {
     /** 照抄 model_log_tool_definitions：取每个工具的定义（prompt 传空）。 */
     private fun modelLogToolDefinitions(tools: List<ToolDyn>): List<ToolDefinition> =
         tools.map { it.definition("") }
+
+    private class PartialOutputRecorder(
+        private val delegate: ModelStreamSink,
+    ) : ModelStreamSink {
+        private val lock = Any()
+        private val response = StringBuilder()
+        private val reasoning = StringBuilder()
+
+        override fun onResponseDelta(text: String) {
+            synchronized(lock) { response.append(text) }
+            delegate.onResponseDelta(text)
+        }
+
+        override fun onReasoningDelta(text: String) {
+            synchronized(lock) { reasoning.append(text) }
+            delegate.onReasoningDelta(text)
+        }
+
+        fun structuredValue(hook: TraceHook): JsonObject? = synchronized(lock) {
+            val responseText = response.toString()
+            val reasoningText = reasoning.toString()
+            val events = hook.events()
+            if (responseText.isBlank() && reasoningText.isBlank() && events.isEmpty()) {
+                return@synchronized null
+            }
+            RunOutput(
+                output = responseText,
+                usage = Usage(),
+                messages = emptyList(),
+                roundMessages = emptyList(),
+                reasoning = listOfNotNull(reasoningText.takeIf { it.isNotBlank() }),
+            ).structuredValue(events)
+        }
+    }
 
 }

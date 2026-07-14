@@ -114,6 +114,61 @@ internal class AgentAssistantMessageCard(
     private fun changed() = onChanged?.invoke()
 }
 
+
+internal class AgentRunMessageCard(
+    private val runId: String,
+    private val agentId: Long,
+    private val agentName: String,
+    private val receiver: String,
+    private val onDelete: (() -> Unit)? = null,
+    override val id: String = "agent-run-$runId",
+) : AgentChatCard {
+    private var status: String = "running"
+    private var latestPrompt: String = ""
+    private var response: String = ""
+    private var reasoning: String = ""
+    private var error: String? = null
+    private var createdAt: String? = null
+    private var tools: List<AgentBrowserTool> = emptyList()
+    internal var onChanged: (() -> Unit)? = null
+
+    fun update(snapshot: AgentRunSnapshot) {
+        status = snapshot.status
+        latestPrompt = snapshot.prompt
+        response = snapshot.response
+        reasoning = snapshot.reasoning
+        error = snapshot.error
+        createdAt = snapshot.createdAt
+        tools = snapshot.tools
+        onChanged?.invoke()
+    }
+
+    override fun toBrowserMessage() = AgentBrowserMessage(
+        id = id,
+        role = "agent_run",
+        content = response,
+        reasoning = reasoning,
+        tools = tools,
+        generating = status == "running",
+        createdAt = compactCreatedAt(createdAt),
+        deletable = onDelete != null,
+        messageType = "agent_run",
+        agentRun = AgentBrowserRun(runId, agentId, agentName, receiver, latestPrompt, status, error),
+    )
+
+    override fun delete() = onDelete?.invoke() ?: Unit
+}
+
+internal data class AgentBrowserRun(
+    @SerializedName("runId") val runId: String,
+    @SerializedName("agentId") val agentId: Long,
+    @SerializedName("agentName") val agentName: String,
+    @SerializedName("receiver") val receiver: String,
+    @SerializedName("prompt") val prompt: String,
+    @SerializedName("status") val status: String,
+    @SerializedName("error") val error: String?,
+)
+
 internal class AgentToolItem(
     val id: String,
     val name: String,
@@ -136,6 +191,8 @@ internal data class AgentBrowserMessage(
     @SerializedName("usage") val usage: String? = null,
     @SerializedName("usageDetails") val usageDetails: List<AgentBrowserUsageItem> = emptyList(),
     @SerializedName("deletable") val deletable: Boolean = false,
+    @SerializedName("messageType") val messageType: String = "message",
+    @SerializedName("agentRun") val agentRun: AgentBrowserRun? = null,
 )
 
 

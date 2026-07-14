@@ -57,6 +57,7 @@ import com.lhstack.tools.db.service.AgentRecord
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.ChatSessionRecord
 import com.lhstack.tools.db.service.ChatSessionService
+import com.lhstack.tools.db.service.ChatSessionType
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.ext.errorNotify
@@ -97,6 +98,9 @@ import javax.swing.BoxLayout
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.JButton
+import javax.swing.ButtonGroup
+import javax.swing.JRadioButton
+import javax.swing.JTextField
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.ListSelectionModel
@@ -190,8 +194,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private var currentTurnView: AssistantTurnView? = null
     private val messageCards = mutableListOf<AgentChatCard>()
+    private var agentRunSubscription: AutoCloseable? = null
+    private var agentRunDeliverySubscription: AutoCloseable? = null
 
-    private val newSessionAction = createAction("新建会话", Icons.agentSessionNewIcon()) { createSession() }
+    private val newSessionAction = createAction("新建会话", Icons.agentSessionNewIcon()) { chooseAndCreateSession() }
     private val clearAction = createAction("清空当前会话", Icons.agentSessionClearIcon()) { clearCurrentSession() }
     private val sessionManageAction = createAction("会话管理", Icons.agentSessionManageIcon()) { openSessionManager() }
     private val modelLogAction = createAction("模型日志", Icons.agentModelLogIcon()) { openModelLogDialog() }
@@ -207,6 +213,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupAgentSelector()
         setContent(chatBrowser.component)
         project.messageBus.connect(this).subscribe(LafManagerListener.TOPIC, LafManagerListener { syncBrowserState() })
+        agentRunDeliverySubscription = AgentRunService.subscribeDeliveries(currentProjectPath(), ::enqueueAgentRunDelivery)
         loadInitialData()
     }
 
@@ -276,9 +283,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun loadInitialData() {
         refreshAgentSelector(null)
-        val sessions = ChatSessionService.listSessions()
+        val sessions = visibleSessions()
         if (sessions.isEmpty()) {
-            createSession()
+            createSession(ChatSessionType.PROJECT)
         } else {
             currentSessionId = sessions.first().id
             refreshSessionSelector(sessions)
@@ -312,16 +319,64 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     // -------- 会话生命周期 --------
 
-    private fun createSession() {
+    private fun chooseAndCreateSession() {
+        val dialog = object : DialogWrapper(project, false) {
+            private val nameField = JTextField(28)
+            private val projectType = JRadioButton("项目会话（仅当前项目可见）", true)
+            private val globalType = JRadioButton("全局会话（所有项目共享）")
+
+            init {
+                title = "新建会话"
+                ButtonGroup().apply {
+                    add(projectType)
+                    add(globalType)
+                }
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                border = JBUI.Borders.empty(8)
+                add(JLabel("会话名称"))
+                add(Box.createVerticalStrut(JBUI.scale(6)))
+                add(nameField)
+                add(Box.createVerticalStrut(JBUI.scale(14)))
+                add(JLabel("会话范围"))
+                add(Box.createVerticalStrut(JBUI.scale(6)))
+                add(projectType)
+                add(globalType)
+            }
+
+            override fun getPreferredFocusedComponent(): JComponent = nameField
+
+            override fun doOKAction() {
+                val name = nameField.text.trim()
+                if (name.isBlank()) {
+                    setErrorText("请输入会话名称", nameField)
+                    return
+                }
+                createSession(if (projectType.isSelected) ChatSessionType.PROJECT else ChatSessionType.GLOBAL, name)
+                super.doOKAction()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun createSession(sessionType: ChatSessionType, title: String = AUTO_TITLE) {
         val agent = agentSelector.selectedItem as? AgentRecord
-        val record = ChatSessionService.createSession(AUTO_TITLE, agent?.id)
+        val record = ChatSessionService.createSession(
+            title,
+            agent?.id,
+            sessionType,
+            currentProjectPath().takeIf { sessionType == ChatSessionType.PROJECT },
+        )
         currentSessionId = record.id
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
         switchSession(record.id)
     }
 
     private fun switchSession(sessionId: Long) {
-        val record = ChatSessionService.sessionById(sessionId) ?: return
+        val record = ChatSessionService.visibleSessionById(sessionId, currentProjectPath()) ?: return
         currentSessionId = record.id
         updatingSessionSelection = true
         selectSessionItem(record.id)
@@ -355,10 +410,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         if (confirm != Messages.YES) return
         discardQueueItemsForSession(sessionId)
-        ModelLogService.deleteChatTurns(
-            ChatSessionService.SESSION_SOURCE_TYPE,
-            ChatSessionService.sessionSourceId(record.agentId, record.id),
-        )
+        ModelLogService.deleteChatTurnsForSession(record.id)
         renderSessionHistory(record)
     }
 
@@ -366,10 +418,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val sessionId = currentSessionId ?: return
         val record = ChatSessionService.sessionById(sessionId) ?: return
         discardQueueItemsForSession(sessionId)
-        ModelLogService.deleteChatTurns(
-            ChatSessionService.SESSION_SOURCE_TYPE,
-            ChatSessionService.sessionSourceId(record.agentId, record.id),
-        )
+        ModelLogService.deleteChatTurnsForSession(record.id)
         renderSessionHistory(record)
     }
 
@@ -379,7 +428,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )?.trim().orEmpty()
         if (name.isBlank()) return
         ChatSessionService.renameSession(record.id, name)
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
     }
 
     private fun deleteSession(record: ChatSessionRecord) {
@@ -388,15 +437,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
         if (confirm != Messages.YES) return
         discardQueueItemsForSession(record.id)
-        ModelLogService.deleteChatTurns(
-            ChatSessionService.SESSION_SOURCE_TYPE,
-            ChatSessionService.sessionSourceId(record.agentId, record.id),
-        )
+        ModelLogService.deleteChatTurnsForSession(record.id)
         ChatSessionService.deleteSession(record.id)
-        val remaining = ChatSessionService.listSessions()
+        val remaining = visibleSessions()
         if (remaining.isEmpty()) {
             currentSessionId = null
-            createSession()
+            createSession(ChatSessionType.PROJECT)
         } else {
             currentSessionId = remaining.first().id
             refreshSessionSelector(remaining)
@@ -408,6 +454,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun renderSessionHistory(record: ChatSessionRecord) {
         renderedSessionId = record.id
+        agentRunSubscription?.close()
+        agentRunSubscription = AgentRunService.subscribe(record.id, ::updateAgentRunCard)
         messageCards.clear()
         clearStreamingRefs()
         val sourceId = ChatSessionService.sessionSourceId(record.agentId, record.id)
@@ -415,9 +463,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         entries.forEach { entry ->
             when (entry) {
                 is SessionRenderEntry.History -> renderTurn(record.id, entry.turn)
+                is SessionRenderEntry.AgentRun -> updateAgentRunCard(entry.run)
                 is SessionRenderEntry.Queue -> renderQueuedItem(entry.item)
             }
         }
+        AgentRunService.list(record.id).forEach(::updateAgentRunCard)
         syncBrowserState()
     }
 
@@ -428,13 +478,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 .map { SessionRenderEntry.Queue(it, queuedRenderOrder(it)) }
         }
         val queuedClientOrders = queued.mapTo(mutableSetOf()) { it.item.order }
-        val history = ModelLogService.listChatTurns(ChatSessionService.SESSION_SOURCE_TYPE, sourceId)
+        val history = ModelLogService.listChatTurnsForSession(sessionId)
             .asSequence()
-            .filter { it.status != "running" && it.status != "failed" }
+            .filter { it.messageType != "agent_run" }
+            .filter { it.status != "running" }
+            .filter { it.status != "failed" || hasPersistedAssistantContent(it.responseData) }
             .filterNot { chatTurnClientOrder(it) in queuedClientOrders }
             .map { SessionRenderEntry.History(it, it.logId) }
             .toList()
-        return (history + queued).sortedWith(compareBy<SessionRenderEntry> { it.order }.thenBy { it.tieBreaker })
+        val agentRuns = AgentRunService.history(sessionId).map { run ->
+            SessionRenderEntry.AgentRun(run, run.logId ?: Long.MAX_VALUE / 3)
+        }
+        return (history + agentRuns + queued)
+            .sortedWith(compareBy<SessionRenderEntry> { it.order }.thenBy { it.tieBreaker })
     }
 
     private fun queuedRenderOrder(item: ChatQueueItem): Long = Long.MAX_VALUE / 4 + item.order
@@ -496,6 +552,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun reasoningText(structured: JsonObject): String {
         val reasoning = structured.get("reasoning")?.takeIf { it.isJsonArray }?.asJsonArray ?: return ""
         return reasoning.mapNotNull { jsonString(it).takeIf { s -> s.isNotBlank() } }.joinToString("\n\n").trim()
+    }
+
+    private fun hasPersistedAssistantContent(responseData: JsonObject): Boolean {
+        val structured = jsonObject(responseData, "structured_response") ?: return false
+        return jsonString(structured.get("response")).isNotBlank() ||
+            reasoningText(structured).isNotBlank() ||
+            hasToolCalls(structured)
     }
 
     private fun hasToolCalls(structured: JsonObject): Boolean =
@@ -580,6 +643,31 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 kind = jsonString(obj.get("kind")).ifBlank { AgentAttachmentKind.FILE.id },
             )
         }
+    }
+
+    private fun deleteAgentRun(runId: String, logId: Long?, sessionId: Long?) {
+        AgentRunService.delete(runId, logId)
+        messageCards.removeAll { it.id == "agent-run-$runId" }
+        syncBrowserState()
+        sessionId?.let(::refreshCurrentSessionHistoryIfVisible)
+    }
+
+    private fun updateAgentRunCard(snapshot: AgentRunSnapshot) {
+        if (snapshot.sessionId != renderedSessionId) return
+        val id = "agent-run-${snapshot.runId}"
+        val card = messageCards.filterIsInstance<AgentRunMessageCard>().firstOrNull { it.id == id }
+            ?: AgentRunMessageCard(
+                snapshot.runId,
+                snapshot.agentId,
+                snapshot.agentName,
+                snapshot.receiver,
+                onDelete = { deleteAgentRun(snapshot.runId, snapshot.logId, snapshot.sessionId) },
+            ).also {
+                it.onChanged = ::syncBrowserState
+                messageCards.add(it)
+            }
+        card.update(snapshot)
+        syncBrowserState()
     }
 
     private fun jsonObject(parent: JsonObject?, key: String): JsonObject? {
@@ -793,12 +881,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     // -------- 发送与运行 --------
 
     private fun ensureCurrentSessionForSend(): ChatSessionRecord {
-        currentSessionId?.let(ChatSessionService::sessionById)?.let { return it }
+        currentSessionId?.let { ChatSessionService.visibleSessionById(it, currentProjectPath()) }?.let { return it }
         val agentId = (agentSelector.selectedItem as? AgentRecord)?.id
             ?: AgentService.listAgents().firstOrNull { it.enabled }?.id
-        val record = ChatSessionService.createSession(AUTO_TITLE, agentId)
+        val record = ChatSessionService.createSession(
+            AUTO_TITLE,
+            agentId,
+            ChatSessionType.PROJECT,
+            currentProjectPath(),
+        )
         currentSessionId = record.id
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
         switchSession(record.id)
         return record
     }
@@ -810,6 +903,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val attachments = draftAttachments.toList()
         if (prompt.isEmpty() && attachments.isEmpty()) return
 
+        enqueueChatMessage(record, agent, prompt, attachments)
+        inputArea.text = ""
+        clearDraftAttachments()
+        maybeAutoRenameSession(record, prompt)
+    }
+
+    private fun enqueueAgentRunDelivery(delivery: AgentRunDelivery) {
+        val record = ChatSessionService.visibleSessionById(delivery.sessionId, currentProjectPath()) ?: return
+        val agent = resolveSessionAgent(record) ?: return
+        enqueueChatMessage(record, agent, delivery.content, emptyList(), delivery.runId)
+    }
+
+    private fun enqueueChatMessage(
+        record: ChatSessionRecord,
+        agent: AgentRecord,
+        prompt: String,
+        attachments: List<AgentAttachmentState>,
+        sourceAgentRunId: String? = null,
+    ) {
         val item = ChatQueueItem(
             messageId = UUID.randomUUID().toString(),
             sessionId = record.id,
@@ -817,11 +929,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             prompt = prompt,
             order = queueOrder.incrementAndGet(),
             attachments = attachments,
+            sourceAgentRunId = sourceAgentRunId,
         )
         synchronized(queueLock) { chatQueue.add(item) }
-        inputArea.text = ""
-        clearDraftAttachments()
-        maybeAutoRenameSession(record, prompt)
         refreshQueuePanel()
         processQueue()
     }
@@ -861,8 +971,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             } else if (item.token.isCancelled()) {
                 finishQueueItemCancelled(item, (e as? ModelRequestException)?.logId)
             } else {
-                val logId = (e as? ModelRequestException)?.logId
-                finishQueueItemError(item, e.message ?: "调用失败", logId)
+                val requestError = e as? ModelRequestException
+                if (requestError?.partialResponse != null) {
+                    finishQueueItemPartialFailure(item, requestError)
+                } else {
+                    finishQueueItemError(item, e.message ?: "调用失败", requestError?.logId)
+                }
             }
             return
         }
@@ -896,6 +1010,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             triggerType = "chat",
             triggerId = record.id.toString(),
             workspace = resolveWorkspace(),
+            sessionId = record.id,
             skillsRootDir = ResourceConfigService.skillsRootDir(),
             history = history,
             attachments = attachmentContents,
@@ -906,6 +1021,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             toolCancel = item.toolToken,
             clientMessageOrder = item.order,
             project = project,
+            requestMetadata = item.sourceAgentRunId?.let { runId ->
+                JsonObject().apply { addProperty("source_agent_run_id", runId) }
+            },
         )
     }
 
@@ -962,6 +1080,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     triggerType = "distillation",
                     triggerId = sessionId.toString(),
                     workspace = resolveWorkspace(),
+                    sessionId = sessionId,
                     skillsRootDir = ResourceConfigService.skillsRootDir(),
                     extraTools = listOf(UpdateAgentDistillationTool(personaDraft, sourceAgent.extConfig.persona)),
                     logSourceType = ChatSessionService.SESSION_SOURCE_TYPE,
@@ -1065,6 +1184,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private fun finishQueueItemPartialFailure(item: ChatQueueItem, error: ModelRequestException) = onUi {
+        if (!isQueueItemActive(item)) return@onUi
+        item.status = ChatQueueStatus.FAILED
+        item.persistedLogId = error.logId
+        val partial = requireNotNull(error.partialResponse)
+        item.responseText = jsonString(partial.get("response")).ifBlank { item.responseText }
+        item.reasoningText = reasoningText(partial).ifBlank { item.reasoningText }
+        val card = ensureQueueAssistantCard(item)
+        card.setResponse(item.responseText)
+        if (item.reasoningText.isNotBlank()) card.setReasoning(item.reasoningText, expanded = true)
+        syncToolCalls(partial, card)
+        card.finish(LocalDateTime.now().toString().replace('T', ' '), usageText(partial), usageDetails(partial))
+        completeQueueItem(item, refreshHistory = true)
+        project.errorNotify("模型请求中断", "已保留模型输出的部分内容：${error.message}")
+    }
+
     private fun finishQueueItemError(item: ChatQueueItem, error: String, logId: Long? = null) = onUi {
         if (!isQueueItemActive(item)) return@onUi
         item.status = ChatQueueStatus.FAILED
@@ -1151,19 +1286,23 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
         if (item.runningToolCount > 0) {
-            if (item.toolCancelRequested) return
-            item.toolCancelRequested = true
-            item.toolToken.cancel()
-            val runningIds = item.runningToolIds.toList()
-            item.canceledToolIds.addAll(runningIds)
-            runningIds.forEach { toolId ->
-                item.assistantCard?.updateToolResult(toolId, "用户手动取消")
-            }
-            refreshQueuePanel()
-            updateActiveStopButton()
+            stopRunningTools(item)
             return
         }
         cancelQueueItem(item)
+    }
+
+    private fun stopRunningTools(item: ChatQueueItem) {
+        if (item.toolCancelRequested) return
+        item.toolCancelRequested = true
+        item.toolToken.cancel()
+        val runningIds = item.runningToolIds.toList()
+        item.canceledToolIds.addAll(runningIds)
+        runningIds.forEach { toolId ->
+            item.assistantCard?.updateToolResult(toolId, "用户手动取消")
+        }
+        refreshQueuePanel()
+        updateActiveStopButton()
     }
 
     private fun updateActiveStopButton() = Unit
@@ -1197,14 +1336,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun buildHistory(record: ChatSessionRecord): List<Message> {
-        val sourceId = ChatSessionService.sessionSourceId(record.agentId, record.id)
-        val turns = ModelLogService.listChatTurns(ChatSessionService.SESSION_SOURCE_TYPE, sourceId)
+        val turns = ModelLogService.listChatTurnsForSession(record.id)
         val messages = mutableListOf<Message>()
         turns.filter { it.status != "running" && it.status != "failed" }.forEach { turn ->
             val snapshot = jsonObject(turn.requestData, "request_snapshot")
+            val structured = jsonObject(turn.responseData, "structured_response")
+            if (turn.messageType == "agent_run") {
+                if (jsonString(snapshot?.get("agent_run_receiver")) == "ai") {
+                    val output = jsonString(structured?.get("response"))
+                    if (output.isNotBlank()) messages.add(Message.assistant(output))
+                }
+                return@forEach
+            }
             val prompt = jsonString(snapshot?.get("prompt_message"))
             if (prompt.isNotBlank()) messages.add(Message.user(prompt))
-            appendProviderHistory(messages, jsonObject(turn.responseData, "structured_response"))
+            appendProviderHistory(messages, structured)
         }
         return messages
     }
@@ -1261,7 +1407,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (record.title != AUTO_TITLE) return
         val title = source.trim().take(20).ifBlank { return }
         ChatSessionService.renameSession(record.id, title)
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
     }
 
     private fun onUi(block: () -> Unit) {
@@ -1731,7 +1877,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openSessionManager() {
-        val sessions = ChatSessionService.listSessions()
+        val sessions = visibleSessions()
         if (sessions.isEmpty()) {
             project.infoNotify("会话管理", "当前还没有会话")
             return
@@ -1759,7 +1905,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             val record = list.selectedValue ?: return@addActionListener
                             renameSession(record)
                             listModel.clear()
-                            ChatSessionService.listSessions().forEach { listModel.addElement(it) }
+                            visibleSessions().forEach { listModel.addElement(it) }
                         }
                     })
                     add(JButton("删除").apply {
@@ -1767,7 +1913,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             val record = list.selectedValue ?: return@addActionListener
                             deleteSession(record)
                             listModel.clear()
-                            ChatSessionService.listSessions().forEach { listModel.addElement(it) }
+                            visibleSessions().forEach { listModel.addElement(it) }
                         }
                     })
                 }
@@ -1781,7 +1927,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             override fun createActions(): Array<out javax.swing.Action?> = emptyArray()
         }
         dialog.showAndGet()
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
     }
 
     private fun openModelLogDialog() {
@@ -2183,6 +2329,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     override fun dispose() {
+        agentRunSubscription?.close()
+        agentRunDeliverySubscription?.close()
         if (chatBrowser.component.parent != null) Disposer.dispose(chatBrowser)
         Disposer.dispose(managementWindows)
     }
@@ -2191,7 +2339,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     fun refreshStatus() {
         val selectedAgentId = (agentSelector.selectedItem as? AgentRecord)?.id
         refreshAgentSelector(selectedAgentId)
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
         updateStatus()
     }
 
@@ -2202,7 +2350,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return when (command.type) {
             "ui.ready" -> syncBrowserState()
             "session.select" -> id?.toLongOrNull()?.let(::switchSession)
-            "session.new" -> createSession()
+            "session.new" -> createSession(
+                payload.get("sessionType")?.takeUnless { it.isJsonNull }?.asString
+                    ?.let(ChatSessionType::from)
+                    ?: ChatSessionType.PROJECT,
+                payload.get("name")?.takeUnless { it.isJsonNull }?.asString?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: AUTO_TITLE,
+            )
             "session.clear" -> clearCurrentSessionFromBrowser()
             "agent.select" -> id?.toLongOrNull()?.let { agentId ->
                 AgentService.agentById(agentId)?.let(::bindCurrentSessionAgent)
@@ -2224,16 +2379,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun refreshManagementData() {
         refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
-        refreshSessionSelector(ChatSessionService.listSessions())
+        refreshSessionSelector(visibleSessions())
         currentSessionId?.let(::refreshCurrentSessionHistoryIfVisible)
         syncBrowserState()
     }
 
     private fun handleBrowserManagementCommand(type: String, payload: JsonObject): Any? =
         AgentBrowserManagement.handle(project, type, payload) {
-            val sessions = ChatSessionService.listSessions()
+            val sessions = visibleSessions()
             if (sessions.isEmpty()) {
-                createSession()
+                createSession(ChatSessionType.PROJECT)
             } else {
                 if (currentSessionId !in sessions.map { it.id }) currentSessionId = sessions.first().id
                 refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
@@ -2243,8 +2398,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         }
 
+    private fun currentProjectPath(): String =
+        ChatSessionService.normalizeProjectPath(project.basePath ?: resolveWorkspace())
+
+    private fun visibleSessions(): List<ChatSessionRecord> =
+        ChatSessionService.listVisibleSessions(currentProjectPath())
+
     private fun syncBrowserState() {
-        val sessions = ChatSessionService.listSessions().map { AgentBrowserOption(it.id, it.title) }
+        val sessions = visibleSessions().map {
+            AgentBrowserSession(it.id, it.title, it.sessionType.value, it.projectPath)
+        }
         val agents = AgentService.listAgents().mapNotNull { agent -> agent.id?.let { AgentBrowserOption(it, agent.name) } }
         val currentAgentId = currentSessionId?.let(ChatSessionService::sessionById)?.agentId
         val queue = synchronized(queueLock) {
@@ -2282,7 +2445,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private data class AgentBrowserState(
         @SerializedName("dark") val dark: Boolean,
         @SerializedName("theme") val theme: AgentBrowserTheme,
-        @SerializedName("sessions") val sessions: List<AgentBrowserOption>,
+        @SerializedName("sessions") val sessions: List<AgentBrowserSession>,
         @SerializedName("agents") val agents: List<AgentBrowserOption>,
         @SerializedName("currentSessionId") val currentSessionId: Long?,
         @SerializedName("currentAgentId") val currentAgentId: Long?,
@@ -2303,6 +2466,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("muted") val muted: String,
         @SerializedName("border") val border: String,
         @SerializedName("accent") val accent: String,
+    )
+    private data class AgentBrowserSession(
+        @SerializedName("id") val id: Long,
+        @SerializedName("name") val name: String,
+        @SerializedName("sessionType") val sessionType: String,
+        @SerializedName("projectPath") val projectPath: String?,
     )
     private data class AgentBrowserOption(
         @SerializedName("id") val id: Long,
@@ -2332,6 +2501,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val prompt: String,
         val order: Long,
         val attachments: List<AgentAttachmentState> = emptyList(),
+        val sourceAgentRunId: String? = null,
         val token: ModelCancel = ModelCancel(),
         val toolToken: ModelCancel = ModelCancel(),
         var status: ChatQueueStatus = ChatQueueStatus.PENDING,
@@ -2359,6 +2529,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private sealed class SessionRenderEntry(open val order: Long, open val tieBreaker: Long) {
         data class History(val turn: ModelLogService.ChatTurn, override val order: Long) :
             SessionRenderEntry(order, turn.logId)
+
+        data class AgentRun(val run: AgentRunSnapshot, override val order: Long) :
+            SessionRenderEntry(order, run.logId ?: order)
 
         data class Queue(val item: ChatQueueItem, override val order: Long) :
             SessionRenderEntry(order, item.order)

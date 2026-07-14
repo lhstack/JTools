@@ -137,7 +137,26 @@ object AgentDatabase {
                     statement.execute(sql)
                 }
             }
+            ensureChatSessionScopeColumns(connection)
             connection.commit()
+        }
+    }
+
+    private fun ensureChatSessionScopeColumns(connection: Connection) {
+        val columns = connection.createStatement().use { statement ->
+            statement.executeQuery("pragma table_info(chat_sessions)").use { rows ->
+                buildSet {
+                    while (rows.next()) add(rows.getString("name"))
+                }
+            }
+        }
+        connection.createStatement().use { statement ->
+            if ("session_type" !in columns) {
+                statement.execute("alter table chat_sessions add column session_type text not null default 'global'")
+            }
+            if ("project_path" !in columns) {
+                statement.execute("alter table chat_sessions add column project_path text")
+            }
         }
     }
 

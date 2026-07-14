@@ -61,9 +61,6 @@ class ToolRuntime(
         if (calls.isEmpty()) {
             return emptyList()
         }
-        if (calls.size == 1) {
-            return listOf(executeToolCall(calls[0]))
-        }
         val futures = calls.map { call ->
             AgentExecutors.shared.submit(Callable { executeToolCall(call) })
         }

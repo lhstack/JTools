@@ -8,6 +8,8 @@ import com.lhstack.tools.db.entity.ProviderEntity
 import com.lhstack.tools.db.mapper.ModelMapper
 import com.lhstack.tools.db.mapper.PromptTemplateMapper
 import com.lhstack.tools.db.mapper.ProviderMapper
+import com.google.gson.JsonParser
+import com.lhstack.tools.agent.model.params.ModelParams
 
 /**
  * 供应商 / 模型 / 提示词的持久化服务，对齐 awake-claw repository/catalog.rs。
@@ -61,6 +63,14 @@ object CatalogService {
     }
 
     fun saveModel(model: ModelEntity): ModelEntity = AgentDatabase.execute { session ->
+        require(session.getMapper(ProviderMapper::class.java).selectById(model.providerId) != null) {
+            "供应商 `${model.providerId}` 不存在"
+        }
+        val modelParams = model.modelParams?.takeIf { it.isNotBlank() }?.let(JsonParser::parseString)
+        ModelParams.validateContextBudget(
+            model.contextWindow,
+            ModelParams.configuredOutputTokens(modelParams),
+        )
         val mapper = session.getMapper(ModelMapper::class.java)
         if (model.id == null) {
             mapper.insert(model)

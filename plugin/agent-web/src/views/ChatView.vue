@@ -9,6 +9,10 @@ const prompt = ref('')
 const messageList = ref(null)
 const sending = ref(false)
 const dragging = ref(false)
+const sessionDialogVisible = ref(false)
+const sessionName = ref('')
+const sessionType = ref('project')
+const creatingSession = ref(false)
 const drafts = computed(() => s.drafts || [])
 const queue = computed(() => s.queue || [])
 const previewSrc = ref('')
@@ -64,6 +68,25 @@ function stopQueueItem(item) {
   invoke('queue.stop', { id: item.id })
 }
 
+
+function openSessionDialog() {
+ sessionName.value = ''
+ sessionType.value = 'project'
+ sessionDialogVisible.value = true
+}
+
+async function createSession() {
+ const name = sessionName.value.trim()
+ if (!name || creatingSession.value) return
+ creatingSession.value = true
+ try {
+  await invoke('session.new', { name, sessionType: sessionType.value })
+  sessionDialogVisible.value = false
+ } finally {
+  creatingSession.value = false
+ }
+}
+
 function open(page) {
   invoke('window.open', { text: page })
 }
@@ -99,9 +122,9 @@ function drop(event) {
     <header class="chat-top">
       <span>会话：</span>
       <el-select :model-value="s.currentSessionId" @change="id => invoke('session.select', { id })">
-        <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="item.name" />
+        <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="`${item.sessionType === 'global' ? '[全局]' : '[项目]'} ${item.name}`" />
       </el-select>
-      <el-button :icon="Plus" text @click="invoke('session.new')" />
+      <el-button :icon="Plus" text @click="openSessionDialog" />
       <el-button :icon="Delete" text @click="clear" />
       <el-button text @click="open('sessions')">管理</el-button>
       <el-button text @click="open('logs')">日志</el-button>
@@ -182,5 +205,19 @@ function drop(event) {
     <div v-if="dragging" class="drop-overlay"><div>释放文件以添加附件</div></div>
 
     <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
-  </main>
+  <el-dialog v-model="sessionDialogVisible" title="新建会话" width="440px" append-to-body>
+  <el-form label-position="top" @submit.prevent="createSession">
+   <el-form-item label="会话名称" required>
+    <el-input v-model="sessionName" maxlength="80" show-word-limit autofocus @keyup.enter="createSession" />
+   </el-form-item>
+   <el-form-item label="会话范围" required>
+    <el-radio-group v-model="sessionType" class="session-type-options">
+     <el-radio value="project"><div><strong>项目会话</strong><small>仅在当前项目中可见</small></div></el-radio>
+     <el-radio value="global"><div><strong>全局会话</strong><small>所有项目共享，可自由切换</small></div></el-radio>
+    </el-radio-group>
+   </el-form-item>
+  </el-form>
+  <template #footer><el-button @click="sessionDialogVisible=false">取消</el-button><el-button type="primary" :disabled="!sessionName.trim()" :loading="creatingSession" @click="createSession">创建</el-button></template>
+ </el-dialog>
+ </main>
 </template>

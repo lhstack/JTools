@@ -16,7 +16,7 @@ class CliTool(
 ) : ToolDyn {
     override fun definition(prompt: String): ToolDefinition = ToolDefinition(
         name = NAME,
-        description = "Manage and call external MCP servers through structured JTools CLI commands.\n" +
+        description = "Execute structured JTools CLI commands for MCP, providers, models, and Agents.\n" +
             "Available commands cover server list/get/create/update/delete, connection test, tools, resources, resource reads, and tool calls.\n" +
             "If you do not remember a command\u0027s exact arguments, call command=\u0027doc\u0027 once to get the full parameter reference for every MCP command.",
         parameters = JsonParser.parseString(
@@ -24,7 +24,7 @@ class CliTool(
             {
               "type":"object",
               "properties":{
-                "command":{"type":"string","description":"MCP command name, for example doc, mcp.list, mcp.create, or mcp.call. Call doc first to see every command and its arguments."},
+                "command":{"type":"string","description":"Command name, for example doc, mcp.list, provider.list, provider.remote_models, model.create, agent.run, or agent.run.get. Call doc first to see every command and its arguments."},
                 "arguments":{"type":"object","description":"Structured command arguments. Omit for doc and list commands."}
               },
               "required":["command"]
@@ -35,10 +35,11 @@ class CliTool(
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.requireObject("cli arguments")
-        val command = input.string("command").trim()
-        if (command == "doc") return doc()
+        val rawCommand = input.string("command").trim()
+        if (rawCommand == "doc" || rawCommand == "--help") return doc()
+        if (rawCommand.endsWith(" --help")) return commandDoc(rawCommand.removeSuffix(" --help").trim())
         val arguments = input.get("arguments")?.requireObject("arguments") ?: JsonObject()
-        return execute(command, arguments)
+        return execute(rawCommand, arguments)
     }
 
     private fun execute(command: String, args: JsonObject): JsonElement = when (command) {
@@ -51,7 +52,9 @@ class CliTool(
         "mcp.tools" -> runtime(args).tools()
         "mcp.resources" -> runtime(args).resources()
         "mcp.read_resource" -> runtime(args).readResource(args.string("uri"))
-        "mcp.call" -> runtime(args).callTool(args.string("tool"), args.get("arguments")?.requireObject("arguments") ?: JsonObject())        else -> throw IllegalArgumentException("未知 CLI 指令 `$command`，请调用 `doc`")
+        "mcp.call" -> runtime(args).callTool(args.string("tool"), args.get("arguments")?.requireObject("arguments") ?: JsonObject())
+        else -> CliManagementCommands.execute(command, args)
+            ?: throw IllegalArgumentException("未知 CLI 指令 `$command`，请调用 `doc`")
     }
 
     private fun createServer(args: JsonObject): McpServerEntity = McpServerEntity().apply {
@@ -123,6 +126,16 @@ class CliTool(
         })
     }
 
+    private fun commandDoc(command: String): JsonObject {
+        val spec = COMMANDS.firstOrNull { it.first == command }
+            ?: throw IllegalArgumentException("未知 CLI 指令 `$command`")
+        return JsonObject().apply {
+            addProperty("command", spec.first)
+            addProperty("description", spec.second)
+            add("arguments", spec.third)
+        }
+    }
+
     private fun props(vararg values: Pair<String, JsonElement>): JsonObject = JsonObject().apply {
         values.forEach { (name, value) -> add(name, value) }
     }
@@ -158,6 +171,24 @@ class CliTool(
             Triple("mcp.resources", "获取 MCP 服务公开的资源列表。", props("id" to id, "timeout_secs" to timeout)),
             Triple("mcp.read_resource", "按 URI 读取 MCP 资源。", props("id" to id, "uri" to field("string", true, "资源 URI"), "timeout_secs" to timeout)),
             Triple("mcp.call", "调用 MCP 服务工具。", props("id" to id, "tool" to field("string", true, "工具名称"), "arguments" to field("object", false, "工具参数，默认 {}"), "timeout_secs" to timeout)),
+            Triple("provider.list", "列出模型供应商。", JsonObject()),
+            Triple("provider.get", "获取供应商。", props("id" to field("integer", true, "供应商 ID"))),
+            Triple("provider.remote_models", "从供应商远端 API 获取可用模型列表；使用该供应商已保存的 API Key、Base URL、代理和协议配置。", props("id" to field("integer", true, "供应商 ID"))),
+            Triple("provider.create", "创建供应商。", props("name" to field("string", true, "名称"), "kind" to field("string", true, "open_ai/open_ai_compatible/anthropic"), "api_key" to field("string", false, "API Key"), "base_url" to field("string", false, "Base URL"), "api" to field("string", false, "responses/completions"), "enabled" to field("boolean", false, "是否启用"))),
+            Triple("provider.update", "更新供应商，未传字段保持不变。", props("id" to field("integer", true, "供应商 ID"), "name" to field("string", false, "名称"), "kind" to field("string", false, "open_ai/open_ai_compatible/anthropic"), "api_key" to field("string|null", false, "API Key"), "base_url" to field("string|null", false, "Base URL"), "api" to field("string|null", false, "responses/completions"), "anthropic_version" to field("string|null", false, "Anthropic 版本"), "provider_config" to field("object", false, "供应商配置"), "enabled" to field("boolean", false, "是否启用"))),
+            Triple("provider.delete", "删除供应商及其模型。", props("id" to field("integer", true, "供应商 ID"))),
+            Triple("model.list", "列出供应商模型。", props("provider_id" to field("integer", true, "供应商 ID"))),
+            Triple("model.get", "获取模型。", props("id" to field("integer", true, "模型 ID"))),
+            Triple("model.create", "创建模型。", props("provider_id" to field("integer", true, "供应商 ID"), "alias" to field("string", true, "模型别名"), "model_id" to field("string", true, "远端模型 ID"), "modalities" to field("array<string>", false, "能力列表"), "model_params" to field("object", false, "模型参数"), "execution_params" to field("object", false, "执行参数"), "additional_params" to field("object", false, "附加参数"))),
+            Triple("model.update", "更新模型，未传字段保持不变。", props("id" to field("integer", true, "模型 ID"), "provider_id" to field("integer", false, "供应商 ID"), "alias" to field("string", false, "模型别名"), "model_id" to field("string", false, "远端模型 ID"), "display_name" to field("string|null", false, "显示名"), "api" to field("string|null", false, "responses/completions"), "context_window" to field("integer|null", false, "上下文窗口"), "modalities" to field("array<string>", false, "能力列表"), "model_params" to field("object|null", false, "模型参数"), "execution_params" to field("object|null", false, "执行参数"), "additional_params" to field("object|null", false, "附加参数"), "enabled" to field("boolean", false, "是否启用"))),
+            Triple("model.delete", "删除模型。", props("id" to field("integer", true, "模型 ID"))),
+            Triple("agent.list", "列出 Agent。", JsonObject()),
+            Triple("agent.get", "获取 Agent 完整配置。", props("id" to field("integer", true, "Agent ID"))),
+            Triple("agent.create", "创建 Agent。", props("name" to field("string", true, "名称"), "description" to field("string", false, "描述"), "enabled" to field("boolean", false, "是否启用"), "provider_id" to field("integer", false, "供应商 ID"), "model_id" to field("integer", false, "模型 ID"), "prompt_id" to field("integer", false, "提示词 ID"), "extra_prompt" to field("string", false, "扩展提示"), "runtime_params" to field("object", false, "运行配置"), "ext_config" to field("object", false, "能力配置"), "distill_config" to field("object", false, "蒸馏配置"), "output_mode" to field("string", false, "text/json"), "max_runtime_secs" to field("integer", false, "最大运行秒数"), "tags" to field("array<string>", false, "标签"))),
+            Triple("agent.update", "更新 Agent，未传字段保持不变。", props("id" to field("integer", true, "Agent ID"), "name" to field("string", false, "名称"), "description" to field("string|null", false, "描述"), "enabled" to field("boolean", false, "是否启用"), "provider_id" to field("integer|null", false, "供应商 ID"), "model_id" to field("integer|null", false, "模型 ID"), "prompt_id" to field("integer|null", false, "提示词 ID"), "extra_prompt" to field("string|null", false, "扩展提示"), "runtime_params" to field("object", false, "整体替换运行配置"), "ext_config" to field("object", false, "整体替换能力配置"), "distill_config" to field("object", false, "整体替换蒸馏配置"), "output_mode" to field("string", false, "text/json"), "max_runtime_secs" to field("integer|null", false, "最大运行秒数"), "tags" to field("array<string>", false, "标签"))),
+            Triple("agent.delete", "删除 Agent。", props("id" to field("integer", true, "Agent ID"))),
+            Triple("agent.run", "异步运行 Agent；立即返回 run_id,当用户没有明确需要获取 agent 运行结果，则不要调用 agent.run.get获取 agent 运行结果，并可向会话投递实时 Agent 运行卡片。", props("agent_id" to field("integer", true, "Agent ID"), "prompt" to field("string", true, "运行提示"), "project" to field("string", true, "当前已打开的项目路径"), "session_id" to field("integer", true, "投递会话 ID"), "receiver" to field("string", true, "接收方 user/ai"))),
+            Triple("agent.run.get", "查询异步 Agent 运行状态和结果。", props("run_id" to field("string", true, "运行 ID"))),
         )
     }
 

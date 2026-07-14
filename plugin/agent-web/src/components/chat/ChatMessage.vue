@@ -5,6 +5,7 @@ import { invoke } from '../../bridge/jcefBridge'
 defineProps({ item: Object })
 const previewSrc = ref('')
 const previewVisible = ref(false)
+const runExpanded = ref(true)
 function openAttachment(att) {
   if (att.kind === 'image' && att.previewUrl) {
     previewSrc.value = att.previewUrl
@@ -21,29 +22,40 @@ function toolState(tool) {
 </script>
 <template>
   <article class="message" :class="item.role">
-    <div class="avatar">{{item.role==='user'?'我':'AI'}}</div>
+    <div class="avatar">{{item.role==='user'?'我':item.messageType==='agent_run'?'A':'AI'}}</div>
     <div class="bubble">
-      <span v-if="item.generating" class="running">生成中…</span>
-      <div v-if="item.role==='user'" class="plain">{{item.content}}</div>
-      <div v-if="item.attachments?.length" class="message-attachments">
-        <article v-for="x in item.attachments" :key="x.id" class="message-attachment" @click="openAttachment(x)"><img v-if="x.kind==='image'&&x.previewUrl" :src="x.previewUrl" :alt="x.name"/><div v-else class="file-preview">附件</div><footer><strong>{{x.name}}</strong><small>{{x.mimeType||x.kind}} · {{Math.max(1,Math.ceil(x.size/1024))}} KB</small></footer></article>
+      <button v-if="item.messageType==='agent_run'" class="agent-run-head" type="button" @click="runExpanded=!runExpanded">
+        <span>
+          <b><el-tag size="small" effect="plain">Agent 运行</el-tag> {{item.agentRun?.agentName}}</b>
+          <small>{{item.agentRun?.receiver==='ai'?'作为模型回复投递':'作为用户消息加入队列'}}</small>
+        </span>
+        <em>{{item.agentRun?.status==='running'?'运行中':item.agentRun?.status==='completed'?'已完成':item.agentRun?.status==='failed'?'失败':'已取消'}} {{runExpanded?'⌃':'⌄'}}</em>
+      </button>
+      <div v-show="item.messageType!=='agent_run'||runExpanded" class="message-body">
+        <div v-if="item.messageType==='agent_run'&&item.agentRun?.prompt" class="agent-run-prompt"><b>运行输入</b><span>{{item.agentRun.prompt}}</span></div>
+        <span v-if="item.generating" class="running">生成中…</span>
+        <div v-if="item.role==='user'" class="plain">{{item.content}}</div>
+        <div v-if="item.attachments?.length" class="message-attachments">
+          <article v-for="x in item.attachments" :key="x.id" class="message-attachment" @click="openAttachment(x)"><img v-if="x.kind==='image'&&x.previewUrl" :src="x.previewUrl" :alt="x.name"/><div v-else class="file-preview">附件</div><footer><strong>{{x.name}}</strong><small>{{x.mimeType||x.kind}} · {{Math.max(1,Math.ceil(x.size/1024))}} KB</small></footer></article>
+        </div>
+        <MarkdownContent v-else-if="item.role!=='user'" :content="item.content"/>
+        <div v-if="item.messageType==='agent_run'&&item.agentRun?.error" class="agent-run-error">{{item.agentRun.error}}</div>
+        <el-collapse v-if="item.reasoning||item.tools?.length">
+          <el-collapse-item v-if="item.reasoning" title="推理"><pre class="reasoning">{{item.reasoning}}</pre></el-collapse-item>
+          <el-collapse-item v-if="item.tools?.length" :title="`工具调用 (${item.tools.filter(x=>x.finished).length}/${item.tools.length})`">
+            <div class="tool-call-scroll">
+              <el-collapse v-for="tool in item.tools" :key="tool.id" class="tool-call-list">
+                <el-collapse-item>
+                  <template #title><span class="tool-state" :class="toolState(tool).css"><b>{{toolState(tool).icon}}</b><span>{{tool.name}}</span><small>{{toolState(tool).label}}</small></span></template>
+                  <b>入参</b><pre>{{tool.args}}</pre><b>出参</b><pre>{{tool.result||'调用中'}}</pre>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+        <footer><span>{{item.createdAt}} <el-popover v-if="item.usage" placement="top" trigger="hover" :width="230"><template #reference><span class="message-usage">{{item.usage}}</span></template><div class="usage-detail"><strong>Token usage</strong><div v-for="detail in item.usageDetails" :key="detail.label"><span>{{detail.label}}</span><b>{{detail.value.toLocaleString()}}</b></div></div></el-popover></span><el-button v-if="item.deletable" link type="danger" @click="invoke('message.delete',{id:item.id})">删除</el-button></footer>
+        <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
       </div>
-      <MarkdownContent v-else-if="item.role!=='user'" :content="item.content"/>
-      <el-collapse v-if="item.reasoning||item.tools?.length">
-        <el-collapse-item v-if="item.reasoning" title="推理"><pre class="reasoning">{{item.reasoning}}</pre></el-collapse-item>
-        <el-collapse-item v-if="item.tools?.length" :title="`工具调用 (${item.tools.filter(x=>x.finished).length}/${item.tools.length})`">
-          <div class="tool-call-scroll">
-          <el-collapse v-for="tool in item.tools" :key="tool.id" class="tool-call-list">
-            <el-collapse-item>
-              <template #title><span class="tool-state" :class="toolState(tool).css"><b>{{toolState(tool).icon}}</b><span>{{tool.name}}</span><small>{{toolState(tool).label}}</small></span></template>
-              <b>入参</b><pre>{{tool.args}}</pre><b>出参</b><pre>{{tool.result||'调用中'}}</pre>
-            </el-collapse-item>
-          </el-collapse>
-          </div>
-        </el-collapse-item>
-      </el-collapse>
-      <footer><span>{{item.createdAt}} <el-popover v-if="item.usage" placement="top" trigger="hover" :width="230"><template #reference><span class="message-usage">{{item.usage}}</span></template><div class="usage-detail"><strong>Token usage</strong><div v-for="detail in item.usageDetails" :key="detail.label"><span>{{detail.label}}</span><b>{{detail.value.toLocaleString()}}</b></div></div></el-popover></span><el-button v-if="item.deletable" link type="danger" @click="invoke('message.delete',{id:item.id})">删除</el-button></footer>
-      <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
     </div>
   </article>
 </template>

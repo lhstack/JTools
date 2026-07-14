@@ -96,6 +96,8 @@ object AgentSchema {
             id integer primary key autoincrement,
             title text,
             agent_id integer,
+            session_type text not null default 'global',
+            project_path text,
             created_at text not null default (CURRENT_TIMESTAMP),
             updated_at text not null default (CURRENT_TIMESTAMP)
         );

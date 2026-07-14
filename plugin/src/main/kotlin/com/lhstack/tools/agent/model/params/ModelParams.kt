@@ -119,6 +119,22 @@ object ModelParams {
      * 从 model_params 读取输出 token 上限，Anthropic 缺失时补默认值。
      * model_params 是唯一真源，此处不覆盖，仅在缺失时兜底。
      */
+    fun validateContextBudget(contextWindow: Long?, maxOutputTokens: Long?) {
+        if (contextWindow == null || maxOutputTokens == null) return
+        require(contextWindow > 0) { "模型上下文窗口必须大于 0" }
+        require(maxOutputTokens >= 0) { "模型最大输出 Token 不能小于 0" }
+        require(maxOutputTokens < contextWindow) {
+            "模型最大输出 Token ($maxOutputTokens) 必须小于上下文窗口 ($contextWindow)，否则没有可用于系统提示词、当前输入和历史会话的上下文预算"
+        }
+    }
+
+    fun configuredOutputTokens(modelParams: JsonElement?): Long? {
+        val params = modelParams?.asJsonObjectOrNull() ?: return null
+        return sequenceOf("max_tokens", "max_output_tokens", "max_completion_tokens")
+            .mapNotNull { key -> params.get(key)?.asLongOrNull() }
+            .firstOrNull()
+    }
+
     fun runtimeOutputTokens(model: ResolvedModelConfig): Long? =
         outputTokenLimit(model.providerKind, model.api, model.params.modelParams)
             ?: if (model.providerKind == ProviderKind.ANTHROPIC) defaultAnthropicMaxTokens() else null
