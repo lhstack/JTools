@@ -1,6 +1,5 @@
 package com.lhstack.tools.agent.model.tools
 
-import com.intellij.openapi.project.Project
 import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import java.io.File
@@ -30,7 +29,6 @@ object RuntimeTools {
         skillsRootDir: File? = null,
         toolEnvVars: Map<String, String> = emptyMap(),
         cancel: ModelCancel? = null,
-        project: Project? = null,
     ): List<ToolDyn> {
         val workspaceTools = WorkspaceTools(workspace)
         val tools = mutableListOf<ToolDyn>()
@@ -55,7 +53,7 @@ object RuntimeTools {
         if (enabled(SkillsViewTool.NAME)) {
             tools.add(SkillsViewTool(workspaceTools, skillsRootDir, enabledSkills))
         }
-        if (enabled(CliTool.NAME)) tools.add(CliTool(workspaceTools, project, cancel))
+        if (enabled(CliTool.NAME)) tools.add(CliTool(cancel))
         return tools
     }
 }

@@ -7,6 +7,7 @@ import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.llm.ToolDefinition
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import java.io.File
+import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
 
 /**
@@ -104,8 +105,8 @@ class BashTool(
             }
         }
 
-        val stdout = process.inputStream.readBytes().toString(Charsets.UTF_8)
-        var stderr = process.errorStream.readBytes().toString(Charsets.UTF_8)
+        val stdout = process.inputStream.readBytes().toString(shell.outputCharset)
+        var stderr = process.errorStream.readBytes().toString(shell.outputCharset)
         val exitCode = if (process.isAlive) null else process.exitValue()
 
         if (timedOut) {
@@ -143,26 +144,39 @@ data class SelectedShell(
     val label: String,
     val program: String,
     val args: Array<String>,
+    /** 子进程 stdout/stderr 的实际编码：Windows 用系统 native 编码（代码页，如 GBK），Unix 用 UTF-8。 */
+    val outputCharset: Charset,
 ) {
     companion object {
         fun current(): SelectedShell {
             val os = System.getProperty("os.name").lowercase()
             if (os.contains("win")) {
+                val winCharset = systemNativeCharset()
                 if (commandInPath("pwsh")) {
-                    return SelectedShell("pwsh", "pwsh", arrayOf("-NoProfile", "-NonInteractive", "-Command"))
+                    return SelectedShell("pwsh", "pwsh", arrayOf("-NoProfile", "-NonInteractive", "-Command"), winCharset)
                 }
                 if (commandInPath("powershell")) {
-                    return SelectedShell("powershell", "powershell", arrayOf("-NoProfile", "-NonInteractive", "-Command"))
+                    return SelectedShell("powershell", "powershell", arrayOf("-NoProfile", "-NonInteractive", "-Command"), winCharset)
                 }
-                return SelectedShell("cmd", "cmd", arrayOf("/C"))
+                return SelectedShell("cmd", "cmd", arrayOf("/C"), winCharset)
             }
             if (commandInPath("zsh")) {
-                return SelectedShell("zsh", "zsh", arrayOf("-lc"))
+                return SelectedShell("zsh", "zsh", arrayOf("-lc"), Charsets.UTF_8)
             }
             if (commandInPath("bash")) {
-                return SelectedShell("bash", "bash", arrayOf("-lc"))
+                return SelectedShell("bash", "bash", arrayOf("-lc"), Charsets.UTF_8)
             }
-            return SelectedShell("sh", "sh", arrayOf("-lc"))
+            return SelectedShell("sh", "sh", arrayOf("-lc"), Charsets.UTF_8)
+        }
+
+        /**
+         * 系统 native 编码：子进程（PowerShell/cmd）输出字节按此编码。
+         * Windows 中文环境下为 GBK（代码页 936）。取 sun.jnu.encoding（JVM 推导的平台原生编码），
+         * 而不是 file.encoding（JDK18+ 默认 UTF-8，与子进程实际输出不一致）。
+         */
+        fun systemNativeCharset(): Charset {
+            val name = System.getProperty("sun.jnu.encoding") ?: System.getProperty("native.encoding")
+            return name?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: Charset.defaultCharset()
         }
 
         /** 照抄 command_in_path：在 PATH 各目录下找可执行文件。 */

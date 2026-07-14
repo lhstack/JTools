@@ -49,8 +49,7 @@ JTools 通过提供**热插拔功能**彻底改变了插件开发体验，允许
 | 📚 **Skills 资源** | `references/examples/scripts` 等资源可随技能挂载，并通过工具读取 |
 | 🔗 **Skill 运行时集成** | Skills 与内置工具、插件工具共享同一个 AgentScope Toolkit |
 | 🛠️ **系统工具套件** | 内置插件管理、文件浏览、技能管理、MCP 管理等 JTools 系统工具 |
-| 🧩 **结构化 CLI 工具** | 单一 `cli` 工具聚合 MCP 管理与工作区文件操作，`doc` 命令返回全部命令的完整参数说明 |
-| 📂 **IDE 原生文件操作** | 文件查找、内容搜索与编辑走 IDE 自身引擎（ProjectFileIndex/FindManager/WriteCommandAction），约束在工作区内 |
+| 🧩 **结构化 MCP CLI 工具** | 单一 `cli` 工具聚合 MCP 服务配置、连接测试、资源读取和工具调用，`doc` 返回全部 MCP 命令参数说明 |
 | 🔌 **MCP 客户端** | 基于官方 MCP Java SDK 管理并调用外部 MCP 服务，支持 stdio/SSE/streamable HTTP 与连接测试 |
 | 🛡️ **智能体权限** | 按对话配置访问范围与危险操作策略，统一管控文件、命令、插件、Skills、MCP 和动态工具 |
 | 🎚️ **模型调优** | 提供独立模型调优面板，可配置流式输出、多模态能力和高级参数 |
@@ -106,7 +105,7 @@ JTools 通过提供**热插拔功能**彻底改变了插件开发体验，允许
 - **浏览器操作更可观察** - AI 浏览器支持 snapshot/ref 操作、文本/selector 等待和临时截图，智能体可以先观察页面结构再点击、输入或翻页。
 - **浏览器生命周期更可控** - AI 浏览器按需动态创建工具窗口，同一项目复用一个浏览器会话，任务完成后可销毁，并沿用 Web 工具代理设置。
 - **LLM 链路更直接** - 模型调用重构为直接 OkHttp 客户端 + 符合 WHATWG 规范的 SSE 解析，统一的 `ModelCancel` 令牌可即时中断流式输出和并发工具调用。
-- **CLI 工具更聚合** - MCP 管理和工作区文件操作收敛到同一个 `cli` 工具，文件查找/搜索/编辑走 IDE 原生的 ProjectFileIndex、FindManager 和 WriteCommandAction，与编辑器行为一致。
+- **MCP 工具更聚合** - MCP 服务配置、连接测试、资源读取与工具调用收敛到同一个结构化 `cli` 工具，并由 `doc` 一次性返回命令参数说明。
 - **上下文更贴合环境** - 系统提示词会带上操作系统信息、系统默认编码和 JetBrains 项目文件编码，写文件时按该编码输出。
 
 ## 📁 项目结构
@@ -133,8 +132,7 @@ JTools/
 ### v1.1.4.5 (当前版本)
 - 🔧 **LLM 链路深度重构** - 模型调用改为直接 OkHttp 客户端 + 符合 WHATWG/EventSource 规范的 SSE 解析器，流式与非流式请求走统一执行器
 - ⏹️ **统一取消令牌** - 新增 `ModelCancel`，一个令牌即可中断当前流式请求、底层连接和所有已注册的并发工具调用
-- 🧩 **结构化 CLI 工具** - 新增 `cli` 工具聚合 MCP 管理（mcp.list/get/create/update/delete/test/tools/resources/read_resource/call）与工作区文件操作，并提供 `doc` 命令返回全部命令的完整参数说明
-- 📂 **工作区文件操作** - CLI 新增 `file.read/write/patch/find/grep/glob_grep`，文件查找走 ProjectFileIndex（尊重 IDE 排除目录），内容搜索走 FindManager（Ctrl+Shift+F 引擎），写入/替换走 WriteCommandAction（可撤销、自动重索引、与编辑器同步），全部约束在工作区内
+- 🧩 **结构化 MCP CLI 工具** - 新增 `cli` 工具聚合 MCP 管理（mcp.list/get/create/update/delete/test/tools/resources/read_resource/call），并提供 `doc` 命令返回全部 MCP 命令的完整参数说明
 - 🔌 **MCP 客户端持久化** - 基于官方 MCP Java SDK（`1.1.3`）管理外部 MCP 服务，支持 stdio/SSE/streamable HTTP，服务配置入库持久化并可连接测试
 - 🖼️ **附件统一预览** - 输入区草稿附件与聊天记录附件统一交互：图片点击预览大图，文件点击在 JetBrains 中打开
 - 🧭 **提示词环境上下文** - 系统提示词补充操作系统信息、系统默认编码与 JetBrains 项目文件编码，明确要求模型按该编码输出文件内容

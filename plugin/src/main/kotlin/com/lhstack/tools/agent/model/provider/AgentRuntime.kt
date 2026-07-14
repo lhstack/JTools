@@ -98,7 +98,6 @@ object AgentRuntime {
             skillsRootDir = request.skillsRootDir,
             toolEnvVars = request.toolEnvVars,
             cancel = request.toolCancel ?: request.cancel,
-            project = request.project,
         ) + pluginFunctionTools(agent.extConfig, request) + viewResourceTools(agent.extConfig, request) + request.extraTools
 
         val preamble = buildPreamble(agent, request, enabledSkills, request.skillsRootDir)
@@ -276,8 +275,14 @@ object AgentRuntime {
         append("- CWD规则：工作空间就是默认 cwd；当工具调用或命令没有显式指定 cwd 时，cwd 等于工作空间。\n")
         append("- 技能目录：${skillsRootDir?.canonicalPath ?: "未配置"}\n")
         append("- 操作系统：${System.getProperty("os.name")} ${System.getProperty("os.version")}（${System.getProperty("os.arch")}）\n")
-        append("- 系统默认编码：${Charset.defaultCharset().name()}\n")
+        append("- 系统 bash 工具默认编码：${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}（bash 工具执行命令时按此编码解码 stdout/stderr）\n")
         append("- 文件输出编码：${projectFileEncodingName(request)}（写入文件时请按该编码输出内容）\n")
+
+        append("\n## Bash 文件操作编码约定\n")
+        append("- 使用 `bash` 查找、读取、编写或修改项目文件时，工作目录默认是工作空间；用户未提供完整路径时，应先在工作空间内定位目标，不要猜测路径。\n")
+        append("- 使用 `bash` 写入、覆盖、追加或替换项目源码、配置、测试及文档时，必须显式按 JetBrains 项目文件编码 `${projectFileEncodingName(request)}` 写入；不要依赖 PowerShell/cmd 的默认编码、重定向符 `>`/`>>`、`Out-File` 或未指定编码的 `Set-Content`。\n")
+        append("- Windows PowerShell/pwsh 下优先使用能够显式指定编码且不会附加 BOM 的写法；写入后应按同一编码读取并校验内容，避免把 UTF-8 文件写成 GBK/UTF-16 或产生混合编码。\n")
+        append("- `bash` 返回 stdout/stderr 时按系统 bash 工具默认编码 `${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}` 解码；该编码只用于命令输出，不代表项目文件编码。\n")
 
         val template = agent.promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
         appendSection("以下是系统提示词", template)

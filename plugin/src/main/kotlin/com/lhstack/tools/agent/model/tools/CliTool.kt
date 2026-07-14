@@ -2,7 +2,6 @@ package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
-import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.lhstack.tools.agent.model.llm.ToolDefinition
@@ -13,25 +12,19 @@ import com.lhstack.tools.agent.model.http.ModelCancel
 
 /** Structure-first CLI Function Calling entry. Commands use `domain.action`, for example `mcp.list`. */
 class CliTool(
-    private val workspace: WorkspaceTools? = null,
-    private val project: com.intellij.openapi.project.Project? = null,
     private val cancel: ModelCancel? = null,
 ) : ToolDyn {
     override fun definition(prompt: String): ToolDefinition = ToolDefinition(
         name = NAME,
-        description = "Execute a structured JTools CLI command (single tool covering multiple domains).\n" +
-            "Domains and when to use them:\n" +
-            "- file.read / file.write / file.patch: read, create/overwrite, or precisely edit a workspace text file. Prefer file.patch for small edits, file.write for whole-file content.\n" +
-            "- file.find: locate files by glob (for example **/*.kt). file.grep / file.glob_grep: search file contents by regex, glob_grep restricts to a glob.\n" +
-            "- mcp.*: manage and call MCP servers (list/get/create/update/delete/test/tools/resources/read_resource/call).\n" +
-            "File paths are relative to the workspace root and constrained inside it.\n" +
-            "If you do not remember a command\u0027s exact arguments, call command=\u0027doc\u0027 once to get the full parameter reference for every command, then call the command you need.",
+        description = "Manage and call external MCP servers through structured JTools CLI commands.\n" +
+            "Available commands cover server list/get/create/update/delete, connection test, tools, resources, resource reads, and tool calls.\n" +
+            "If you do not remember a command\u0027s exact arguments, call command=\u0027doc\u0027 once to get the full parameter reference for every MCP command.",
         parameters = JsonParser.parseString(
             """
             {
               "type":"object",
               "properties":{
-                "command":{"type":"string","description":"Command name, for example doc, mcp.list, file.read, or file.grep. Call doc first to see every command and its arguments."},
+                "command":{"type":"string","description":"MCP command name, for example doc, mcp.list, mcp.create, or mcp.call. Call doc first to see every command and its arguments."},
                 "arguments":{"type":"object","description":"Structured command arguments. Omit for doc and list commands."}
               },
               "required":["command"]
@@ -58,14 +51,7 @@ class CliTool(
         "mcp.tools" -> runtime(args).tools()
         "mcp.resources" -> runtime(args).resources()
         "mcp.read_resource" -> runtime(args).readResource(args.string("uri"))
-        "mcp.call" -> runtime(args).callTool(args.string("tool"), args.get("arguments")?.requireObject("arguments") ?: JsonObject())
-        "file.read" -> FileToolSupport.read(workspaceOrThrow(), project, args.string("path"), args.optionalInt("offset"), args.optionalInt("limit"))
-        "file.write" -> FileToolSupport.write(workspaceOrThrow(), project, args.string("path"), args.string("content"))
-        "file.patch" -> FileToolSupport.patch(workspaceOrThrow(), project, args.string("path"), args.string("old_string"), args.get("new_string")?.takeUnless { it.isJsonNull }?.asString ?: "", args.boolean("replace_all", false))
-        "file.find" -> FileToolSupport.find(workspaceOrThrow(), project, args.string("pattern"), args.optionalString("path"))
-        "file.grep" -> FileToolSupport.grep(workspaceOrThrow(), project, args.string("pattern"), args.optionalString("path"), args.optionalString("glob"), args.boolean("ignore_case", false), args.optionalInt("max_results") ?: 200)
-        "file.glob_grep" -> FileToolSupport.grep(workspaceOrThrow(), project, args.string("pattern"), args.optionalString("path"), args.string("glob"), args.boolean("ignore_case", false), args.optionalInt("max_results") ?: 200)
-        else -> throw IllegalArgumentException("未知 CLI 指令 `$command`，请调用 `--help`")
+        "mcp.call" -> runtime(args).callTool(args.string("tool"), args.get("arguments")?.requireObject("arguments") ?: JsonObject())        else -> throw IllegalArgumentException("未知 CLI 指令 `$command`，请调用 `doc`")
     }
 
     private fun createServer(args: JsonObject): McpServerEntity = McpServerEntity().apply {
@@ -112,8 +98,6 @@ class CliTool(
         )
     }
 
-    private fun workspaceOrThrow(): WorkspaceTools =
-        workspace ?: throw IllegalArgumentException("file commands require an active workspace")
     private fun requireServer(id: Long): McpServerEntity =
         McpService.get(id) ?: throw IllegalArgumentException("MCP 服务 `$id` 不存在")
 
@@ -174,39 +158,7 @@ class CliTool(
             Triple("mcp.resources", "获取 MCP 服务公开的资源列表。", props("id" to id, "timeout_secs" to timeout)),
             Triple("mcp.read_resource", "按 URI 读取 MCP 资源。", props("id" to id, "uri" to field("string", true, "资源 URI"), "timeout_secs" to timeout)),
             Triple("mcp.call", "调用 MCP 服务工具。", props("id" to id, "tool" to field("string", true, "工具名称"), "arguments" to field("object", false, "工具参数，默认 {}"), "timeout_secs" to timeout)),
-            Triple("file.read", "Read a UTF-8 text file inside the workspace, optionally by line range.", props(
-                "path" to field("string", true, "Workspace-relative file path"),
-                "offset" to field("integer", false, "0-based start line, default 0"),
-                "limit" to field("integer", false, "Max lines to return, default all"),
-            )),
-            Triple("file.write", "Create or overwrite a UTF-8 text file inside the workspace (parent dirs are created).", props(
-                "path" to field("string", true, "Workspace-relative file path"),
-                "content" to field("string", true, "Full file content to write"),
-            )),
-            Triple("file.patch", "Replace an exact substring in a workspace file. old_string must be unique unless replace_all=true.", props(
-                "path" to field("string", true, "Workspace-relative file path"),
-                "old_string" to field("string", true, "Exact text to replace (with surrounding context to stay unique)"),
-                "new_string" to field("string", false, "Replacement text, default empty (delete)"),
-                "replace_all" to field("boolean", false, "Replace every occurrence, default false"),
-            )),
-            Triple("file.find", "Find files by glob pattern under the workspace (ignores VCS/build dirs).", props(
-                "pattern" to field("string", true, "Glob like **/*.kt or src/**/*Test.kt"),
-                "path" to field("string", false, "Base directory, default workspace root"),
-            )),
-            Triple("file.grep", "Search file contents by regex under the workspace, returning path/line_number/line.", props(
-                "pattern" to field("string", true, "Regular expression"),
-                "path" to field("string", false, "Base directory, default workspace root"),
-                "glob" to field("string", false, "Only search files matching this glob"),
-                "ignore_case" to field("boolean", false, "Case-insensitive match, default false"),
-                "max_results" to field("integer", false, "Cap results, default 200, hard limit 2000"),
-            )),
-            Triple("file.glob_grep", "Regex content search restricted to files matching a required glob (grep + glob).", props(
-                "pattern" to field("string", true, "Regular expression"),
-                "glob" to field("string", true, "Glob filter like **/*.kt"),
-                "path" to field("string", false, "Base directory, default workspace root"),
-                "ignore_case" to field("boolean", false, "Case-insensitive match, default false"),
-                "max_results" to field("integer", false, "Cap results, default 200, hard limit 2000"),
-            )),        )
+        )
     }
 
     private fun JsonElement.requireObject(name: String): JsonObject =
@@ -223,9 +175,6 @@ class CliTool(
 
     private fun JsonObject.optionalLong(name: String): Long? =
         get(name)?.takeUnless { it.isJsonNull }?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
-
-    private fun JsonObject.optionalInt(name: String): Int? =
-        get(name)?.takeUnless { it.isJsonNull }?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
 
     private fun JsonObject.boolean(name: String, default: Boolean): Boolean =
         get(name)?.takeUnless { it.isJsonNull }?.asBoolean ?: default
