@@ -53,6 +53,29 @@ object ResourceConfigService {
         return root.toPath().relativize(directory.toPath()).toString().replace('\\', '/')
     }
 
+    fun createSkill(name: String): String {
+        val root = skillsRootDir()
+        val childName = name.trim()
+        require(childName.isNotBlank()) { "技能名称不能为空" }
+        require(childName != "." && childName != ".." && !childName.startsWith('.') && !childName.contains('/') && !childName.contains('\\')) { "技能名称无效: $name" }
+        val dir = canonicalFile(root.resolve(childName))
+        require(dir.toPath().startsWith(root.toPath())) { "Skill 路径越界: $name" }
+        require(!dir.exists()) { "技能已存在: $childName" }
+        require(dir.mkdirs()) { "技能目录创建失败: $childName" }
+        dir.resolve("SKILL.md").writeText(defaultSkillTemplate(childName), Charsets.UTF_8)
+        return childName
+    }
+
+    private fun defaultSkillTemplate(name: String): String = """
+        |---
+        |description: $name
+        |---
+        |
+        |# $name
+        |
+        |在此填写技能说明。
+        |""".trimMargin()
+
     fun deleteSkill(name: String) {
         val dir = resolveSkillDir(name)
         require(dir.deleteRecursively()) { "Skill 删除失败: $name" }

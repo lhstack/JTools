@@ -78,7 +78,7 @@ class ToolRuntime(
                     "用户手动取消"
                 } catch (error: ExecutionException) {
                     val cause = error.cause ?: error
-                    "工具调用失败: ${cause.message ?: cause.toString()}"
+                    "工具调用失败: ${describeThrowable(cause)}"
                 }
             }
         } finally {
@@ -106,7 +106,7 @@ class ToolRuntime(
             if (toolCancel?.isCancelled() == true) {
                 "用户手动取消"
             } else {
-                "工具调用失败: ${e.message ?: e.toString()}"
+                "工具调用失败: ${describeThrowable(e)}"
             }
         }
     }
@@ -139,6 +139,23 @@ class ToolRuntime(
                     content = listOf(ToolResultContent.text(output)),
                 )
             )
+
+        /**
+         * 展开异常的 cause 链拼接可读信息。部分库（如 MCP SDK）把真实失败原因包在外层
+         * 包装异常里（例如 "Client failed to initialize by explicit API call"），只取顶层
+         * message 会掩盖根因，这里把整条 cause 链串起来暴露给模型和用户。
+         */
+        private fun describeThrowable(error: Throwable): String {
+            val messages = LinkedHashSet<String>()
+            var current: Throwable? = error
+            while (current != null) {
+                val text = current.message?.trim().takeUnless { it.isNullOrBlank() }
+                    ?: current.javaClass.simpleName
+                messages.add(text)
+                current = current.cause.takeIf { it !== current }
+            }
+            return messages.joinToString(" -> ")
+        }
 
         /** 照抄 stringify_tool_output：null -> ""，字符串取原文，其余 toString。 */
         private fun stringifyToolOutput(value: JsonElement): String = when {

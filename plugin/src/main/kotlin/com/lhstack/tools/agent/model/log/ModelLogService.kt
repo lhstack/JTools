@@ -317,34 +317,10 @@ object ModelLogService {
         Unit
     }
 
-    fun deleteChatMessage(logId: Long, role: String) = AgentDatabase.execute { session ->
-        val mapper = session.getMapper(ModelRequestLogMapper::class.java)
-        val entity = mapper.selectById(logId) ?: return@execute Unit
-        when (role) {
-            "user", "用户" -> mapper.update(
-                null,
-                UpdateWrapper<ModelRequestLogEntity>()
-                    .eq("id", logId)
-                    .set("request_data", requestDataWithoutUserMessage(entity.requestData).toString()),
-            )
-            "assistant", "助手" -> mapper.update(
-                null,
-                UpdateWrapper<ModelRequestLogEntity>()
-                    .eq("id", logId)
-                    .set("response_data", "{}")
-                    .set("error_data", null),
-            )
-            else -> throw IllegalArgumentException("不支持的消息角色: $role")
-        }
+    /** 删除单个会话对话轮次（同一条日志内含用户消息与模型回复）。仅供会话内删除使用，允许删除 chat_turn。 */
+    fun deleteChatTurn(logId: Long) = AgentDatabase.execute { session ->
+        session.getMapper(ModelRequestLogMapper::class.java).deleteById(logId)
         Unit
-    }
-
-    private fun requestDataWithoutUserMessage(text: String?): JsonObject {
-        val requestData = parseObject(text)
-        val snapshot = requestData.get("request_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: return requestData
-        snapshot.remove("prompt_message")
-        snapshot.remove("attachments")
-        return requestData
     }
 
     /** 删除某会话来源的全部日志（清空会话历史 / 删除会话时使用）。 */

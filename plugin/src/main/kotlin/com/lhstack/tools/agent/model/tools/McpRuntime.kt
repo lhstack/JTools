@@ -3,22 +3,21 @@ package com.lhstack.tools.agent.model.tools
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.db.entity.McpServerEntity
 import com.lhstack.tools.db.service.McpService
-import com.lhstack.tools.agent.model.http.ModelCancel
 import io.modelcontextprotocol.client.McpClient
 import io.modelcontextprotocol.client.McpSyncClient
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport
 import io.modelcontextprotocol.client.transport.ServerParameters
 import io.modelcontextprotocol.client.transport.StdioClientTransport
-import io.modelcontextprotocol.spec.McpClientTransport
+import io.modelcontextprotocol.common.McpTransportContext
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator
+import io.modelcontextprotocol.spec.McpClientTransport
+import io.modelcontextprotocol.spec.McpSchema.*
 import tools.jackson.databind.json.JsonMapper
-import io.modelcontextprotocol.spec.McpSchema.CallToolRequest
-import io.modelcontextprotocol.spec.McpSchema.Implementation
-import io.modelcontextprotocol.spec.McpSchema.ReadResourceRequest
 import java.net.URI
 import java.net.http.HttpRequest
 import java.time.Duration
@@ -97,7 +96,7 @@ internal class McpRuntime(
             origin.rawQuery?.let { "?$it" }.orEmpty()
         return HttpClientSseClientTransport.builder(baseUri)
             .sseEndpoint(path)
-            .customizeRequest(::applyHeaders)
+            .httpRequestCustomizer(::applyHeaders)
             .jsonMapper(MCP_JSON_MAPPER)
             .connectTimeout(Duration.ofSeconds(timeoutSecs))
             .build()
@@ -110,7 +109,7 @@ internal class McpRuntime(
             endpoint.rawQuery?.let { "?$it" }.orEmpty()
         return HttpClientStreamableHttpTransport.builder(baseUri)
             .endpoint(path)
-            .customizeRequest(::applyHeaders)
+            .httpRequestCustomizer(::applyHeaders)
             .jsonMapper(MCP_JSON_MAPPER)
             .connectTimeout(Duration.ofSeconds(timeoutSecs))
             .build()
@@ -119,8 +118,23 @@ internal class McpRuntime(
     private fun remoteEndpoint(label: String): String = server.url?.takeIf { it.isNotBlank() }
         ?: throw IllegalArgumentException("$label MCP 缺少 url")
 
-    private fun applyHeaders(builder: HttpRequest.Builder) {
-        McpService.stringMap(server.headers, "headers").forEach(builder::header)
+    /**
+     * Per-request customizer。SDK 在设置默认请求头（含 POST 的
+     * Content-Type: application/json; charset=utf-8）之后才调用它，因此这里能覆盖头。
+     * 部分 MCP 服务端严格匹配 pplication/json，会拒绝带 charset 的 content-type
+     * 并返回 400，这里对 POST 显式改回不带 charset 的值；同时应用用户自定义头。
+     */
+    private fun applyHeaders(
+        builder: HttpRequest.Builder,
+        method: String,
+        endpoint: URI,
+        body: String?,
+        context: McpTransportContext,
+    ) {
+        McpService.stringMap(server.headers, "headers").forEach { (name, value) -> builder.setHeader(name, value) }
+        if (method.equals("POST", ignoreCase = true)) {
+            builder.setHeader("Content-Type", "application/json")
+        }
     }
 
     private fun json(value: Any?): JsonElement =

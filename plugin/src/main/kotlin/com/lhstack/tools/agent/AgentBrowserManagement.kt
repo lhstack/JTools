@@ -99,6 +99,7 @@ internal object AgentBrowserManagement {
         "agent.delete" -> { AgentService.deleteAgent(long(payload, "id")); changed(); Unit }
         "skills.list" -> ResourceConfigService.listSkills().map { skillMap(it) }
         "skill.files" -> skillFileNode(ResourceConfigService.skillFileTree(string(payload, "name")))
+        "skill.create" -> mapOf("name" to ResourceConfigService.createSkill(string(payload, "name")))
         "skill.delete" -> { ResourceConfigService.deleteSkill(string(payload, "name")); Unit }
         "skill.deleteEntry" -> { ResourceConfigService.deleteSkillEntry(string(payload, "name"), string(payload, "path")); Unit }
         "skill.read" -> ResourceConfigService.readSkillFile(string(payload, "name"), payload.get("path")?.asString).let { mapOf("skill" to it.skill, "path" to it.path, "content" to it.content) }

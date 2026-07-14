@@ -454,7 +454,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val reasoning = reasoningText(structured)
             val hasTools = hasToolCalls(structured)
             if (response.isNotBlank() || reasoning.isNotBlank() || hasTools) {
-                val turnView = createAssistantTurnView(sessionId) { deleteChatMessage(turn.logId, "assistant") }
+                val turnView = createAssistantTurnView(sessionId) { deleteChatTurn(turn.logId) }
                 if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
                 if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
                 renderTurnToolCalls(structured, turnView)
@@ -463,7 +463,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         }
         if (turn.status == "failed" && !turn.errorData.isNullOrBlank()) {
-            val turnView = createAssistantTurnView(sessionId) { deleteChatMessage(turn.logId, "assistant") }
+            val turnView = createAssistantTurnView(sessionId) { deleteChatTurn(turn.logId) }
             turnView.card.setResponse("错误：${turn.errorData}")
             turnView.card.finish(turn.createdAt, null)
         }
@@ -487,8 +487,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         )
     }
 
-    private fun deleteChatMessage(logId: Long, role: String) {
-        ModelLogService.deleteModelLog(logId)
+    private fun deleteChatTurn(logId: Long) {
+        ModelLogService.deleteChatTurn(logId)
         currentSessionId?.let { refreshCurrentSessionHistoryIfVisible(it) }
         project.infoNotify("对话", "消息已删除")
     }

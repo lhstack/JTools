@@ -21,12 +21,14 @@ function toolState(tool) {
       <el-collapse v-if="item.reasoning||item.tools?.length">
         <el-collapse-item v-if="item.reasoning" title="推理"><pre class="reasoning">{{item.reasoning}}</pre></el-collapse-item>
         <el-collapse-item v-if="item.tools?.length" :title="`工具调用 (${item.tools.filter(x=>x.finished).length}/${item.tools.length})`">
+          <div class="tool-call-scroll">
           <el-collapse v-for="tool in item.tools" :key="tool.id" class="tool-call-list">
             <el-collapse-item>
               <template #title><span class="tool-state" :class="toolState(tool).css"><b>{{toolState(tool).icon}}</b><span>{{tool.name}}</span><small>{{toolState(tool).label}}</small></span></template>
               <b>入参</b><pre>{{tool.args}}</pre><b>出参</b><pre>{{tool.result||'调用中'}}</pre>
             </el-collapse-item>
           </el-collapse>
+          </div>
         </el-collapse-item>
       </el-collapse>
       <footer><span>{{item.createdAt}} <el-popover v-if="item.usage" placement="top" trigger="hover" :width="230"><template #reference><span class="message-usage">{{item.usage}}</span></template><div class="usage-detail"><strong>Token usage</strong><div v-for="detail in item.usageDetails" :key="detail.label"><span>{{detail.label}}</span><b>{{detail.value.toLocaleString()}}</b></div></div></el-popover></span><el-button v-if="item.deletable" link type="danger" @click="invoke('message.delete',{id:item.id})">删除</el-button></footer>
