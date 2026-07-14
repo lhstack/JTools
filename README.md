@@ -49,6 +49,9 @@ JTools 通过提供**热插拔功能**彻底改变了插件开发体验，允许
 | 📚 **Skills 资源** | `references/examples/scripts` 等资源可随技能挂载，并通过工具读取 |
 | 🔗 **Skill 运行时集成** | Skills 与内置工具、插件工具共享同一个 AgentScope Toolkit |
 | 🛠️ **系统工具套件** | 内置插件管理、文件浏览、技能管理、MCP 管理等 JTools 系统工具 |
+| 🧩 **结构化 CLI 工具** | 单一 `cli` 工具聚合 MCP 管理与工作区文件操作，`doc` 命令返回全部命令的完整参数说明 |
+| 📂 **IDE 原生文件操作** | 文件查找、内容搜索与编辑走 IDE 自身引擎（ProjectFileIndex/FindManager/WriteCommandAction），约束在工作区内 |
+| 🔌 **MCP 客户端** | 基于官方 MCP Java SDK 管理并调用外部 MCP 服务，支持 stdio/SSE/streamable HTTP 与连接测试 |
 | 🛡️ **智能体权限** | 按对话配置访问范围与危险操作策略，统一管控文件、命令、插件、Skills、MCP 和动态工具 |
 | 🎚️ **模型调优** | 提供独立模型调优面板，可配置流式输出、多模态能力和高级参数 |
 | 🧾 **参数建议** | 支持保存供应方默认参数与推荐参数，让模型配置更容易复用 |
@@ -102,6 +105,9 @@ JTools 通过提供**热插拔功能**彻底改变了插件开发体验，允许
 - **Web 工具分工更清楚** - `WebFetch` 负责直接 HTTP/API 请求，`WebSearch` 负责搜索，`browser_open` 等浏览器工具负责需要渲染、分页点击或可视化观察的页面操作。
 - **浏览器操作更可观察** - AI 浏览器支持 snapshot/ref 操作、文本/selector 等待和临时截图，智能体可以先观察页面结构再点击、输入或翻页。
 - **浏览器生命周期更可控** - AI 浏览器按需动态创建工具窗口，同一项目复用一个浏览器会话，任务完成后可销毁，并沿用 Web 工具代理设置。
+- **LLM 链路更直接** - 模型调用重构为直接 OkHttp 客户端 + 符合 WHATWG 规范的 SSE 解析，统一的 `ModelCancel` 令牌可即时中断流式输出和并发工具调用。
+- **CLI 工具更聚合** - MCP 管理和工作区文件操作收敛到同一个 `cli` 工具，文件查找/搜索/编辑走 IDE 原生的 ProjectFileIndex、FindManager 和 WriteCommandAction，与编辑器行为一致。
+- **上下文更贴合环境** - 系统提示词会带上操作系统信息、系统默认编码和 JetBrains 项目文件编码，写文件时按该编码输出。
 
 ## 📁 项目结构
 
@@ -123,7 +129,22 @@ JTools/
 ## 📦 版本日志
 
 
-### v1.1.4.4 (当前版本)
+
+### v1.1.4.5 (当前版本)
+- 🔧 **LLM 链路深度重构** - 模型调用改为直接 OkHttp 客户端 + 符合 WHATWG/EventSource 规范的 SSE 解析器，流式与非流式请求走统一执行器
+- ⏹️ **统一取消令牌** - 新增 `ModelCancel`，一个令牌即可中断当前流式请求、底层连接和所有已注册的并发工具调用
+- 🧩 **结构化 CLI 工具** - 新增 `cli` 工具聚合 MCP 管理（mcp.list/get/create/update/delete/test/tools/resources/read_resource/call）与工作区文件操作，并提供 `doc` 命令返回全部命令的完整参数说明
+- 📂 **工作区文件操作** - CLI 新增 `file.read/write/patch/find/grep/glob_grep`，文件查找走 ProjectFileIndex（尊重 IDE 排除目录），内容搜索走 FindManager（Ctrl+Shift+F 引擎），写入/替换走 WriteCommandAction（可撤销、自动重索引、与编辑器同步），全部约束在工作区内
+- 🔌 **MCP 客户端持久化** - 基于官方 MCP Java SDK（`1.1.3`）管理外部 MCP 服务，支持 stdio/SSE/streamable HTTP，服务配置入库持久化并可连接测试
+- 🖼️ **附件统一预览** - 输入区草稿附件与聊天记录附件统一交互：图片点击预览大图，文件点击在 JetBrains 中打开
+- 🧭 **提示词环境上下文** - 系统提示词补充操作系统信息、系统默认编码与 JetBrains 项目文件编码，明确要求模型按该编码输出文件内容
+- 🐛 **消息删除修复** - 修复聊天消息删除按钮点击无效的问题（改用按角色清理会话消息的服务方法，而非会对 `chat_turn` 抛异常的模型日志删除）
+- 🐛 **工具错误根因暴露** - 工具调用失败时展开 cause 链暴露真实原因，不再被 MCP SDK 外层包装信息（如 "Client failed to initialize by explicit API call"）掩盖
+- 🎨 **Agent 配置默认值** - 新建 Agent 时内置工具默认全选，蒸馏配置的 Agent 下拉可选中自身
+- 🎨 **技能管理与工具列表** - 技能管理新增「新增技能」按钮（刷新列表旁），工具调用列表限高约 4 行并支持溢出滚动
+- 📦 **版本元数据同步** - 发布版本提升至 `v1.1.4.5`，并同步 SDK Helper 版本元数据到 `1145`
+
+### v1.1.4.4
 - 🧭 **AI 浏览器工具增强** - 在 `v1.1.4.3` 浏览器工具链基础上新增 `browser_snapshot`、`browser_click_ref`、`browser_type_ref`、`browser_click_text`、`browser_wait_for_text`、`browser_wait_for_selector`、`browser_screenshot` 和 `browser_press`
 - 🔎 **可观察浏览器操作** - `browser_snapshot` 会返回可操作元素 ref，智能体优先通过 ref 点击和输入，页面变化后可等待文本/selector 并重新观察，减少盲猜 CSS selector
 - 🧾 **浏览器工具提示词优化** - 浏览器工具描述明确推荐 `open -> snapshot -> ref 操作 -> wait -> snapshot/read -> close` 的操作流程，CSS selector 工具作为低优先级兜底

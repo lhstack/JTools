@@ -38,6 +38,9 @@
         <li><b>🧩 Provider Templates:</b> OpenAI-compatible provider types and vendor templates with preset endpoints and parameter hints for easier third-party model integration.</li>
         <li><b>🌍 Broad Provider Coverage:</b> Built-in templates for OpenAI, DeepSeek, GLM, OpenRouter, SiliconFlow, DashScope, Gemini, Ollama, and Anthropic-style integrations.</li>
         <li><b>🧰 Function Calling:</b> Aggregated plugin and system tools with unique identifiers to avoid name conflicts.</li>
+        <li><b>🧩 Structured CLI Tool:</b> A single <code>cli</code> tool exposes MCP management (mcp.*) and workspace file operations (file.read/write/patch/find/grep/glob_grep), with a <code>doc</code> command that returns the full parameter reference for every command.</li>
+        <li><b>📂 IDE-Native File Operations:</b> File lookup, content search, and edits run on the IDE's own engines (ProjectFileIndex, FindManager, WriteCommandAction) so results, excludes, and undo stay consistent with the editor, constrained inside the workspace.</li>
+        <li><b>🔌 MCP Client:</b> Manage and call external MCP servers over stdio/SSE/streamable HTTP on the official MCP Java SDK, with persisted server configs and connection testing.</li>
         <li><b>📦 Plugin Ops:</b> Local/URL/batch install and uninstall tool calls for faster workflows.</li>
         <li><b>🧪 Dev Testing:</b> Developer panel can expose current plugin instance tool calls for debugging.</li>
         <li><b>📎 Attachment Workflow:</b> Attach local files and images to chat, with model-aware capability checks, clipboard support, and optimized upload handling.</li>
@@ -102,6 +105,9 @@
         <li><b>🧩 供应方模板：</b>支持 OpenAI Compatible 接入类型与厂商模板，预置端点和参数建议，便于接入第三方模型服务。</li>
         <li><b>🌍 广泛供应方覆盖：</b>内置 OpenAI、DeepSeek、GLM、OpenRouter、SiliconFlow、DashScope、Gemini、Ollama、Anthropic 等接入模板。</li>
         <li><b>🧰 函数调用：</b>聚合插件与系统工具并增加唯一标识，避免名称冲突。</li>
+        <li><b>🧩 结构化 CLI 工具：</b>单一 <code>cli</code> 工具聚合 MCP 管理（mcp.*）与工作区文件操作（file.read/write/patch/find/grep/glob_grep），并提供 <code>doc</code> 命令一次性返回所有命令的完整参数说明。</li>
+        <li><b>📂 IDE 原生文件操作：</b>文件查找、内容搜索和编辑走 IDE 自身引擎（ProjectFileIndex、FindManager、WriteCommandAction），结果、排除目录与撤销与编辑器保持一致，并约束在工作区内。</li>
+        <li><b>🔌 MCP 客户端：</b>基于官方 MCP Java SDK 管理并调用外部 MCP 服务，支持 stdio/SSE/streamable HTTP 传输，服务配置持久化并可连接测试。</li>
         <li><b>📦 插件管理：</b>支持本地/URL/批量安装与卸载的工具调用。</li>
         <li><b>🧪 开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试。</li>
         <li><b>📎 附件工作流：</b>对话支持本地文件和图片附件，具备模型能力校验、剪贴板支持与上传优化。</li>
@@ -145,8 +151,30 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.4.4</h2>
+            <h2>📦 Version v1.1.4.5</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧠 <b>LLM Runtime Rewrite:</b> Reworked model calls onto a direct OkHttp/Okio HTTP client with a spec-compliant SSE parser (WHATWG/EventSource line handling) and a unified <code>ModelCancel</code> token that interrupts streaming reads, tool calls, and MCP connections together</li>
+                <li>🔌 <b>Structured MCP CLI Tool:</b> Consolidated MCP management into a single built-in <code>cli</code> tool, exposing <code>mcp.list</code>, <code>mcp.get</code>, <code>mcp.create</code>, <code>mcp.update</code>, <code>mcp.delete</code>, <code>mcp.test</code>, <code>mcp.tools</code>, <code>mcp.resources</code>, <code>mcp.read_resource</code>, and <code>mcp.call</code> on the official MCP Java SDK with stdio/SSE/streamable HTTP transports and persisted server configs</li>
+                <li>📂 <b>IDE-Native File Operations:</b> Added <code>file.read</code>, <code>file.write</code>, <code>file.patch</code>, <code>file.find</code>, <code>file.grep</code>, and <code>file.glob_grep</code> to the <code>cli</code> tool, backed by the IDE's own engines (ProjectFileIndex for lookup, FindManager for content search, WriteCommandAction for undoable writes) and constrained inside the workspace</li>
+                <li>🧾 <b>CLI Doc Command:</b> Replaced per-command <code>--help</code> with a single <code>command='doc'</code> that returns the full parameter reference for every command at once</li>
+                <li>🌍 <b>Runtime Context In Prompt:</b> The system preamble now reports the operating system, JVM default charset, and JetBrains project file encoding so the model outputs content in the expected encoding</li>
+                <li>📎 <b>Unified Attachment Preview:</b> Draft and chat-history attachments now share the same interaction: click an image to preview it full size, click a file to open it in the IDE</li>
+                <li>🔎 <b>Root-Cause Tool Errors:</b> Tool and MCP failures now unwrap the full cause chain instead of surfacing only the outer wrapper (for example "Client failed to initialize by explicit API call")</li>
+                <li>🛠️ <b>UX Fixes:</b> Fixed the single-message delete button, nested dialogs closing together on Esc, default-select of built-in tools on agent creation, the add-skill button in Skill management, and a max-height scroll cap on long tool-call lists</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.5</code> and aligned SDK helper version metadata to <code>1145</code></li>
+                <li>🧠 <b>LLM 深度重构：</b>模型调用改为直接的 OkHttp/Okio HTTP 客户端，自研 SSE parser 按 WHATWG/EventSource 规则逐事件解析，统一 <code>ModelCancel</code> 取消令牌可同时中断流式读取、工具调用和 MCP 连接</li>
+                <li>🔌 <b>结构化 MCP CLI 工具：</b>MCP 管理收敛到单一内置 <code>cli</code> 工具，提供 <code>mcp.list</code>、<code>mcp.get</code>、<code>mcp.create</code>、<code>mcp.update</code>、<code>mcp.delete</code>、<code>mcp.test</code>、<code>mcp.tools</code>、<code>mcp.resources</code>、<code>mcp.read_resource</code>、<code>mcp.call</code>，基于官方 MCP Java SDK，支持 stdio/SSE/streamable HTTP 传输，服务配置持久化到本地库</li>
+                <li>📂 <b>IDE 原生文件操作：</b><code>cli</code> 工具新增 <code>file.read</code>、<code>file.write</code>、<code>file.patch</code>、<code>file.find</code>、<code>file.grep</code>、<code>file.glob_grep</code>，走 IDE 自身引擎（ProjectFileIndex 文件索引、FindManager 内容查找、WriteCommandAction 可撤销写入），并约束在工作区内</li>
+                <li>🧾 <b>CLI doc 命令：</b>用单个 <code>command='doc'</code> 一次性返回所有命令的完整参数说明，取代逐条 <code>--help</code></li>
+                <li>🌍 <b>提示词补充运行环境：</b>系统 preamble 新增操作系统、JVM 默认编码和 JetBrains 项目文件编码，指导模型按目标编码输出内容</li>
+                <li>📎 <b>统一附件预览：</b>草稿区与聊天记录附件交互统一，点击图片预览大图，点击文件在 IDE 中打开</li>
+                <li>🔎 <b>工具错误根因暴露：</b>工具与 MCP 调用失败时展开完整 cause 链，暴露真实原因，而不是只显示外层包装信息（例如 "Client failed to initialize by explicit API call"）</li>
+                <li>🛠️ <b>体验修复：</b>修复单条消息删除按钮无效、嵌套弹窗按 Esc 同时关闭、Agent 创建时内置工具默认全选、技能管理新增技能按钮、以及长工具调用列表的最大高度滚动限制</li>
+                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.5</code>，并同步 SDK Helper 版本元数据到 <code>1145</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.4</h2>
             <ul>
                 <li>🧭 <b>AI Browser Tool Enhancements:</b> Built on the <code>v1.1.4.3</code> browser flow with <code>browser_snapshot</code>, <code>browser_click_ref</code>, <code>browser_type_ref</code>, <code>browser_click_text</code>, <code>browser_wait_for_text</code>, <code>browser_wait_for_selector</code>, <code>browser_screenshot</code>, and <code>browser_press</code></li>
                 <li>🔎 <b>Observable Browser Actions:</b> <code>browser_snapshot</code> returns actionable element refs so the agent can prefer ref-based click/type operations, wait for page changes, and observe again instead of guessing CSS selectors</li>
@@ -183,7 +211,7 @@
             </ul>
 
             <h2>📦 Version v1.1.4.2</h2>
-            <p><i>Latest Release / 最新版本</i></p>
+            
             <ul>
                 <li>🎨 <b>Settings UI Refresh:</b> Reworked the settings page into grouped card sections with scrolling, separating general settings from Web tool configuration for clearer plugin directory, logging, repository, proxy, and search-engine controls</li>
                 <li>🌐 <b>Web Tool Proxy:</b> Added dedicated HTTP/SOCKS proxy settings for WebFetch and WebSearch, with persisted host, port, and type applied to rendered fetches and search requests</li>
