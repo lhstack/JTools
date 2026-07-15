@@ -518,14 +518,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
                 if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
                 renderTurnToolCalls(structured, turnView)
-                turnView.card.finish(turn.createdAt, usageText(structured), usageDetails(structured))
+                turnView.card.finish(turn.assistantMessageAt, usageText(structured), usageDetails(structured))
                 return
             }
         }
         if (turn.status == "failed" && !turn.errorData.isNullOrBlank()) {
             val turnView = createAssistantTurnView(sessionId, onDelete = { deleteChatTurn(turn.logId) })
             turnView.card.setResponse("错误：${turn.errorData}")
-            turnView.card.finish(turn.createdAt, null)
+            turnView.card.finish(turn.assistantMessageAt, null)
         }
     }
 
@@ -543,7 +543,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             collapsedByDefault = false,
             attachments = attachments,
             onDelete = null,
-            createdAt = turn.createdAt,
+            createdAt = turn.userMessageAt,
         )
     }
 
@@ -962,6 +962,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             order = queueOrder.incrementAndGet(),
             attachments = attachments,
             sourceAgentRunId = sourceAgentRunId,
+            userMessageAt = messageTimeNow(),
         )
         synchronized(queueLock) { chatQueue.add(item) }
         refreshQueuePanel()
@@ -1052,6 +1053,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             cancel = item.token,
             toolCancel = item.toolToken,
             clientMessageOrder = item.order,
+            userMessageAt = item.userMessageAt,
             project = project,
             requestMetadata = item.sourceAgentRunId?.let { runId ->
                 JsonObject().apply { addProperty("source_agent_run_id", runId) }
@@ -1204,8 +1206,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         item.status = ChatQueueStatus.CANCELLED
         item.persistedLogId = logId
         if (item.hasAssistantOutput) {
-            logId?.let { ModelLogService.finishModelLogCancelled(it, cancelledResponseData(item)) }
-            ensureQueueAssistantCard(item).finish(LocalDateTime.now().toString().replace('T', ' '), null)
+            val assistantMessageAt = logId?.let {
+                ModelLogService.finishModelLogCancelled(it, cancelledResponseData(item))
+            }
+            ensureQueueAssistantCard(item).finish(assistantMessageAt, null)
             completeQueueItem(item, refreshHistory = logId != null, remove = logId != null)
         } else {
             logId?.let { ModelLogService.deleteModelLog(it) }
@@ -1227,7 +1231,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         card.setResponse(item.responseText)
         if (item.reasoningText.isNotBlank()) card.setReasoning(item.reasoningText, expanded = true)
         syncToolCalls(partial, card)
-        card.finish(LocalDateTime.now().toString().replace('T', ' '), usageText(partial), usageDetails(partial))
+        card.finish(error.assistantMessageAt, usageText(partial), usageDetails(partial))
         completeQueueItem(item, refreshHistory = true)
         project.errorNotify("模型请求中断", "已保留模型输出的部分内容：${error.message}")
     }
@@ -1554,7 +1558,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             card.setReasoning(reasoning, expanded = true)
         }
         syncToolCalls(result.value, card)
-        card.finish(LocalDateTime.now().toString().replace('T', ' '), usageText(result.value), usageDetails(result.value))
+        card.finish(result.assistantMessageAt, usageText(result.value), usageDetails(result.value))
     }
 
     private fun ensureQueueUserCard(item: ChatQueueItem): AgentUserMessageCard {
@@ -1563,6 +1567,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val card = AgentUserMessageCard(
             content = item.prompt,
             attachments = item.attachments,
+            createdAt = item.userMessageAt,
         )
         item.userCard = card
         return card
@@ -2532,6 +2537,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("processing") val processing: Boolean,
     )
 
+    private fun messageTimeNow(): String = LocalDateTime.now().toString().replace('T', ' ')
+
     private enum class ChatQueueStatus(val label: String) {
         PENDING("排队中"),
         PROCESSING("进行中"),
@@ -2548,6 +2555,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val order: Long,
         val attachments: List<AgentAttachmentState> = emptyList(),
         val sourceAgentRunId: String? = null,
+        val userMessageAt: String,
         val token: ModelCancel = ModelCancel(),
         val toolToken: ModelCancel = ModelCancel(),
         var status: ChatQueueStatus = ChatQueueStatus.PENDING,

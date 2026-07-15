@@ -23,6 +23,7 @@ data class ModelLogContext(
     val agentId: Long? = null,
     val messageType: String? = null,
     val requestSnapshot: JsonElement? = null,
+    val userMessageAt: String? = null,
 )
 
 /**
@@ -33,6 +34,7 @@ class ModelRequestException(
     val logId: Long,
     override val message: String,
     val partialResponse: JsonObject? = null,
+    val assistantMessageAt: String? = null,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
 
@@ -52,7 +54,7 @@ object ModelLogService {
         context: ModelLogContext,
         providerRequest: JsonElement,
     ): Long {
-        val requestData = requestLogData(providerRequest, context.requestSnapshot)
+        val requestData = requestLogData(providerRequest, context.requestSnapshot, context.userMessageAt)
         return createModelRequestLog(
             sourceType = context.sourceType,
             sourceId = context.sourceId,
@@ -67,16 +69,19 @@ object ModelLogService {
     }
 
     /** 照抄 request_log_data：有 snapshot 时并入 request_snapshot 字段。 */
-    fun requestLogData(providerRequest: JsonElement, requestSnapshot: JsonElement?): JsonElement {
-        if (requestSnapshot == null) {
-            return providerRequest
-        }
+    fun requestLogData(
+        providerRequest: JsonElement,
+        requestSnapshot: JsonElement?,
+        userMessageAt: String? = null,
+    ): JsonElement {
+        if (requestSnapshot == null && userMessageAt == null) return providerRequest
         val requestData = if (providerRequest.isJsonObject) {
             providerRequest.deepCopy().asJsonObject
         } else {
             JsonObject().apply { add("provider_request", providerRequest.deepCopy()) }
         }
-        requestData.add("request_snapshot", requestSnapshot.deepCopy())
+        requestSnapshot?.let { requestData.add("request_snapshot", it.deepCopy()) }
+        userMessageAt?.let { requestData.addProperty(USER_MESSAGE_AT, it) }
         return requestData
     }
 
@@ -112,9 +117,11 @@ object ModelLogService {
     }
 
     /** 照抄 finish_model_request_log：写 status/response_data/error_data/finished_at。 */
-    fun finishModelRequestLog(id: Long, status: String, responseData: JsonElement, errorData: String?) {
+    fun finishModelRequestLog(id: Long, status: String, responseData: JsonElement, errorData: String?): String {
+        val completedAt = nowText()
         AgentDatabase.execute { session ->
-            val simplified = ModelLogSupport.simplifyLogValue(responseData)
+            val responseWithMessageTime = withAssistantMessageTime(responseData, completedAt)
+            val simplified = ModelLogSupport.simplifyLogValue(responseWithMessageTime)
             val mapper = session.getMapper(ModelRequestLogMapper::class.java)
             mapper.update(
                 null,
@@ -123,10 +130,11 @@ object ModelLogService {
                     .set("status", status)
                     .set("response_data", simplified.toString())
                     .set("error_data", errorData?.let { ModelLogSupport.truncateLogText(it) })
-                    .set("finished_at", nowText()),
+                    .set("finished_at", completedAt),
             )
             Unit
         }
+        return completedAt
     }
 
     /** 照抄 update_model_request_log_request_data。 */
@@ -145,18 +153,15 @@ object ModelLogService {
     }
 
     /** 照抄 finish_model_log_success。 */
-    fun finishModelLogSuccess(logId: Long, body: JsonElement) {
+    fun finishModelLogSuccess(logId: Long, body: JsonElement): String =
         finishModelRequestLog(logId, "completed", body, null)
-    }
 
     /** 照抄 finish_model_log_error。 */
-    fun finishModelLogError(logId: Long, body: JsonElement, error: String) {
+    fun finishModelLogError(logId: Long, body: JsonElement, error: String): String =
         finishModelRequestLog(logId, "failed", body, error)
-    }
 
-    fun finishModelLogCancelled(logId: Long, body: JsonElement) {
+    fun finishModelLogCancelled(logId: Long, body: JsonElement): String =
         finishModelRequestLog(logId, "cancelled", body, null)
-    }
 
     /**
      * 会话历史一轮记录。以 model_request_logs 为唯一数据源展开会话对话卡片。
@@ -168,6 +173,8 @@ object ModelLogService {
         val requestData: JsonObject,
         val responseData: JsonObject,
         val errorData: String?,
+        val userMessageAt: String?,
+        val assistantMessageAt: String?,
         val createdAt: String?,
         val messageType: String?,
     )
@@ -186,6 +193,8 @@ object ModelLogService {
         val errorData: String?,
         val startedAt: String?,
         val finishedAt: String?,
+        val userMessageAt: String?,
+        val assistantMessageAt: String?,
         val createdAt: String?,
     )
 
@@ -315,6 +324,8 @@ object ModelLogService {
         errorData = entity.errorData,
         startedAt = entity.startedAt,
         finishedAt = entity.finishedAt,
+        userMessageAt = messageTime(parseObject(entity.requestData), USER_MESSAGE_AT),
+        assistantMessageAt = messageTime(parseObject(entity.responseData), ASSISTANT_MESSAGE_AT),
         createdAt = entity.createdAt,
     )
 
@@ -339,6 +350,8 @@ object ModelLogService {
                     requestData = parseObject(entity.requestData),
                     responseData = parseObject(entity.responseData),
                     errorData = entity.errorData,
+                    userMessageAt = messageTime(parseObject(entity.requestData), USER_MESSAGE_AT),
+                    assistantMessageAt = messageTime(parseObject(entity.responseData), ASSISTANT_MESSAGE_AT),
                     createdAt = entity.createdAt,
                     messageType = entity.messageType,
                 )
@@ -360,6 +373,8 @@ object ModelLogService {
                     requestData = parseObject(entity.requestData),
                     responseData = parseObject(entity.responseData),
                     errorData = entity.errorData,
+                    userMessageAt = messageTime(parseObject(entity.requestData), USER_MESSAGE_AT),
+                    assistantMessageAt = messageTime(parseObject(entity.responseData), ASSISTANT_MESSAGE_AT),
                     createdAt = entity.createdAt,
                     messageType = entity.messageType,
                 )
@@ -405,6 +420,19 @@ object ModelLogService {
         val value = text?.takeIf { it.isNotBlank() } ?: return JsonObject()
         return runCatching { JsonParser.parseString(value).asJsonObject }.getOrDefault(JsonObject())
     }
+
+    private fun withAssistantMessageTime(responseData: JsonElement, assistantMessageAt: String): JsonObject =
+        if (responseData.isJsonObject) {
+            responseData.deepCopy().asJsonObject
+        } else {
+            JsonObject().apply { add("provider_response", responseData.deepCopy()) }
+        }.apply { addProperty(ASSISTANT_MESSAGE_AT, assistantMessageAt) }
+
+    private fun messageTime(data: JsonObject, key: String): String? =
+        data.get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+
+    private const val USER_MESSAGE_AT = "user_message_at"
+    private const val ASSISTANT_MESSAGE_AT = "assistant_message_at"
 
     private fun nowText(): String = LocalDateTime.now().toString().replace('T', ' ')
 }

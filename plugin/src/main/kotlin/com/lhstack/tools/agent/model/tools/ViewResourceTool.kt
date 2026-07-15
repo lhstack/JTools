@@ -40,7 +40,7 @@ class ViewResourceTool(
             ?.asString
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-            ?: defaultPrompt(files)
+            ?: throw IllegalArgumentException("prompt 不能为空，必须描述需要查看资源的哪些内容")
 
         val resourceAgent = AgentService.agentById(resourceAgentId)
             ?: throw IllegalStateException("资源 Agent `$resourceAgentId` 不存在")
@@ -123,20 +123,6 @@ class ViewResourceTool(
         ResourceKind.FILE -> "Analyze one or more workspace files using the configured file resource agent."
     }
 
-    private fun defaultPrompt(files: List<File>): String {
-        val list = files.joinToString("\n") { "- ${workspaceTools.displayPath(it)}" }
-        return "请分析以下${kindLabel()}资源，并返回关键内容、结论和注意事项：\n$list"
-    }
-
-    private fun displayResourcePath(file: File): String = runCatching { workspaceTools.displayPath(file) }.getOrDefault(file.absolutePath)
-
-    private fun kindLabel(): String = when (kind) {
-        ResourceKind.IMAGE -> "图片"
-        ResourceKind.AUDIO -> "音频"
-        ResourceKind.VIDEO -> "视频"
-        ResourceKind.FILE -> "文件"
-    }
-
     companion object {
         private val DEFINITION_JSON = """
             {
@@ -148,9 +134,9 @@ class ViewResourceTool(
                   "items": { "type": "string" },
                   "description": "One or more resource paths. Each path supports absolute path or workspace-relative path."
                 },
-                "prompt": { "type": "string", "description": "Optional analysis instruction for the resource agent." }
+                "prompt": { "type": "string", "minLength": 1, "description": "Required analysis instruction describing exactly what content the resource agent must inspect." }
               },
-              "required": []
+              "required": ["prompt"]
             }
         """.trimIndent()
     }

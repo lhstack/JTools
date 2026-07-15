@@ -160,7 +160,8 @@ internal object AgentBrowserManagement {
         "agentId" to value.agentId, "messageType" to value.messageType, "providerName" to value.providerName,
         "modelName" to value.modelName, "status" to value.status, "requestData" to value.requestData,
         "responseData" to value.responseData, "errorData" to value.errorData, "startedAt" to value.startedAt,
-        "finishedAt" to value.finishedAt, "createdAt" to value.createdAt,
+        "finishedAt" to value.finishedAt, "userMessageAt" to value.userMessageAt,
+        "assistantMessageAt" to value.assistantMessageAt, "createdAt" to value.createdAt,
         "usage" to logUsage(value.responseData),
     )
     private fun logUsage(response: JsonObject): JsonObject {

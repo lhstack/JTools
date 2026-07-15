@@ -41,6 +41,7 @@ object AgentRuntime {
         val logId: Long,
         val value: JsonObject,
         val output: String,
+        val assistantMessageAt: String,
     )
 
     data class Request(
@@ -69,6 +70,7 @@ object AgentRuntime {
         val logPromptMessage: String? = null,
         val project: Project? = null,
         val requestMetadata: JsonObject? = null,
+        val userMessageAt: String? = null,
     )
 
     /** 照抄 execute_agent_prompt：按 Agent id 执行一次直接提示。 */
@@ -115,6 +117,7 @@ object AgentRuntime {
             sourceId = request.logSourceId ?: sourceId(request, agent.id ?: request.agentId),
             agentId = agent.id,
             messageType = request.logMessageType ?: AgentDistillLogKind.fromTrigger(request.triggerType).asStr(),
+            userMessageAt = request.userMessageAt,
             requestSnapshot = JsonObject().apply {
                 add("prompt_message", JsonPrimitive(request.logPromptMessage ?: request.prompt))
                 request.clientMessageOrder?.let { addProperty("client_message_order", it) }
@@ -159,7 +162,7 @@ object AgentRuntime {
         )
         val output = result.value.get("response")?.takeIf { it.isJsonPrimitive }?.asString
             ?: result.value.toString()
-        return ExecutionResult(result.modelLogId, result.value, output)
+        return ExecutionResult(result.modelLogId, result.value, output, result.assistantMessageAt)
     }
 
     private fun effectiveHistory(agent: AgentRecord, request: Request): List<Message> {

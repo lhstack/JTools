@@ -33,7 +33,7 @@ object ModelRuntime {
     private const val DEFAULT_MAX_TOOL_CALL_ROUNDS = 30
 
     /** 模型运行结果：结构化响应 + 日志 id，对齐 awake 的 (Value, i64)。 */
-    data class Result(val value: JsonObject, val modelLogId: Long)
+    data class Result(val value: JsonObject, val modelLogId: Long, val assistantMessageAt: String)
 
     /** 照抄 execute_model_runtime_request。 */
     fun execute(
@@ -87,28 +87,29 @@ object ModelRuntime {
             val partialResponse = partialOutput.structuredValue(hook)
             ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
             if (cancel?.isCancelled() == true) {
-                throw ModelRequestException(modelLogId, message, partialResponse, e)
+                throw ModelRequestException(modelLogId, message, partialResponse, cause = e)
             }
-            ModelLogService.finishModelLogError(
+            val assistantMessageAt = ModelLogService.finishModelLogError(
                 modelLogId,
                 httpTrace.responseData(partialResponse),
                 message,
             )
-            throw ModelRequestException(modelLogId, message, partialResponse, e)
+            throw ModelRequestException(modelLogId, message, partialResponse, assistantMessageAt, e)
         }
 
         val value = output.structuredValue(hook.events())
         ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
-        ModelLogService.finishModelLogSuccess(modelLogId, httpTrace.responseData(value))
-        return Result(value, modelLogId)
+        val assistantMessageAt = ModelLogService.finishModelLogSuccess(modelLogId, httpTrace.responseData(value))
+        return Result(value, modelLogId, assistantMessageAt)
     }
 
     /** 照抄 model_request_log_data：把 request_snapshot 并入首个请求数据。 */
-    private fun modelRequestLogData(httpTrace: ModelHttpTrace, context: ModelLogContext): JsonElement {
-        val requestData = httpTrace.requestData()
-        context.requestSnapshot?.let { requestData.add("request_snapshot", it.deepCopy()) }
-        return requestData
-    }
+    private fun modelRequestLogData(httpTrace: ModelHttpTrace, context: ModelLogContext): JsonElement =
+        ModelLogService.requestLogData(
+            httpTrace.requestData(),
+            context.requestSnapshot,
+            context.userMessageAt,
+        )
 
     /** 照抄：agent_max_turns 优先 -> model execution_params -> 全局配置 -> 默认 30。 */
     private fun resolveMaxToolRounds(model: ResolvedModelConfig, agentMaxTurns: Int?): Int {
