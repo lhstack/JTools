@@ -1,10 +1,11 @@
 <script setup>
 import MarkdownContent from './MarkdownContent.vue'
-import { reactive, ref } from 'vue'
-import { invoke } from '../../bridge/jcefBridge'
+import { onBeforeUnmount, reactive, ref } from 'vue'
+import { api, invoke } from '../../bridge/jcefBridge'
 const props = defineProps({ item: Object })
 const toolDetails = reactive({})
 const toolLoading = reactive({})
+const expandedTools = new Set()
 const previewSrc = ref('')
 const previewVisible = ref(false)
 const runExpanded = ref(true)
@@ -23,19 +24,30 @@ function toolState(tool) {
 }
 async function toolChanged(tool, expanded) {
   if (!expanded) {
+    expandedTools.delete(tool.id)
     delete toolDetails[tool.id]
     delete toolLoading[tool.id]
     return
   }
+  expandedTools.add(tool.id)
   toolLoading[tool.id] = true
   try {
-    toolDetails[tool.id] = await invoke('tool.detail', { messageId: props.item.id, callId: tool.id })
+    const detail = await api('tool.detail', { messageId: props.item.id, callId: tool.id })
+    if (expandedTools.has(tool.id)) toolDetails[tool.id] = detail
   } catch (error) {
-    toolDetails[tool.id] = { args: '', result: `加载失败：${error?.message || String(error)}` }
+    if (expandedTools.has(tool.id)) {
+      toolDetails[tool.id] = { args: '', result: `加载失败：${error?.message || String(error)}` }
+    }
   } finally {
-    toolLoading[tool.id] = false
+    if (expandedTools.has(tool.id)) toolLoading[tool.id] = false
+    else delete toolLoading[tool.id]
   }
 }
+onBeforeUnmount(() => {
+  expandedTools.clear()
+  Object.keys(toolDetails).forEach(id => delete toolDetails[id])
+  Object.keys(toolLoading).forEach(id => delete toolLoading[id])
+})
 </script>
 <template>
   <article class="message" :class="item.role">
