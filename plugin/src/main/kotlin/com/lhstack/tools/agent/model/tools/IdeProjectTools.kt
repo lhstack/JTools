@@ -6,11 +6,15 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.codeInsight.actions.ReformatCodeProcessor
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
+import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator
+import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl
+import com.intellij.codeInsight.multiverse.defaultContext
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.util.ProperTextRange
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiManager
@@ -164,8 +168,24 @@ internal class GetFileProblemsTool(private val support: IdeProjectSupport) : Too
                 ?: throw ToolException("`${support.displayPath(file)}` is not a text file")
             val psiFile = PsiManager.getInstance(support.project).findFile(file)
                 ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
-            val infos = (com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(support.project) as DaemonCodeAnalyzerImpl)
-                .runMainPasses(psiFile, document, EmptyProgressIndicator())
+            val indicator = DaemonProgressIndicator()
+            val infos = mutableListOf<com.intellij.codeInsight.daemon.impl.HighlightInfo>()
+            ProgressManager.getInstance().runProcess({
+                HighlightingSessionImpl.runInsideHighlightingSession(
+                    psiFile,
+                    defaultContext(),
+                    null,
+                    ProperTextRange(0, document.textLength),
+                    false,
+                ) { session ->
+                    (session as HighlightingSessionImpl).minimumSeverity =
+                        if (input.booleanOr("errors_only", false)) HighlightSeverity.ERROR else HighlightSeverity.WEAK_WARNING
+                    infos.addAll(
+                        (com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(support.project) as DaemonCodeAnalyzerImpl)
+                            .runMainPasses(psiFile, document, indicator)
+                    )
+                }
+            }, indicator)
             val output = JsonArray()
             for (info in infos) {
                 if (input.booleanOr("errors_only", false) && info.severity != HighlightSeverity.ERROR) continue
