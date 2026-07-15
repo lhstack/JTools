@@ -25,6 +25,10 @@ import java.util.concurrent.ConcurrentHashMap
 internal enum class AgentRunReceiver(val value: String) {
     USER("user"), AI("ai");
 
+    fun isAssistantMessage(): Boolean = this == USER
+
+    fun requiresQueueDelivery(): Boolean = this == AI
+
     companion object {
         fun from(value: String): AgentRunReceiver = entries.firstOrNull { it.value == value }
             ?: throw IllegalArgumentException("接收方仅支持 user、ai")
@@ -97,7 +101,7 @@ internal object AgentRunService {
             ?: throw IllegalArgumentException("Agent `${request.agentId}` 不存在")
         val session = ChatSessionService.visibleSessionById(request.sessionId, projectPath)
             ?: throw IllegalArgumentException("投递会话 `${request.sessionId}` 不存在或在目标项目不可见")
-        if (request.receiver == AgentRunReceiver.USER) {
+        if (request.receiver.requiresQueueDelivery()) {
             val targetAgentId = session.agentId
                 ?: throw IllegalArgumentException("投递会话 `${request.sessionId}` 未绑定 Agent，无法将结果加入用户消息队列")
             val targetAgent = AgentService.agentById(targetAgentId)
@@ -189,7 +193,7 @@ internal object AgentRunService {
         values.add(listener)
         runs.values
             .filter { run -> run.projectPath == key && run.status == "completed" &&
-                run.receiver == AgentRunReceiver.USER && !run.deliveryDispatched && run.response.isNotBlank()
+                run.receiver.requiresQueueDelivery() && !run.deliveryDispatched && run.response.isNotBlank()
             }
             .forEach(::dispatchDelivery)
         dispatchPersistedDeliveries(key)
@@ -253,7 +257,7 @@ internal object AgentRunService {
     private fun dispatchDelivery(run: RunState) {
         val listener = deliveryListeners[run.projectPath]?.firstOrNull() ?: return
         val delivery = synchronized(run) {
-            if (run.status != "completed" || run.receiver != AgentRunReceiver.USER ||
+            if (run.status != "completed" || !run.receiver.requiresQueueDelivery() ||
                 run.response.isBlank() || run.deliveryDispatched ||
                 ModelLogService.hasAgentRunDelivery(run.runId)
             ) {
@@ -271,7 +275,7 @@ internal object AgentRunService {
         ChatSessionService.listVisibleSessions(projectPath)
             .asSequence()
             .flatMap { session -> history(session.id).asSequence() }
-            .filter { run -> run.status == "completed" && run.receiver == AgentRunReceiver.USER.value }
+            .filter { run -> run.status == "completed" && AgentRunReceiver.from(run.receiver).requiresQueueDelivery() }
             .filter { run -> run.projectPath?.let(ChatSessionService::normalizeProjectPath) == projectPath }
             .filter { run -> run.sessionId != null && run.response.isNotBlank() }
             .filterNot { run -> ModelLogService.hasAgentRunDelivery(run.runId) }
@@ -365,7 +369,7 @@ internal object AgentRunService {
                 val structured = turn.responseData.getAsJsonObject("structured_response")
                 val response = structured?.get("response")?.asString.orEmpty()
                 if (turn.messageType == "agent_run") {
-                    return@flatMap if (request?.get("agent_run_receiver")?.asString == "ai" && response.isNotBlank()) {
+                    return@flatMap if (request?.get("agent_run_receiver")?.asString?.let(AgentRunReceiver::from)?.isAssistantMessage() == true && response.isNotBlank()) {
                         listOf(Message.assistant(response))
                     } else {
                         emptyList()

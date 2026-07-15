@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
       <button v-if="item.messageType==='agent_run'" class="agent-run-head" type="button" @click="runExpanded=!runExpanded">
         <span>
           <b><el-tag size="small" effect="plain">Agent 运行</el-tag> {{item.agentRun?.agentName}}</b>
-          <small>{{item.agentRun?.receiver==='ai'?'作为模型回复投递':'作为用户消息加入队列'}}</small>
+          <small>{{item.agentRun?.receiver==='user'?'作为模型回复投递':'作为用户消息加入队列'}}</small>
         </span>
         <em>{{item.agentRun?.status==='running'?'运行中':item.agentRun?.status==='completed'?'已完成':item.agentRun?.status==='failed'?'失败':'已取消'}} {{runExpanded?'⌃':'⌄'}}</em>
       </button>

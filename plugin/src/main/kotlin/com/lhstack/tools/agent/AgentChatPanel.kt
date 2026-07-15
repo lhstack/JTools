@@ -1378,7 +1378,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val snapshot = jsonObject(turn.requestData, "request_snapshot")
             val structured = jsonObject(turn.responseData, "structured_response")
             if (turn.messageType == "agent_run") {
-                if (jsonString(snapshot?.get("agent_run_receiver")) == "ai") {
+                if (jsonString(snapshot?.get("agent_run_receiver")) == "user") {
                     val output = jsonString(structured?.get("response"))
                     if (output.isNotBlank()) messages.add(Message.assistant(output))
                 }

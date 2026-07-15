@@ -44,6 +44,9 @@ class CliToolTest {
 
         assertTrue(arguments["session_id"].asJsonObject["required"].asBoolean)
         assertTrue(arguments["receiver"].asJsonObject["required"].asBoolean)
+        val receiverDescription = arguments["receiver"].asJsonObject["description"].asString
+        assertTrue(receiverDescription.contains("user 表示以 AI/助手身份向用户发送"))
+        assertTrue(receiverDescription.contains("ai 表示以用户身份向 AI 发送"))
     }
 
     private fun input(command: String) = JsonObject().apply { addProperty("command", command) }
