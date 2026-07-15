@@ -15,6 +15,8 @@ import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
+import com.intellij.task.ProjectTaskContext
+import com.intellij.task.ProjectTaskManager
 import com.intellij.profile.codeInspection.InspectionProfileManager
 import com.intellij.psi.PsiManager
 import com.lhstack.tools.agent.model.llm.ToolDefinition
@@ -22,6 +24,8 @@ import com.lhstack.tools.agent.model.llm.ToolDyn
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import org.jetbrains.concurrency.CancellablePromise
 
 internal class ReadFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
@@ -152,6 +156,102 @@ internal class FormatFileTool(private val support: IdeProjectSupport) : ToolDyn 
     companion object { const val NAME = "format_file" }
 }
 
+internal class CompileProjectTool(
+    private val support: IdeProjectSupport,
+    private val cancel: com.lhstack.tools.agent.model.http.ModelCancel?,
+) : ToolDyn {
+    override fun definition(prompt: String) = definition(
+        NAME,
+        "Compile the current project through JetBrains ProjectTaskManager and the build runner supplied by the current IDE/product. Returns structured compiler diagnostics when the active build runner reports them. Use mode=build for incremental compilation or mode=rebuild for a full rebuild.",
+        """{"type":"object","properties":{"mode":{"type":"string","enum":["build","rebuild"],"description":"Compilation mode; default build."},"timeout_secs":{"type":"integer","description":"Maximum wait time in seconds; default 600, hard limit 3600."}},"required":[]}"""
+    )
+
+    override fun callJsonBlocking(args: JsonElement): JsonElement {
+        val input = args.obj()
+        val mode = input.stringOr("mode", "build").lowercase()
+        require(mode == "build" || mode == "rebuild") { "mode must be build or rebuild" }
+        val timeoutSecs = input.intOr("timeout_secs", 600).coerceIn(1, 3600)
+        saveDocumentsBeforeCompilation()
+        val compilation = startCompilation(mode)
+        val interruptId = (compilation.promise as? CancellablePromise<*>)?.let { cancellable ->
+            cancel?.registerInterrupt(cancellable::cancel)
+        }
+        val result = try {
+            requireNotNull(compilation.promise.blockingGet(timeoutSecs, TimeUnit.SECONDS)) {
+                "JetBrains project compilation completed without a result"
+            }
+        } catch (error: TimeoutException) {
+            (compilation.promise as? CancellablePromise<*>)?.cancel()
+            throw ToolException("project compilation timed out after $timeoutSecs seconds")
+        } catch (error: java.util.concurrent.ExecutionException) {
+            val cause = error.cause ?: error
+            throw ToolException("project compilation failed to execute: ${cause.message ?: cause}")
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw ToolException.cancelled()
+        } finally {
+            interruptId?.let { cancel?.clearInterrupt(it) }
+            ProjectCompilationDiagnostics.finish(compilation.context)
+        }
+        if (cancel?.isCancelled() == true) throw ToolException.cancelled()
+        val diagnostics = ProjectCompilationDiagnostics.collect(compilation.context)
+        return buildResult(mode, result, diagnostics)
+    }
+
+    private fun saveDocumentsBeforeCompilation() {
+        val save = Runnable { FileDocumentManager.getInstance().saveAllDocuments() }
+        val application = ApplicationManager.getApplication()
+        if (application.isDispatchThread) save.run() else application.invokeAndWait(save)
+    }
+
+    private fun startCompilation(mode: String): CompilationExecution {
+        val execution = java.util.concurrent.atomic.AtomicReference<CompilationExecution>()
+        val start = Runnable {
+            val manager = ProjectTaskManager.getInstance(support.project)
+            val context = ProjectTaskContext(Any())
+            ProjectCompilationDiagnostics.prepare(context)
+            val task = manager.createAllModulesBuildTask(mode == "rebuild", support.project)
+            execution.set(CompilationExecution(context, manager.run(context, task)))
+        }
+        val application = ApplicationManager.getApplication()
+        if (application.isDispatchThread) start.run() else application.invokeAndWait(start)
+        return requireNotNull(execution.get()) { "JetBrains project compilation did not start" }
+    }
+
+    private fun buildResult(
+        mode: String,
+        result: ProjectTaskManager.Result,
+        diagnostics: ProjectCompilationDiagnostics.Snapshot,
+    ) = JsonObject().apply {
+        addProperty("project", support.project.name)
+        addProperty("mode", mode)
+        addProperty("status", when {
+            result.isAborted -> "aborted"
+            result.hasErrors() -> "failed"
+            else -> "completed"
+        })
+        addProperty("aborted", result.isAborted)
+        addProperty("has_errors", result.hasErrors())
+        addProperty("success", !result.isAborted && !result.hasErrors())
+        addProperty("error_count", diagnostics.errorCount)
+        addProperty("warning_count", diagnostics.warningCount)
+        add("errors", diagnostics.errors)
+        add("warnings", diagnostics.warnings)
+        if (result.hasErrors() && diagnostics.errorCount == 0) {
+            addProperty(
+                "diagnostics_note",
+                "The active JetBrains build runner reported errors but did not publish structured compiler diagnostics for this build session. Open the IDE Build tool window for runner output.",
+            )
+        }
+    }
+
+    private data class CompilationExecution(
+        val context: ProjectTaskContext,
+        val promise: org.jetbrains.concurrency.Promise<ProjectTaskManager.Result>,
+    )
+
+    companion object { const val NAME = "compile_project" }
+}
+
 internal class GetFileProblemsTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
@@ -204,7 +304,7 @@ private fun inspectFile(
         .filter { tool -> tool.isAvailableForFile(psiFile) }
         .flatMap { tool ->
             ProgressManager.checkCanceled()
-            inspectionManager.defaultProcessFile(tool, psiFile).asSequence()
+            tool.processFile(psiFile, inspectionManager).asSequence()
         }
         .toList()
     return inspectionProblems(descriptors, document, errorsOnly)

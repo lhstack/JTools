@@ -49,6 +49,7 @@ object BuiltinTools {
         BuiltinToolInfo("find_files", "ide", "Find project files by name, optionally including dependency and JAR entries."),
         BuiltinToolInfo("search_text", "ide", "Search project contents with the JetBrains Find engine and structured line context."),
         BuiltinToolInfo("format_file", "ide", "Format one project source file using JetBrains code style."),
+        BuiltinToolInfo("compile_project", "ide", "Compile the project through JetBrains ProjectTaskManager and the current IDE build runner."),
         BuiltinToolInfo("get_file_problems", "ide", "Run JetBrains code analysis and return structured file diagnostics."),
     )
 

@@ -27,6 +27,7 @@ object RuntimeTools {
         FindFilesTool.NAME,
         SearchTextTool.NAME,
         FormatFileTool.NAME,
+        CompileProjectTool.NAME,
         GetFileProblemsTool.NAME,
     )
 
@@ -71,6 +72,7 @@ object RuntimeTools {
             if (enabled(FindFilesTool.NAME)) tools.add(FindFilesTool(ide))
             if (enabled(SearchTextTool.NAME)) tools.add(SearchTextTool(ide))
             if (enabled(FormatFileTool.NAME)) tools.add(FormatFileTool(ide))
+            if (enabled(CompileProjectTool.NAME)) tools.add(CompileProjectTool(ide, cancel))
             if (enabled(GetFileProblemsTool.NAME)) tools.add(GetFileProblemsTool(ide))
         }
         return tools

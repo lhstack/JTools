@@ -13,6 +13,7 @@ class IdeProjectToolRegistrationTest {
             "find_files",
             "search_text",
             "format_file",
+            "compile_project",
             "get_file_problems",
         )
         assertTrue(RuntimeTools.REGISTERED_BUILTIN_TOOL_NAMES.containsAll(expected))
