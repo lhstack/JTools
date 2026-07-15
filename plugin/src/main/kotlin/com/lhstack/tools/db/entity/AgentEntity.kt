@@ -37,7 +37,7 @@ class AgentEntity {
     @TableField(value = "prompt_id", updateStrategy = FieldStrategy.IGNORED)
     var promptId: Long? = null
 
-    @TableField("extra_prompt")
+    @TableField(value = "extra_prompt", updateStrategy = FieldStrategy.IGNORED)
     var extraPrompt: String? = null
 
     /** JSON：AgentRuntimeConfig。 */

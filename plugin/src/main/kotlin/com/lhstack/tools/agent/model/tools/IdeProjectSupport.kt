@@ -31,14 +31,11 @@ internal class IdeProjectSupport(
     val project: Project,
 ) {
     private val root: File get() = workspace.canonicalRoot()
-    private val rootVf: VirtualFile
-        get() = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(root)
-            ?: throw ToolException("workspace `${root.path}` is not available in the IDE VFS")
 
-    fun read(path: String, ranges: List<LineRange>, maxLines: Int): JsonObject {
-        val file = resolveReadableFile(path)
-        require(!file.isDirectory) { "path `${displayPath(file)}` is not a file" }
-        val text = readText(file)
+    fun read(path: String, ranges: List<LineRange>, maxLines: Int): JsonObject = smartRead {
+        val file = resolveReadableFileInReadAction(path)
+        require(!file.isDirectory) { "path `${displayPathInReadAction(file)}` is not a file" }
+        val text = readTextInReadAction(file)
         val lines = text.split('\n')
         val selectedRanges = if (ranges.isEmpty()) listOf(LineRange(1, minOf(lines.size, maxLines))) else ranges
         val output = JsonArray()
@@ -56,10 +53,10 @@ internal class IdeProjectSupport(
             }
             if (emitted >= maxLines) break
         }
-        return JsonObject().apply {
-            addProperty("path", displayPath(file))
+        JsonObject().apply {
+            addProperty("path", displayPathInReadAction(file))
             addProperty("charset", file.charset.name())
-            addProperty("content_kind", contentKind(file))
+            addProperty("content_kind", contentKindInReadAction(file))
             addProperty("line_count", lines.size)
             addProperty("truncated", emitted >= maxLines && selectedRanges.sumOf { it.end - it.start + 1 } > emitted)
             add("lines", output)
@@ -68,22 +65,26 @@ internal class IdeProjectSupport(
 
     fun write(path: String, content: String, overwrite: Boolean): JsonObject {
         val target = resolveWritableProjectFile(path)
-        val existing = findLocalFile(target)
-        require(existing == null || overwrite) { "file `${workspace.displayPath(target)}` already exists; set overwrite=true to replace it" }
+        val existing = readModel { findLocalFileInReadAction(target) }
+        require(existing == null || overwrite) {
+            "file `${workspace.displayPath(target)}` already exists; set overwrite=true to replace it"
+        }
         val normalized = StringUtil.convertLineSeparators(content)
-        runOnEdt {
+        val charset = runOnEdt {
+            var value: String? = null
             WriteCommandAction.runWriteCommandAction(project, "JTools Write File", null, {
-                val file = existing ?: createLocalFile(target)
+                val file = existing ?: createLocalFileInWriteAction(target)
                 val document = FileDocumentManager.getInstance().getDocument(file)
                     ?: throw ToolException("`${workspace.displayPath(target)}` is not a writable text file")
                 document.setText(normalized)
                 FileDocumentManager.getInstance().saveDocument(document)
+                value = file.charset.name()
             })
+            value ?: throw ToolException("failed to write `${workspace.displayPath(target)}`")
         }
-        val file = findLocalFile(target) ?: throw ToolException("failed to create `${workspace.displayPath(target)}`")
         return JsonObject().apply {
             addProperty("path", workspace.displayPath(target))
-            addProperty("charset", file.charset.name())
+            addProperty("charset", charset)
             addProperty("created", existing == null)
             addProperty("overwritten", existing != null)
         }
@@ -92,43 +93,48 @@ internal class IdeProjectSupport(
     fun replace(path: String, oldText: String, newText: String, replaceAll: Boolean, caseSensitive: Boolean): JsonObject {
         require(oldText.isNotEmpty()) { "old_text must not be empty" }
         val file = resolveProjectFile(path)
-        require(!file.isDirectory) { "path `${displayPath(file)}` is not a file" }
-        val document = ReadAction.compute<Document?, RuntimeException> {
+        val document = readModel {
+            require(!file.isDirectory) { "path `${displayPathInReadAction(file)}` is not a file" }
             FileDocumentManager.getInstance().getDocument(file)
-        } ?: throw ToolException("`${displayPath(file)}` is not a writable text file")
-        val ranges = findOccurrences(document.text, oldText, caseSensitive)
-        require(ranges.isNotEmpty()) { "old_text was not found in `${displayPath(file)}`" }
-        require(replaceAll || ranges.size == 1) {
-            "old_text occurs ${ranges.size} times in `${displayPath(file)}`; provide more context or set replace_all=true"
+                ?: throw ToolException("`${displayPathInReadAction(file)}` is not a writable text file")
         }
-        val replacements = if (replaceAll) ranges else listOf(ranges.single())
-        runOnEdt {
+        val replacements = runOnEdt {
+            var count = 0
             WriteCommandAction.runWriteCommandAction(project, "JTools Replace Text", null, {
-                for (range in replacements.asReversed()) {
+                val ranges = findOccurrences(document.text, oldText, caseSensitive)
+                require(ranges.isNotEmpty()) { "old_text was not found in the target file" }
+                require(replaceAll || ranges.size == 1) {
+                    "old_text occurs ${ranges.size} times; provide more context or set replace_all=true"
+                }
+                val selected = if (replaceAll) ranges else listOf(ranges.single())
+                for (range in selected.asReversed()) {
                     document.replaceString(range.first, range.last + 1, newText)
                 }
                 FileDocumentManager.getInstance().saveDocument(document)
+                count = selected.size
             })
+            count
         }
+        val metadata = readModel { FileMetadata(displayPathInReadAction(file), file.charset.name()) }
         return JsonObject().apply {
-            addProperty("path", displayPath(file))
-            addProperty("replacements", replacements.size)
-            addProperty("charset", file.charset.name())
+            addProperty("path", metadata.path)
+            addProperty("replacements", replacements)
+            addProperty("charset", metadata.charset)
         }
     }
 
     fun findFiles(name: String, match: NameMatch, includeLibraries: Boolean, limit: Int): JsonObject {
         require(name.isNotBlank()) { "name must not be blank" }
-        val scope = if (includeLibraries) GlobalSearchScope.allScope(project) else GlobalSearchScope.projectScope(project)
-        val matcher = nameMatcher(name, match)
-        val results = linkedMapOf<String, VirtualFile>()
-        var truncated = false
-        smartRead {
+        return smartRead {
+            val scope = if (includeLibraries) GlobalSearchScope.allScope(project) else GlobalSearchScope.projectScope(project)
+            val matcher = nameMatcher(name, match)
+            val results = linkedMapOf<String, VirtualFile>()
+            var truncated = false
             FilenameIndex.processAllFileNames(Processor { candidate ->
                 if (!matcher(candidate)) return@Processor true
                 var keepGoing = true
                 FilenameIndex.processFilesByName(candidate, false, scope, Processor { file ->
-                    if (includeLibraries || isProjectFile(file)) {
+                    if (includeLibraries || isProjectFileInReadAction(file)) {
                         results.putIfAbsent(file.url, file)
                         if (results.size >= limit) {
                             truncated = true
@@ -138,11 +144,10 @@ internal class IdeProjectSupport(
                     }
                     true
                 })
-                if (!keepGoing) return@Processor false
-                true
+                keepGoing
             }, scope, null)
+            filesResultInReadAction(results.values, truncated)
         }
-        return filesResult(results.values, truncated)
     }
 
     fun searchText(
@@ -155,132 +160,160 @@ internal class IdeProjectSupport(
         limit: Int,
     ): JsonObject {
         require(query.isNotEmpty()) { "query must not be empty" }
-        val matcher = IdeFindMatcher(project, query, regex, caseSensitive)
-        val fileMatcher = filePattern?.takeIf { it.isNotBlank() }?.let(::globMatcher)
-        val results = JsonArray()
-        var truncated = false
-        val files = searchFiles(includeLibraries, limit)
-        for (file in files) {
-            if (results.size() >= limit) { truncated = true; break }
-            if (fileMatcher != null && !fileMatcher(file.name)) continue
-            val text = runCatching { readText(file) }.getOrNull() ?: continue
-            val lines = text.split('\n')
-            for ((index, rawLine) in lines.withIndex()) {
-                if (!matcher.matches(rawLine)) continue
-                val from = maxOf(0, index - contextLines)
-                val to = minOf(lines.lastIndex, index + contextLines)
-                val context = JsonArray()
-                for (lineIndex in from..to) {
-                    context.add(JsonObject().apply {
-                        addProperty("line", lineIndex + 1)
-                        addProperty("text", lines[lineIndex].trimEnd('\r'))
-                    })
+        return smartRead {
+            val matcher = IdeFindMatcher(project, query, regex, caseSensitive)
+            val fileMatcher = filePattern?.takeIf { it.isNotBlank() }?.let(::globMatcher)
+            val results = JsonArray()
+            var truncated = false
+            for (file in searchFilesInReadAction(includeLibraries, limit)) {
+                if (results.size() >= limit) {
+                    truncated = true
+                    break
                 }
-                results.add(JsonObject().apply {
-                    addProperty("path", displayPath(file))
-                    addProperty("line", index + 1)
-                    addProperty("content", rawLine.trimEnd('\r'))
-                    add("lines", context)
-                })
-                if (results.size() >= limit) { truncated = true; break }
+                if (fileMatcher != null && !fileMatcher(file.name)) continue
+                val text = runCatching { readTextInReadAction(file) }.getOrNull() ?: continue
+                val lines = text.split('\n')
+                for ((index, rawLine) in lines.withIndex()) {
+                    if (!matcher.matches(rawLine)) continue
+                    val from = maxOf(0, index - contextLines)
+                    val to = minOf(lines.lastIndex, index + contextLines)
+                    val context = JsonArray()
+                    for (lineIndex in from..to) {
+                        context.add(JsonObject().apply {
+                            addProperty("line", lineIndex + 1)
+                            addProperty("text", lines[lineIndex].trimEnd('\r'))
+                        })
+                    }
+                    results.add(JsonObject().apply {
+                        addProperty("path", displayPathInReadAction(file))
+                        addProperty("line", index + 1)
+                        addProperty("content", rawLine.trimEnd('\r'))
+                        add("lines", context)
+                    })
+                    if (results.size() >= limit) {
+                        truncated = true
+                        break
+                    }
+                }
+            }
+            JsonObject().apply {
+                addProperty("count", results.size())
+                addProperty("truncated", truncated)
+                add("matches", results)
             }
         }
-        return JsonObject().apply {
-            addProperty("count", results.size())
-            addProperty("truncated", truncated)
-            add("matches", results)
+    }
+
+    fun resolveProjectFile(path: String): VirtualFile = readModel { resolveProjectFileInReadAction(path) }
+
+    fun displayPath(file: VirtualFile): String = readModel { displayPathInReadAction(file) }
+
+    fun saveDocument(file: VirtualFile) {
+        val document = readModel { FileDocumentManager.getInstance().getDocument(file) } ?: return
+        runOnEdt { FileDocumentManager.getInstance().saveDocument(document) }
+    }
+
+    private fun resolveProjectFileInReadAction(path: String): VirtualFile {
+        val ioFile = workspace.resolveExistingPath(path)
+        val file = findLocalFileInReadAction(ioFile)
+            ?: throw ToolException("file `${workspace.displayPath(ioFile)}` was not found in the IDE VFS")
+        require(isProjectFileInReadAction(file)) {
+            "path `${workspace.displayPath(ioFile)}` is outside the project content"
         }
+        return file
     }
 
-    fun resolveProjectFile(path: String): VirtualFile {
-        val file = workspace.resolveExistingPath(path)
-        val vf = findLocalFile(file) ?: throw ToolException("file `${workspace.displayPath(file)}` was not found in the IDE VFS")
-        require(isProjectFile(vf)) { "path `${workspace.displayPath(file)}` is outside the project content" }
-        return vf
+    private fun resolveReadableFileInReadAction(path: String): VirtualFile {
+        val trimmed = path.trim()
+        if (trimmed.startsWith("jar://") || trimmed.startsWith("jrt://") || trimmed.startsWith("file://")) {
+            val file = VirtualFileManager.getInstance().findFileByUrl(trimmed)
+                ?: throw ToolException("IDE file `$trimmed` was not found")
+            require(!file.isDirectory) { "path `$trimmed` is a directory" }
+            return file
+        }
+        return resolveProjectFileInReadAction(trimmed)
     }
 
-    fun displayPath(file: VirtualFile): String {
+    private fun displayPathInReadAction(file: VirtualFile): String {
         if (file.fileSystem.protocol == JarFileSystem.PROTOCOL) return file.url
         val ioFile = runCatching { VfsUtilCore.virtualToIoFile(file) }.getOrNull()
         return if (ioFile != null) workspace.displayPath(ioFile) else file.url
     }
 
-    private fun filesResult(files: Collection<VirtualFile>, truncated: Boolean): JsonObject = JsonObject().apply {
-        val array = JsonArray()
-        files.forEach { file -> array.add(JsonObject().apply {
-            addProperty("path", displayPath(file))
-            addProperty("name", file.name)
-            addProperty("scope", if (isProjectFile(file)) "project" else "library")
-            addProperty("protocol", file.fileSystem.protocol)
-        }) }
-        addProperty("count", array.size())
-        addProperty("truncated", truncated)
-        add("files", array)
-    }
-
-    private fun searchFiles(includeLibraries: Boolean, limit: Int): LinkedHashSet<VirtualFile> {
-        val files = linkedSetOf<VirtualFile>()
-        smartRead {
-            ProjectFileIndex.getInstance(project).iterateContent { file ->
-                if (!file.isDirectory) files.add(file)
-                true
+    private fun filesResultInReadAction(files: Collection<VirtualFile>, truncated: Boolean): JsonObject =
+        JsonObject().apply {
+            val array = JsonArray()
+            files.forEach { file ->
+                array.add(JsonObject().apply {
+                    addProperty("path", displayPathInReadAction(file))
+                    addProperty("name", file.name)
+                    addProperty("scope", if (isProjectFileInReadAction(file)) "project" else "library")
+                    addProperty("protocol", file.fileSystem.protocol)
+                })
             }
-            if (includeLibraries) {
-                collectLibraryFiles(files, limit)
-            }
+            addProperty("count", array.size())
+            addProperty("truncated", truncated)
+            add("files", array)
         }
+
+    private fun searchFilesInReadAction(includeLibraries: Boolean, limit: Int): LinkedHashSet<VirtualFile> {
+        val files = linkedSetOf<VirtualFile>()
+        ProjectFileIndex.getInstance(project).iterateContent { file ->
+            if (!file.isDirectory) files.add(file)
+            true
+        }
+        if (includeLibraries) collectLibraryFilesInReadAction(files, limit)
         return files
     }
 
-    private fun collectLibraryFiles(files: MutableSet<VirtualFile>, limit: Int) {
+    private fun collectLibraryFilesInReadAction(files: MutableSet<VirtualFile>, limit: Int) {
         val fileIndex = ProjectFileIndex.getInstance(project)
         val visitedRoots = mutableSetOf<String>()
+        val scope = GlobalSearchScope.allScope(project)
         FilenameIndex.processAllFileNames(Processor { name ->
-            FilenameIndex.processFilesByName(name, false, GlobalSearchScope.allScope(project), Processor { file ->
-                if (isProjectFile(file) || (!fileIndex.isInLibrarySource(file) && !fileIndex.isInLibraryClasses(file))) {
+            FilenameIndex.processFilesByName(name, false, scope, Processor { file ->
+                if (isProjectFileInReadAction(file) ||
+                    (!fileIndex.isInLibrarySource(file) && !fileIndex.isInLibraryClasses(file))
+                ) {
                     return@Processor true
                 }
-                val root = fileIndex.getSourceRootForFile(file) ?: fileIndex.getClassRootForFile(file) ?: return@Processor true
-                if (visitedRoots.add(root.url)) {
-                    VfsUtilCore.iterateChildrenRecursively(root, null, com.intellij.openapi.roots.ContentIterator { candidate ->
-                        if (!candidate.isDirectory && isLibraryTextCandidate(candidate)) files.add(candidate)
-                        files.size < limit
-                    })
+                val libraryRoot = fileIndex.getSourceRootForFile(file)
+                    ?: fileIndex.getClassRootForFile(file)
+                    ?: return@Processor true
+                if (visitedRoots.add(libraryRoot.url)) {
+                    VfsUtilCore.iterateChildrenRecursively(
+                        libraryRoot,
+                        null,
+                        com.intellij.openapi.roots.ContentIterator { candidate ->
+                            if (!candidate.isDirectory && isLibraryTextCandidateInReadAction(candidate)) {
+                                files.add(candidate)
+                            }
+                            files.size < limit
+                        },
+                    )
                 }
                 files.size < limit
             })
             files.size < limit
-        }, GlobalSearchScope.allScope(project), null)
+        }, scope, null)
     }
 
-    private fun isLibraryTextCandidate(file: VirtualFile): Boolean =
+    private fun isLibraryTextCandidateInReadAction(file: VirtualFile): Boolean =
         file.extension?.lowercase() in setOf(
             "java", "kt", "kts", "groovy", "scala", "xml", "properties", "json", "yaml", "yml",
-            "md", "txt", "js", "ts", "tsx", "jsx", "vue", "html", "css", "sql"
+            "md", "txt", "js", "ts", "tsx", "jsx", "vue", "html", "css", "sql",
         )
 
-    private fun readText(file: VirtualFile): String = ReadAction.compute<String, RuntimeException> {
+    private fun readTextInReadAction(file: VirtualFile): String =
         FileDocumentManager.getInstance().getDocument(file)?.text
             ?: PsiManager.getInstance(project).findFile(file)?.text
             ?: VfsUtilCore.loadText(file)
-    }
 
-    private fun contentKind(file: VirtualFile): String = when {
+    private fun contentKindInReadAction(file: VirtualFile): String = when {
         file.extension.equals("class", true) -> "decompiled"
         file.fileSystem.protocol == JarFileSystem.PROTOCOL -> "jar"
         file.fileSystem.protocol == "jrt" -> "jrt"
         else -> "project"
-    }
-
-    private fun resolveReadableFile(path: String): VirtualFile {
-        val trimmed = path.trim()
-        if (trimmed.startsWith("jar://") || trimmed.startsWith("jrt://") || trimmed.startsWith("file://")) {
-            val file = VirtualFileManager.getInstance().findFileByUrl(trimmed)
-                ?: throw ToolException("IDE file `$trimmed` was not found")
-            require(file.fileSystem.protocol != JarFileSystem.PROTOCOL || !file.isDirectory) { "path `$trimmed` is a directory" }
-            return file
-        }
-        return resolveProjectFile(trimmed)
     }
 
     private fun resolveWritableProjectFile(path: String): File {
@@ -290,27 +323,33 @@ internal class IdeProjectSupport(
         return target
     }
 
-    private fun createLocalFile(file: File): VirtualFile {
+    private fun createLocalFileInWriteAction(file: File): VirtualFile {
         val parent = file.parentFile ?: throw ToolException("cannot resolve parent directory for `${file.path}`")
-        val parentVf = VfsUtil.createDirectoryIfMissing(parent.path)
+        val parentDir = VfsUtil.createDirectoryIfMissing(parent.path)
             ?: throw ToolException("cannot create directory `${parent.path}`")
-        return parentVf.findChild(file.name) ?: parentVf.createChildData(this, file.name)
+        return parentDir.findChild(file.name) ?: parentDir.createChildData(this, file.name)
     }
 
-    private fun findLocalFile(file: File): VirtualFile? =
+    private fun findLocalFileInReadAction(file: File): VirtualFile? =
         LocalFileSystem.getInstance().findFileByIoFile(file)
-            ?: LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)
 
-    private fun isProjectFile(file: VirtualFile): Boolean = ProjectFileIndex.getInstance(project).isInContent(file)
+    private fun isProjectFileInReadAction(file: VirtualFile): Boolean =
+        ProjectFileIndex.getInstance(project).isInContent(file)
 
     private fun <T> smartRead(action: () -> T): T {
         DumbService.getInstance(project).waitForSmartMode()
-        return ReadAction.compute<T, RuntimeException> { action() }
+        return readModel(action)
     }
 
-    private fun runOnEdt(action: () -> Unit) {
-        val app = ApplicationManager.getApplication()
-        if (app.isDispatchThread) action() else app.invokeAndWait(action)
+    private fun <T> readModel(action: () -> T): T =
+        ReadAction.compute<T, RuntimeException> { action() }
+
+    private fun <T> runOnEdt(action: () -> T): T {
+        val application = ApplicationManager.getApplication()
+        if (application.isDispatchThread) return action()
+        var result: Result<T>? = null
+        application.invokeAndWait { result = runCatching(action) }
+        return result!!.getOrThrow()
     }
 
     private fun findOccurrences(text: String, needle: String, caseSensitive: Boolean): List<IntRange> {
@@ -328,19 +367,20 @@ internal class IdeProjectSupport(
     private fun nameMatcher(pattern: String, match: NameMatch): (String) -> Boolean = when (match) {
         NameMatch.EXACT -> { candidate -> candidate.equals(pattern, ignoreCase = true) }
         NameMatch.CONTAINS -> { candidate -> candidate.contains(pattern, ignoreCase = true) }
-        NameMatch.GLOB -> {
-            val matcher: (String) -> Boolean = globMatcher(pattern)
-            matcher
-        }
+        NameMatch.GLOB -> globMatcher(pattern)
     }
 
     private fun globMatcher(pattern: String): (String) -> Boolean {
-        val matcher = try { FileSystems.getDefault().getPathMatcher("glob:$pattern") }
-        catch (e: Throwable) { throw ToolException("invalid glob `$pattern`: ${e.message}") }
+        val matcher = try {
+            FileSystems.getDefault().getPathMatcher("glob:$pattern")
+        } catch (e: Throwable) {
+            throw ToolException("invalid glob `$pattern`: ${e.message}")
+        }
         return { name -> matcher.matches(FileSystems.getDefault().getPath(name)) }
     }
 }
 
+private data class FileMetadata(val path: String, val charset: String)
 internal data class LineRange(val start: Int, val end: Int)
 internal enum class NameMatch { EXACT, CONTAINS, GLOB }
 

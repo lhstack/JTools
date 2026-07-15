@@ -30,6 +30,7 @@ internal class AgentUserMessageCard(
 
 internal class AgentAssistantMessageCard(
     @Suppress("UNUSED_PARAMETER") showToolDetail: (AgentToolItem, javax.swing.JComponent) -> Unit,
+    private val toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
     private val onDelete: (() -> Unit)? = null,
     @Suppress("UNUSED_PARAMETER") private val onCopyCode: (() -> Unit)? = null,
     override val id: String = "assistant-${UUID.randomUUID()}",
@@ -100,7 +101,7 @@ internal class AgentAssistantMessageCard(
         reasoning = reasoning,
         reasoningExpanded = reasoningExpanded,
         tools = tools.values.map {
-            AgentBrowserTool(it.id, it.name, it.args, it.result, it.finished, it.failed)
+            AgentBrowserTool(it.id, it.name, it.finished, it.failed)
         },
         generating = generating,
         createdAt = compactCreatedAt(createdAt),
@@ -108,6 +109,9 @@ internal class AgentAssistantMessageCard(
         usageDetails = usageDetails,
         deletable = onDelete != null,
     )
+
+    fun toolDetail(callId: String): AgentBrowserToolDetail? =
+        toolDetailLoader?.invoke(callId) ?: tools[callId]?.let { AgentBrowserToolDetail(it.args, it.result) }
 
     override fun delete() = onDelete?.invoke() ?: Unit
 
@@ -121,6 +125,7 @@ internal class AgentRunMessageCard(
     private val agentName: String,
     private val receiver: String,
     private val onDelete: (() -> Unit)? = null,
+    private val toolDetailLoader: (String, String) -> AgentBrowserToolDetail? = { _, _ -> null },
     override val id: String = "agent-run-$runId",
 ) : AgentChatCard {
     private var status: String = "running"
@@ -155,6 +160,8 @@ internal class AgentRunMessageCard(
         messageType = "agent_run",
         agentRun = AgentBrowserRun(runId, agentId, agentName, receiver, latestPrompt, status, error),
     )
+
+    fun toolDetail(callId: String): AgentBrowserToolDetail? = toolDetailLoader(runId, callId)
 
     override fun delete() = onDelete?.invoke() ?: Unit
 }
@@ -204,10 +211,13 @@ internal data class AgentBrowserUsageItem(
 internal data class AgentBrowserTool(
     @SerializedName("id") val id: String,
     @SerializedName("name") val name: String,
-    @SerializedName("args") val args: String,
-    @SerializedName("result") val result: String,
     @SerializedName("finished") val finished: Boolean,
     @SerializedName("failed") val failed: Boolean,
+)
+
+internal data class AgentBrowserToolDetail(
+    @SerializedName("args") val args: String,
+    @SerializedName("result") val result: String,
 )
 
 internal data class AgentBrowserAttachment(

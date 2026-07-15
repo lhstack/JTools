@@ -132,11 +132,13 @@ internal class FormatFileTool(private val support: IdeProjectSupport) : ToolDyn 
             PsiManager.getInstance(support.project).findFile(file)
         } ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
         val done = CountDownLatch(1)
-        val processor = ReformatCodeProcessor(psiFile, false).apply { setPostRunnable(done::countDown) }
+        val processor = ReadAction.compute<ReformatCodeProcessor, RuntimeException> {
+            ReformatCodeProcessor(psiFile, false).apply { setPostRunnable(done::countDown) }
+        }
         ApplicationManager.getApplication().invokeLater(processor::run)
         val timeout = input.intOr("timeout_secs", 30).coerceIn(1, 120).toLong()
         require(done.await(timeout, TimeUnit.SECONDS)) { "formatting `${support.displayPath(file)}` timed out" }
-        FileDocumentManager.getInstance().getDocument(file)?.let(FileDocumentManager.getInstance()::saveDocument)
+        support.saveDocument(file)
         return JsonObject().apply {
             addProperty("path", support.displayPath(file))
             addProperty("formatted", true)

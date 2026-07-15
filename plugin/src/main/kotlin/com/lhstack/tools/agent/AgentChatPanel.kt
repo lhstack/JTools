@@ -510,7 +510,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val reasoning = reasoningText(structured)
             val hasTools = hasToolCalls(structured)
             if (response.isNotBlank() || reasoning.isNotBlank() || hasTools) {
-                val turnView = createAssistantTurnView(sessionId) { deleteChatTurn(turn.logId) }
+                val turnView = createAssistantTurnView(
+                    sessionId,
+                    onDelete = { deleteChatTurn(turn.logId) },
+                    toolDetailLoader = { callId -> loadPersistedToolDetail(turn.logId, callId) },
+                )
                 if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
                 if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
                 renderTurnToolCalls(structured, turnView)
@@ -519,7 +523,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         }
         if (turn.status == "failed" && !turn.errorData.isNullOrBlank()) {
-            val turnView = createAssistantTurnView(sessionId) { deleteChatTurn(turn.logId) }
+            val turnView = createAssistantTurnView(sessionId, onDelete = { deleteChatTurn(turn.logId) })
             turnView.card.setResponse("错误：${turn.errorData}")
             turnView.card.finish(turn.createdAt, null)
         }
@@ -605,10 +609,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun renderTurnToolCalls(structured: JsonObject, turnView: AssistantTurnView) {
-        syncToolCalls(structured, turnView.card)
+        syncToolCalls(structured, turnView.card, includeDetail = false)
     }
 
-    private fun syncToolCalls(structured: JsonObject, card: AgentAssistantMessageCard) {
+    private fun syncToolCalls(
+        structured: JsonObject,
+        card: AgentAssistantMessageCard,
+        includeDetail: Boolean = true,
+    ) {
         val calls = structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray ?: return
         if (calls.isEmpty) return
         val results = structured.get("tool_results")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
@@ -622,12 +630,35 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEachIndexed
             val callId = jsonString(obj.get("internal_call_id")).ifBlank { "tool-$index" }
             val name = jsonString(obj.get("tool_name"))
-            val args = obj.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
+            val args = if (includeDetail) {
+                obj.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
+            } else {
+                ""
+            }
             card.ensureTool(callId, name, args)
             if (resultByCallId.containsKey(callId)) {
-                card.updateToolResult(callId, resultByCallId[callId].orEmpty())
+                card.updateToolResult(callId, if (includeDetail) resultByCallId[callId].orEmpty() else resultStatusText(resultByCallId[callId].orEmpty()))
             }
         }
+    }
+
+    private fun resultStatusText(result: String): String =
+        if (result.startsWith("工具调用失败:")) result.substringBefore('\n') else ""
+
+    private fun loadPersistedToolDetail(logId: Long, callId: String): AgentBrowserToolDetail? {
+        val structured = ModelLogService.modelLogById(logId)
+            ?.responseData
+            ?.getAsJsonObject("structured_response")
+            ?: return null
+        val call = structured.getAsJsonArray("tool_calls")
+            ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+            ?.firstOrNull { jsonString(it.get("internal_call_id")) == callId }
+            ?: return null
+        val result = structured.getAsJsonArray("tool_results")
+            ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+            ?.firstOrNull { jsonString(it.get("internal_call_id")) == callId }
+        val args = call.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
+        return AgentBrowserToolDetail(args, jsonString(result?.get("result")))
     }
 
     private fun readAttachmentSnapshots(snapshot: JsonObject): List<AgentAttachmentState> {
@@ -662,6 +693,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 snapshot.agentName,
                 snapshot.receiver,
                 onDelete = { deleteAgentRun(snapshot.runId, snapshot.logId, snapshot.sessionId) },
+                toolDetailLoader = AgentRunService::toolDetail,
             ).also {
                 it.onChanged = ::syncBrowserState
                 messageCards.add(it)
@@ -1570,9 +1602,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun ensureCurrentAssistantTurnView(sessionId: Long): AssistantTurnView =
         currentTurnView ?: createAssistantTurnView(sessionId).also { currentTurnView = it }
 
-    private fun createAssistantTurnView(sessionId: Long, onDelete: (() -> Unit)? = null): AssistantTurnView {
+    private fun createAssistantTurnView(
+        sessionId: Long,
+        onDelete: (() -> Unit)? = null,
+        toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
+    ): AssistantTurnView {
         val card = AgentAssistantMessageCard(
             showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
+            toolDetailLoader = toolDetailLoader,
             onDelete = onDelete,
             onCopyCode = { project.infoNotify("复制", "已复制代码块") },
         )
@@ -2373,6 +2410,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.open" -> text?.let(::openAttachmentPath)
             "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
             "message.delete" -> id?.let { messageId -> messageCards.firstOrNull { it.id == messageId }?.delete() }
+            "tool.detail" -> {
+                val messageId = payload.get("messageId")?.asString ?: error("缺少消息 ID")
+                val callId = payload.get("callId")?.asString ?: error("缺少工具调用 ID")
+                when (val card = messageCards.firstOrNull { it.id == messageId }) {
+                    is AgentAssistantMessageCard -> card.toolDetail(callId)
+                    is AgentRunMessageCard -> card.toolDetail(callId)
+                    else -> null
+                } ?: error("工具调用详情不存在")
+            }
             else -> handleBrowserManagementCommand(command.type, payload)
         }
     }

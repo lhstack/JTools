@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent
 
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -246,6 +247,7 @@ internal object AgentRunService {
         }
         publish(run)
         dispatchDelivery(run)
+        runs.remove(run.runId, run)
     }
 
     private fun dispatchDelivery(run: RunState) {
@@ -320,9 +322,39 @@ internal object AgentRunService {
         return structured.getAsJsonArray("tool_calls")?.mapIndexed { index, value ->
             val item = value.asJsonObject
             val id = item.get("internal_call_id")?.asString ?: "tool-$index"
-            val result = results[id].orEmpty()
-            AgentBrowserTool(id, item.get("tool_name")?.asString.orEmpty(), item.get("args")?.toString().orEmpty(), result, id in results, result.startsWith("工具调用失败:"))
+            val result = results[id]
+            AgentBrowserTool(
+                id = id,
+                name = item.get("tool_name")?.asString.orEmpty(),
+                finished = result != null,
+                failed = result?.startsWith("工具调用失败:") == true,
+            )
         }.orEmpty()
+    }
+
+    fun toolDetail(runId: String, callId: String): AgentBrowserToolDetail? {
+        runs[runId]?.let { run ->
+            return synchronized(run) {
+                run.tools[callId]?.let { AgentBrowserToolDetail(it.args, it.result) }
+            }
+        }
+        val structured = ModelLogService.agentRunLogByRunId(runId)
+            ?.responseData
+            ?.getAsJsonObject("structured_response")
+            ?: return null
+        return persistedToolDetail(structured, callId)
+    }
+
+    private fun persistedToolDetail(structured: JsonObject, callId: String): AgentBrowserToolDetail? {
+        val call = structured.getAsJsonArray("tool_calls")
+            ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+            ?.firstOrNull { it.get("internal_call_id")?.asString == callId }
+            ?: return null
+        val result = structured.getAsJsonArray("tool_results")
+            ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+            ?.firstOrNull { it.get("internal_call_id")?.asString == callId }
+        val args = call.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
+        return AgentBrowserToolDetail(args, result?.get("result")?.asString.orEmpty())
     }
 
     private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> =
@@ -364,7 +396,7 @@ internal object AgentRunService {
         AgentRunSnapshot(
             run.runId, run.agentId, run.agentName, run.projectPath, run.sessionId, run.receiver.value, run.prompt, run.status,
             run.response, run.reasoning,
-            run.tools.values.map { AgentBrowserTool(it.id, it.name, it.args, it.result, it.finished, it.failed) },
+            run.tools.values.map { AgentBrowserTool(it.id, it.name, it.finished, it.failed) },
             run.error, run.logId, run.createdAt,
         )
     }

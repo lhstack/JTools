@@ -39,7 +39,7 @@ watch(
     item.content,
     item.reasoning,
     item.generating,
-    item.tools?.map((tool) => `${tool.id}:${tool.result}:${tool.finished}:${tool.failed}`).join('|')
+    item.tools?.map((tool) => `${tool.id}:${tool.finished}:${tool.failed}`).join('|')
   ]),
   async () => {
     await nextTick()

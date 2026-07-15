@@ -1,8 +1,10 @@
 <script setup>
 import MarkdownContent from './MarkdownContent.vue'
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { invoke } from '../../bridge/jcefBridge'
-defineProps({ item: Object })
+const props = defineProps({ item: Object })
+const toolDetails = reactive({})
+const toolLoading = reactive({})
 const previewSrc = ref('')
 const previewVisible = ref(false)
 const runExpanded = ref(true)
@@ -18,6 +20,21 @@ function toolState(tool) {
   if (!tool.finished) return { icon: '○', label: '进行中', css: 'running' }
   if (tool.failed) return { icon: '✕', label: '失败', css: 'failed' }
   return { icon: '✓', label: '完成', css: 'completed' }
+}
+async function toolChanged(tool, expanded) {
+  if (!expanded) {
+    delete toolDetails[tool.id]
+    delete toolLoading[tool.id]
+    return
+  }
+  toolLoading[tool.id] = true
+  try {
+    toolDetails[tool.id] = await invoke('tool.detail', { messageId: props.item.id, callId: tool.id })
+  } catch (error) {
+    toolDetails[tool.id] = { args: '', result: `加载失败：${error?.message || String(error)}` }
+  } finally {
+    toolLoading[tool.id] = false
+  }
 }
 </script>
 <template>
@@ -44,10 +61,13 @@ function toolState(tool) {
           <el-collapse-item v-if="item.reasoning" title="推理"><pre class="reasoning">{{item.reasoning}}</pre></el-collapse-item>
           <el-collapse-item v-if="item.tools?.length" :title="`工具调用 (${item.tools.filter(x=>x.finished).length}/${item.tools.length})`">
             <div class="tool-call-scroll">
-              <el-collapse v-for="tool in item.tools" :key="tool.id" class="tool-call-list">
-                <el-collapse-item>
+              <el-collapse v-for="tool in item.tools" :key="tool.id" class="tool-call-list" @change="active => toolChanged(tool, active.includes(tool.id))">
+                <el-collapse-item :name="tool.id">
                   <template #title><span class="tool-state" :class="toolState(tool).css"><b>{{toolState(tool).icon}}</b><span>{{tool.name}}</span><small>{{toolState(tool).label}}</small></span></template>
-                  <b>入参</b><pre>{{tool.args}}</pre><b>出参</b><pre>{{tool.result||'调用中'}}</pre>
+                  <div v-if="toolLoading[tool.id]" class="running">加载工具详情...</div>
+                  <template v-else-if="toolDetails[tool.id]">
+                    <b>入参</b><pre>{{toolDetails[tool.id].args}}</pre><b>出参</b><pre>{{toolDetails[tool.id].result||'调用中'}}</pre>
+                  </template>
                 </el-collapse-item>
               </el-collapse>
             </div>

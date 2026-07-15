@@ -133,6 +133,7 @@ internal class AgentChatBrowser(
             "http://jtools.agent/index.html",
             0,
         )
+        if (pendingState === state) pendingState = null
     }
 
     private fun parseCommand(request: String): AgentBrowserCommand {
