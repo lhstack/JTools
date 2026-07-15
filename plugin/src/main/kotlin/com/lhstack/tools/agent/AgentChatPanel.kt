@@ -414,6 +414,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         renderSessionHistory(record)
     }
 
+    private fun refreshBrowserMessageCache() {
+        val sessionId = currentSessionId ?: return
+        val record = ChatSessionService.sessionById(sessionId) ?: return
+        renderSessionHistory(record)
+    }
+
     private fun clearCurrentSessionFromBrowser() {
         val sessionId = currentSessionId ?: return
         val record = ChatSessionService.sessionById(sessionId) ?: return
@@ -514,6 +520,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     sessionId,
                     onDelete = { deleteChatTurn(turn.logId) },
                     toolDetailLoader = { callId -> loadPersistedToolDetail(turn.logId, callId) },
+                    cardId = "turn-${turn.logId}-assistant",
                 )
                 if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
                 if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
@@ -523,7 +530,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         }
         if (turn.status == "failed" && !turn.errorData.isNullOrBlank()) {
-            val turnView = createAssistantTurnView(sessionId, onDelete = { deleteChatTurn(turn.logId) })
+            val turnView = createAssistantTurnView(
+                sessionId,
+                onDelete = { deleteChatTurn(turn.logId) },
+                cardId = "turn-${turn.logId}-assistant",
+            )
             turnView.card.setResponse("错误：${turn.errorData}")
             turnView.card.finish(turn.assistantMessageAt, null)
         }
@@ -544,6 +555,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             attachments = attachments,
             onDelete = null,
             createdAt = turn.userMessageAt,
+            cardId = "turn-${turn.logId}-user",
         )
     }
 
@@ -1611,12 +1623,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         sessionId: Long,
         onDelete: (() -> Unit)? = null,
         toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
+        cardId: String? = null,
     ): AssistantTurnView {
         val card = AgentAssistantMessageCard(
             showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
             toolDetailLoader = toolDetailLoader,
             onDelete = onDelete,
             onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+            id = cardId ?: "assistant-${UUID.randomUUID()}",
         )
         addMessageCard(sessionId, card)
         return AssistantTurnView(card)
@@ -1641,6 +1655,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         attachments: List<AgentAttachmentState> = emptyList(),
         onDelete: (() -> Unit)? = null,
         createdAt: String? = null,
+        cardId: String? = null,
     ) {
         if (role == ROLE_USER) {
             addMessageCard(
@@ -1650,6 +1665,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     attachments,
                     onDelete,
                     createdAt,
+                    cardId ?: "user-${UUID.randomUUID()}",
                 )
             )
             return
@@ -2401,6 +2417,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     ?: AUTO_TITLE,
             )
             "session.clear" -> clearCurrentSessionFromBrowser()
+            "cache.refresh" -> refreshBrowserMessageCache()
             "agent.select" -> id?.toLongOrNull()?.let { agentId ->
                 AgentService.agentById(agentId)?.let(::bindCurrentSessionAgent)
                 refreshAgentSelector(agentId)

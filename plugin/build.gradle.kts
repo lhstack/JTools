@@ -3,7 +3,6 @@ import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 plugins {
     id("java")
@@ -81,12 +80,12 @@ val proguardRules = listOf(
     "-useuniqueclassmembernames",
     "-dontwarn !com.lhstack.tools.**",
     "-flattenpackagehierarchy",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.10\\30de6faa127a4a012db8e71bf1b9c0a99b1402b2\\kotlin-stdlib-2.2.10.jar",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\43e49764f4425869ca539e4dca81a351\\transformed\\ideaIC-2025.2-win\\lib\\util.jar",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\43e49764f4425869ca539e4dca81a351\\transformed\\ideaIC-2025.2-win\\lib\\app.jar",
-    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\transforms-4\\43e49764f4425869ca539e4dca81a351\\transformed\\ideaIC-2025.2-win\\lib\\app-client.jar",
-    "-libraryjars D:\\Program Files\\java\\17\\jmods\\java.base.jmod(!.jar;!module-info.class)",
-    "-libraryjars D:\\Program Files\\java\\17\\jmods\\java.desktop.jmod(!.jar;!module-info.class)",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.10/30de6faa127a4a012db8e71bf1b9c0a99b1402b2/kotlin-stdlib-2.2.10.jar",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/util.jar",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app.jar",
+    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app-client.jar",
+    "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.base.jmod(!.jar;!module-info.class)",
+    "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.desktop.jmod(!.jar;!module-info.class)",
     "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
     "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
@@ -274,13 +273,8 @@ tasks {
         token.set(System.getenv("PUBLISH_TOKEN"))
     }
 
-    named<PrepareSandboxTask>("prepareSandbox") {
+    named("prepareSandbox") {
         dependsOn(applyObfuscationOutputs)
-        val stagingDirectory = layout.buildDirectory.dir("run-ide-plugin")
-        defaultDestinationDirectory.set(stagingDirectory)
-        doFirst {
-            delete(stagingDirectory)
-        }
     }
     named("buildPlugin") {
         dependsOn(applyObfuscationOutputs)

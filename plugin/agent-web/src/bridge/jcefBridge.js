@@ -1,5 +1,9 @@
 import { reactive } from 'vue'
-export const hostState=reactive({dark:false,theme:{},sessions:[],agents:[],messages:[],queue:[],drafts:[],inputRestore:null,currentSessionId:null,currentAgentId:null})
+const INITIAL_SESSION_KEY='jtools:selected-session:v1'
+const MESSAGE_CACHE_PREFIX='jtools:chat-messages:v1:'
+function initialChatCache(){try{const sessionId=Number(localStorage.getItem(INITIAL_SESSION_KEY));if(!Number.isFinite(sessionId)||sessionId<=0)return{sessionId:null,messages:[]};const messages=JSON.parse(localStorage.getItem(`${MESSAGE_CACHE_PREFIX}${sessionId}`)||'[]');return{sessionId,messages:Array.isArray(messages)?messages:[]}}catch{return{sessionId:null,messages:[]}}}
+const initialChat=initialChatCache()
+export const hostState=reactive({dark:false,theme:{},sessions:[],agents:[],messages:initialChat.messages,queue:[],drafts:[],inputRestore:null,currentSessionId:initialChat.sessionId,currentAgentId:null})
 let bridgeReady
 const ready=new Promise(resolve=>bridgeReady=resolve)
 window.addEventListener('jtools-ready',()=>bridgeReady())

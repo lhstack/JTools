@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Close, Delete, Paperclip, Plus, VideoPause } from '@element-plus/icons-vue'
+import { Close, Delete, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, invoke } from '../bridge/jcefBridge'
 import ChatMessage from '../components/chat/ChatMessage.vue'
 
@@ -13,8 +13,21 @@ const sessionDialogVisible = ref(false)
 const sessionName = ref('')
 const sessionType = ref('project')
 const creatingSession = ref(false)
+const MESSAGE_CARD_POOL_SIZE = 10
+const MESSAGE_CACHE_PREFIX = 'jtools:chat-messages:v1:'
+const SELECTED_SESSION_CACHE_KEY = 'jtools:selected-session:v1'
+const MESSAGE_CACHE_LIMIT = 200
+const MESSAGE_CACHE_JSON_LIMIT = 2 * 1000 * 1000
+const RECYCLE_EDGE_THRESHOLD = 72
+const messageWindowStart = ref(0)
+const recyclerAdjusting = ref(false)
 const drafts = computed(() => s.drafts || [])
 const queue = computed(() => s.queue || [])
+const messageWindowMaxStart = computed(() => Math.max(0, s.messages.length - MESSAGE_CARD_POOL_SIZE))
+const visibleMessages = computed(() => s.messages.slice(
+  messageWindowStart.value,
+  Math.min(s.messages.length, messageWindowStart.value + MESSAGE_CARD_POOL_SIZE)
+))
 const previewSrc = ref('')
 const previewVisible = ref(false)
 function openAttachment(att) {
@@ -34,6 +47,21 @@ watch(
 )
 
 watch(
+  () => [s.currentSessionId, s.messages.length],
+  ([sessionId, length], previous = []) => {
+    const sessionChanged = sessionId !== previous[0]
+    const appended = !sessionChanged && length > (previous[1] || 0)
+    persistSelectedSession(sessionId)
+    persistMessages(sessionId, s.messages)
+    if (sessionChanged || appended || messageWindowStart.value > messageWindowMaxStart.value) {
+      messageWindowStart.value = messageWindowMaxStart.value
+      scrollMessagesToBottom()
+    }
+  },
+  { flush: 'post' }
+)
+
+watch(
   () => s.messages.map((item) => [
     item.id,
     item.content,
@@ -41,15 +69,97 @@ watch(
     item.generating,
     item.tools?.map((tool) => `${tool.id}:${tool.finished}:${tool.failed}`).join('|')
   ]),
-  async () => {
-    await nextTick()
-    requestAnimationFrame(() => {
-      const element = messageList.value
-      if (element) element.scrollTop = element.scrollHeight
-    })
+  () => {
+    persistMessages(s.currentSessionId, s.messages)
+    if (messageWindowStart.value === messageWindowMaxStart.value) scrollMessagesToBottom()
   },
   { deep: true, flush: 'post' }
 )
+
+function persistSelectedSession(sessionId) {
+  try {
+    if (sessionId) localStorage.setItem(SELECTED_SESSION_CACHE_KEY, String(sessionId))
+    else localStorage.removeItem(SELECTED_SESSION_CACHE_KEY)
+  } catch {
+    // Browser cache is only an initial rendering optimization.
+  }
+}
+
+function messageCacheKey(sessionId) {
+  return `${MESSAGE_CACHE_PREFIX}${sessionId}`
+}
+
+function normalizeCachedMessages(value) {
+  if (!Array.isArray(value)) return []
+  const values = new Map()
+  value.forEach((item) => {
+    if (item?.id) values.set(String(item.id), item)
+  })
+  return [...values.values()]
+}
+
+function persistMessages(sessionId, messages) {
+  if (!sessionId) return
+  try {
+    let cached = normalizeCachedMessages(messages).slice(-MESSAGE_CACHE_LIMIT)
+    let text = JSON.stringify(cached)
+    while (cached.length > 1 && text.length > MESSAGE_CACHE_JSON_LIMIT) {
+      cached = cached.slice(Math.max(1, Math.floor(cached.length / 4)))
+      text = JSON.stringify(cached)
+    }
+    if (!cached.length) localStorage.removeItem(messageCacheKey(sessionId))
+    else if (text.length <= MESSAGE_CACHE_JSON_LIMIT) localStorage.setItem(messageCacheKey(sessionId), text)
+  } catch {
+    // Browser cache only accelerates display and is not the conversation source of truth.
+  }
+}
+
+function scrollMessagesToBottom() {
+  nextTick(() => requestAnimationFrame(() => {
+    const element = messageList.value
+    if (element) element.scrollTop = element.scrollHeight
+  }))
+}
+
+async function preserveMessageAnchor(anchorId, mutate) {
+  const element = messageList.value
+  const selector = `[data-message-id="${CSS.escape(String(anchorId || ''))}"]`
+  const before = element?.querySelector(selector)?.getBoundingClientRect().top
+  recyclerAdjusting.value = true
+  mutate()
+  await nextTick()
+  const after = element?.querySelector(selector)?.getBoundingClientRect().top
+  if (element && before != null && after != null) element.scrollTop += after - before
+  requestAnimationFrame(() => { recyclerAdjusting.value = false })
+}
+
+function moveMessageWindow(step) {
+  const next = Math.max(0, Math.min(messageWindowMaxStart.value, messageWindowStart.value + step))
+  if (next === messageWindowStart.value) return
+  const anchorId = visibleMessages.value[step < 0 ? 0 : Math.min(1, visibleMessages.value.length - 1)]?.id
+  preserveMessageAnchor(anchorId, () => { messageWindowStart.value = next })
+}
+
+function handleMessageScroll() {
+  if (recyclerAdjusting.value) return
+  const element = messageList.value
+  if (!element) return
+  if (element.scrollTop <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value > 0) moveMessageWindow(-1)
+  else if (element.scrollHeight - element.scrollTop - element.clientHeight <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value < messageWindowMaxStart.value) moveMessageWindow(1)
+}
+
+function handleMessageWheel(event) {
+  const element = messageList.value
+  if (!element || recyclerAdjusting.value) return
+  if (event.deltaY < 0 && element.scrollTop <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value > 0) {
+    event.preventDefault()
+    moveMessageWindow(-1)
+  } else if (event.deltaY > 0 && element.scrollHeight - element.scrollTop - element.clientHeight <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value < messageWindowMaxStart.value) {
+    event.preventDefault()
+    moveMessageWindow(1)
+  }
+}
+
 
 async function send() {
   if (sending.value) return
@@ -91,6 +201,15 @@ function open(page) {
   invoke('window.open', { text: page })
 }
 
+async function refreshCache() {
+ try {
+ localStorage.removeItem(messageCacheKey(s.currentSessionId))
+ await invoke('cache.refresh')
+ } catch {
+ // The host reports refresh failures through the existing command channel.
+ }
+}
+
 function clear() {
   ElMessageBox.confirm('确定清空当前会话的全部对话记录？', '清空会话', { type: 'warning' })
     .then(() => invoke('session.clear'))
@@ -125,14 +244,15 @@ function drop(event) {
         <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="`${item.sessionType === 'global' ? '[全局]' : '[项目]'} ${item.name}`" />
       </el-select>
       <el-button :icon="Plus" text @click="openSessionDialog" />
-      <el-button :icon="Delete" text @click="clear" />
+      <el-button :icon="Refresh" text title="刷新消息缓存" @click="refreshCache" />
+ <el-button :icon="Delete" text @click="clear" />
       <el-button text @click="open('sessions')">管理</el-button>
       <el-button text @click="open('logs')">日志</el-button>
     </header>
 
-    <section ref="messageList" class="message-list">
+    <section ref="messageList" class="message-list" @scroll.passive="handleMessageScroll" @wheel="handleMessageWheel">
       <el-empty v-if="!s.messages.length" description="开始一段新的对话" />
-      <ChatMessage v-for="item in s.messages" :key="item.id" :item="item" />
+      <ChatMessage v-for="item in visibleMessages" :key="item.id" :data-message-id="item.id" :item="item" />
     </section>
 
     <footer class="composer">

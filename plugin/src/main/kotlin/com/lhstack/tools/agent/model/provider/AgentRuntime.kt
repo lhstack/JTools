@@ -292,7 +292,7 @@ object AgentRuntime {
         append("- 项目环境编码：${projectFileEncodingName(request)}\n")
 
         append("\n## 项目文件与代码操作约定\n")
-        append("- 查找、搜索、读取、创建和修改项目文件时，使用 `find_files`、`search_text`、`read_file`、`write_file`、`replace_text_in_file` 等 IDE 原生文件工具，不要用 `bash` 代替。\n")
+        append("- (查找、搜索、读取、创建和修改)项目文件时，使用 `find_files`、`search_text`、`read_file`、`write_file`、`replace_text_in_file` 等 IDE 原生文件工具,这些 IDE 原生工具仅支持操作项目中的文件，不要用 `bash` 代替。\n")
         append("- 修改现有文件前先读取相关内容，再用 `replace_text_in_file` 精确修改必要范围；仅在新建文件或确需完整重写时使用 `write_file`。\n")
         append("- 项目文件由 JetBrains VFS/Document 按项目环境编码保存；修改源码后使用 `format_file` 格式化，并使用 `get_file_problems` 检查 IDE 诊断。\n")
         append("- 查询依赖源码或资源时，可让 `find_files` 包含依赖/JAR，并将返回的 `jar://`、`jrt://` 或 `file://` 路径交给 `read_file`；不要批量反编译二进制 `.class`。\n")
