@@ -93,6 +93,8 @@ internal object AgentRunService {
     private val deliveredRunIds = ConcurrentHashMap.newKeySet<String>()
     private val listeners = ConcurrentHashMap<String, MutableSet<(AgentRunSnapshot) -> Unit>>()
     private val deliveryListeners = ConcurrentHashMap<String, MutableSet<(AgentRunDelivery) -> Unit>>()
+    private val pendingPublishes = ConcurrentHashMap<String, AgentRunSnapshot>()
+    private val scheduledPublishes = ConcurrentHashMap.newKeySet<String>()
 
     fun start(request: AgentRunStartRequest): AgentRunSnapshot {
         val project = resolveProject(request.projectPath)
@@ -175,8 +177,12 @@ internal object AgentRunService {
     }
 
     fun delete(runId: String, logId: Long?) {
-        deletedRuns.add(runId)
-        runs.remove(runId)?.cancel?.cancel()
+        pendingPublishes.remove(runId)
+        val running = runs.remove(runId)
+        if (running != null) {
+            deletedRuns.add(runId)
+            running.cancel.cancel()
+        }
         val persistedLogId = logId ?: ModelLogService.agentRunLogByRunId(runId)?.id
         persistedLogId?.let(ModelLogService::deleteModelLog)
     }
@@ -184,7 +190,10 @@ internal object AgentRunService {
     fun subscribe(sessionId: Long, listener: (AgentRunSnapshot) -> Unit): AutoCloseable {
         val values = listeners.computeIfAbsent(sessionId.toString()) { ConcurrentHashMap.newKeySet() }
         values.add(listener)
-        return AutoCloseable { values.remove(listener) }
+        return AutoCloseable {
+            values.remove(listener)
+            if (values.isEmpty()) listeners.remove(sessionId.toString(), values)
+        }
     }
 
     fun subscribeDeliveries(projectPath: String, listener: (AgentRunDelivery) -> Unit): AutoCloseable {
@@ -197,7 +206,14 @@ internal object AgentRunService {
             }
             .forEach(::dispatchDelivery)
         dispatchPersistedDeliveries(key)
-        return AutoCloseable { values.remove(listener) }
+        return AutoCloseable {
+            values.remove(listener)
+            if (values.isEmpty()) deliveryListeners.remove(key, values)
+        }
+    }
+
+    fun markDeliveryAccepted(runId: String) {
+        deliveredRunIds.remove(runId)
     }
 
     private fun execute(project: Project, request: AgentRunStartRequest, run: RunState) {
@@ -390,9 +406,19 @@ internal object AgentRunService {
     }
 
     private fun publish(run: RunState) {
-        val value = snapshot(run)
-        listeners[run.sessionId.toString()]?.toList()?.forEach { listener ->
-            ApplicationManager.getApplication().invokeLater { listener(value) }
+        pendingPublishes[run.runId] = snapshot(run)
+        schedulePublish(run.runId)
+    }
+
+    private fun schedulePublish(runId: String) {
+        if (!scheduledPublishes.add(runId)) return
+        ApplicationManager.getApplication().invokeLater {
+            val value = pendingPublishes.remove(runId)
+            if (value != null && runId !in deletedRuns) {
+                listeners[value.sessionId.toString()]?.toList()?.forEach { listener -> listener(value) }
+            }
+            scheduledPublishes.remove(runId)
+            if (pendingPublishes.containsKey(runId)) schedulePublish(runId)
         }
     }
 

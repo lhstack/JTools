@@ -145,7 +145,6 @@ class ContentPageAction(
             val tabInfo = TabInfo(pluginTabPanel)
             tabInfo.setIcon(plugin.pluginTabIcon())
             tabInfo.setText(pluginInfo.name)
-            tabInfo.setTooltipText(plugin.pluginDesc())
 
             // Tab Label Actions (Close)
             tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {

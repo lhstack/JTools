@@ -5,21 +5,21 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.codeInsight.actions.ReformatCodeProcessor
-import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
-import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator
-import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl
-import com.intellij.codeInsight.multiverse.defaultContext
-import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.codeInspection.InspectionManager
+import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.util.ProperTextRange
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
+import com.intellij.profile.codeInspection.InspectionProfileManager
 import com.intellij.psi.PsiManager
 import com.lhstack.tools.agent.model.llm.ToolDefinition
 import com.lhstack.tools.agent.model.llm.ToolDyn
+import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -132,13 +132,13 @@ internal class FormatFileTool(private val support: IdeProjectSupport) : ToolDyn 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
         val file = support.resolveProjectFile(input.string("path"))
-        val psiFile = ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
-            PsiManager.getInstance(support.project).findFile(file)
-        } ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
+        val psiFile = ApplicationManager.getApplication().runReadAction(
+            Computable { PsiManager.getInstance(support.project).findFile(file) }
+        ) ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
         val done = CountDownLatch(1)
-        val processor = ReadAction.compute<ReformatCodeProcessor, RuntimeException> {
-            ReformatCodeProcessor(psiFile, false).apply { setPostRunnable(done::countDown) }
-        }
+        val processor = ApplicationManager.getApplication().runReadAction(
+            Computable { ReformatCodeProcessor(psiFile, false).apply { setPostRunnable(done::countDown) } }
+        )
         ApplicationManager.getApplication().invokeLater(processor::run)
         val timeout = input.intOr("timeout_secs", 30).coerceIn(1, 120).toLong()
         require(done.await(timeout, TimeUnit.SECONDS)) { "formatting `${support.displayPath(file)}` timed out" }
@@ -163,45 +163,19 @@ internal class GetFileProblemsTool(private val support: IdeProjectSupport) : Too
         val input = args.obj()
         val file = support.resolveProjectFile(input.string("path"))
         DumbService.getInstance(support.project).waitForSmartMode()
-        val problems: JsonArray = ReadAction.compute<JsonArray, RuntimeException> {
-            val document = FileDocumentManager.getInstance().getDocument(file)
-                ?: throw ToolException("`${support.displayPath(file)}` is not a text file")
-            val psiFile = PsiManager.getInstance(support.project).findFile(file)
-                ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
-            val indicator = DaemonProgressIndicator()
-            val infos = mutableListOf<com.intellij.codeInsight.daemon.impl.HighlightInfo>()
-            ProgressManager.getInstance().runProcess({
-                HighlightingSessionImpl.runInsideHighlightingSession(
-                    psiFile,
-                    defaultContext(),
-                    null,
-                    ProperTextRange(0, document.textLength),
-                    false,
-                ) { session ->
-                    (session as HighlightingSessionImpl).minimumSeverity =
-                        if (input.booleanOr("errors_only", false)) HighlightSeverity.ERROR else HighlightSeverity.WEAK_WARNING
-                    infos.addAll(
-                        (com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(support.project) as DaemonCodeAnalyzerImpl)
-                            .runMainPasses(psiFile, document, indicator)
-                    )
-                }
-            }, indicator)
-            val output = JsonArray()
-            for (info in infos) {
-                if (input.booleanOr("errors_only", false) && info.severity != HighlightSeverity.ERROR) continue
-                val offset = info.startOffset.coerceIn(0, document.textLength)
-                val line = document.getLineNumber(offset)
-                output.add(JsonObject().apply {
-                    addProperty("severity", info.severity.name)
-                    addProperty("description", info.description ?: info.toolTip ?: "")
-                    addProperty("line", line + 1)
-                    addProperty("column", offset - document.getLineStartOffset(line) + 1)
-                    addProperty("start_offset", info.startOffset)
-                    addProperty("end_offset", info.endOffset)
+        val indicator = EmptyProgressIndicator()
+        val problems = ProgressManager.getInstance().runProcess(
+            Computable {
+                ReadAction.nonBlocking(Callable {
+                    inspectFile(support, file, input.booleanOr("errors_only", false))
                 })
-            }
-            output
-        }
+                    .inSmartMode(support.project)
+                    .withDocumentsCommitted(support.project)
+                    .wrapProgress(indicator)
+                    .executeSynchronously()
+            },
+            indicator,
+        )
         return JsonObject().apply {
             addProperty("path", support.displayPath(file))
             addProperty("count", problems.size())
@@ -211,6 +185,69 @@ internal class GetFileProblemsTool(private val support: IdeProjectSupport) : Too
 
     companion object { const val NAME = "get_file_problems" }
 }
+
+private fun inspectFile(
+    support: IdeProjectSupport,
+    file: com.intellij.openapi.vfs.VirtualFile,
+    errorsOnly: Boolean,
+): JsonArray {
+    val document = FileDocumentManager.getInstance().getDocument(file)
+        ?: throw ToolException("`${support.displayPath(file)}` is not a text file")
+    val psiFile = PsiManager.getInstance(support.project).findFile(file)
+        ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
+    val inspectionManager = InspectionManager.getInstance(support.project)
+    val profile = InspectionProfileManager.getInstance(support.project).currentProfile
+    val descriptors = profile.getInspectionTools(psiFile)
+        .asSequence()
+        .filter { wrapper -> profile.isToolEnabled(wrapper.displayKey, psiFile) }
+        .mapNotNull { wrapper -> wrapper.tool as? com.intellij.codeInspection.LocalInspectionTool }
+        .filter { tool -> tool.isAvailableForFile(psiFile) }
+        .flatMap { tool ->
+            ProgressManager.checkCanceled()
+            inspectionManager.defaultProcessFile(tool, psiFile).asSequence()
+        }
+        .toList()
+    return inspectionProblems(descriptors, document, errorsOnly)
+}
+
+private fun inspectionProblems(
+    descriptors: List<ProblemDescriptor>,
+    document: com.intellij.openapi.editor.Document,
+    errorsOnly: Boolean,
+): JsonArray = JsonArray().apply {
+    descriptors.forEach { descriptor ->
+        val severity = descriptor.highlightType.name
+        if (errorsOnly && descriptor.highlightType !in ERROR_HIGHLIGHT_TYPES) return@forEach
+        val element = descriptor.psiElement ?: return@forEach
+        val elementRange = element.textRange ?: return@forEach
+        val relativeRange = descriptor.textRangeInElement
+        val absoluteRange = if (relativeRange == null) {
+            elementRange
+        } else {
+            com.intellij.openapi.util.TextRange(
+                elementRange.startOffset + relativeRange.startOffset,
+                elementRange.startOffset + relativeRange.endOffset,
+            )
+        }
+        val startOffset = absoluteRange.startOffset.coerceIn(0, document.textLength)
+        val endOffset = absoluteRange.endOffset.coerceIn(startOffset, document.textLength)
+        val line = document.getLineNumber(startOffset)
+        add(JsonObject().apply {
+            addProperty("severity", severity)
+            addProperty("description", descriptor.descriptionTemplate.orEmpty())
+            addProperty("line", line + 1)
+            addProperty("column", startOffset - document.getLineStartOffset(line) + 1)
+            addProperty("start_offset", startOffset)
+            addProperty("end_offset", endOffset)
+        })
+    }
+}
+
+private val ERROR_HIGHLIGHT_TYPES = setOf(
+    com.intellij.codeInspection.ProblemHighlightType.ERROR,
+    com.intellij.codeInspection.ProblemHighlightType.GENERIC_ERROR,
+    com.intellij.codeInspection.ProblemHighlightType.LIKE_UNKNOWN_SYMBOL,
+)
 
 private fun definition(name: String, description: String, schema: String) = ToolDefinition(
     name = name,

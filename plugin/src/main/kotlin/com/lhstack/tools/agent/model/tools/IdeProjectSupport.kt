@@ -12,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -24,6 +25,7 @@ import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.Processor
 import java.io.File
+import java.util.concurrent.Callable
 import java.nio.file.FileSystems
 
 internal class IdeProjectSupport(
@@ -127,11 +129,9 @@ internal class IdeProjectSupport(
         require(name.isNotBlank()) { "name must not be blank" }
         return smartRead {
             val scope = if (includeLibraries) GlobalSearchScope.allScope(project) else GlobalSearchScope.projectScope(project)
-            val matcher = nameMatcher(name, match)
             val results = linkedMapOf<String, VirtualFile>()
             var truncated = false
-            FilenameIndex.processAllFileNames(Processor { candidate ->
-                if (!matcher(candidate)) return@Processor true
+            fun collectFiles(candidate: String): Boolean {
                 var keepGoing = true
                 FilenameIndex.processFilesByName(candidate, false, scope, Processor { file ->
                     if (includeLibraries || isProjectFileInReadAction(file)) {
@@ -144,8 +144,18 @@ internal class IdeProjectSupport(
                     }
                     true
                 })
-                keepGoing
-            }, scope, null)
+                return keepGoing
+            }
+            if (match == NameMatch.EXACT) {
+                collectFiles(name)
+            } else {
+                val matcher = nameMatcher(name, match)
+                FilenameIndex.processAllFileNames(Processor { candidate ->
+                    com.intellij.openapi.progress.ProgressManager.checkCanceled()
+                    if (!matcher(candidate)) return@Processor true
+                    collectFiles(candidate)
+                }, scope, null)
+            }
             filesResultInReadAction(results.values, truncated)
         }
     }
@@ -271,6 +281,7 @@ internal class IdeProjectSupport(
         val visitedRoots = mutableSetOf<String>()
         val scope = GlobalSearchScope.allScope(project)
         FilenameIndex.processAllFileNames(Processor { name ->
+            com.intellij.openapi.progress.ProgressManager.checkCanceled()
             FilenameIndex.processFilesByName(name, false, scope, Processor { file ->
                 if (isProjectFileInReadAction(file) ||
                     (!fileIndex.isInLibrarySource(file) && !fileIndex.isInLibraryClasses(file))
@@ -336,13 +347,13 @@ internal class IdeProjectSupport(
     private fun isProjectFileInReadAction(file: VirtualFile): Boolean =
         ProjectFileIndex.getInstance(project).isInContent(file)
 
-    private fun <T> smartRead(action: () -> T): T {
-        DumbService.getInstance(project).waitForSmartMode()
-        return readModel(action)
-    }
+    private fun <T> smartRead(action: () -> T): T =
+        ReadAction.nonBlocking(Callable { action() })
+            .inSmartMode(project)
+            .executeSynchronously()
 
     private fun <T> readModel(action: () -> T): T =
-        ReadAction.compute<T, RuntimeException> { action() }
+        ApplicationManager.getApplication().runReadAction(Computable { action() })
 
     private fun <T> runOnEdt(action: () -> T): T {
         val application = ApplicationManager.getApplication()

@@ -138,7 +138,6 @@ class SplitablePageContainer(
         val preview = TabInfo(placeholder)
         preview.setText(original.text)
         preview.setIcon(original.icon)
-        preview.setTooltipText(original.tooltipText)
         return preview
     }
 
@@ -180,7 +179,6 @@ class SplitablePageContainer(
         val tabInfo = TabInfo(pluginTabPanel)
         tabInfo.setIcon(original.icon ?: plugin.pluginTabIcon())
         tabInfo.setText(original.text ?: pluginInfo.name)
-        tabInfo.setTooltipText(original.tooltipText ?: plugin.pluginDesc())
         tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
             override fun update(e: AnActionEvent) {
                 super.update(e)

@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent
 
+import com.lhstack.tools.concurrent.AgentExecutors
 import com.google.gson.annotations.SerializedName
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -196,6 +197,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val messageCards = mutableListOf<AgentChatCard>()
     private var agentRunSubscription: AutoCloseable? = null
     private var agentRunDeliverySubscription: AutoCloseable? = null
+    private val browserStateTimer = javax.swing.Timer(40) { syncBrowserStateNow() }.apply { isRepeats = false }
 
     private val newSessionAction = createAction("新建会话", Icons.agentSessionNewIcon()) { chooseAndCreateSession() }
     private val clearAction = createAction("清空当前会话", Icons.agentSessionClearIcon()) { clearCurrentSession() }
@@ -957,6 +959,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val record = ChatSessionService.visibleSessionById(delivery.sessionId, currentProjectPath()) ?: return
         val agent = resolveSessionAgent(record) ?: return
         enqueueChatMessage(record, agent, delivery.content, emptyList(), delivery.runId)
+        AgentRunService.markDeliveryAccepted(delivery.runId)
     }
 
     private fun enqueueChatMessage(
@@ -985,7 +988,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val items = nextRunnableQueueItems()
         items.forEach { item ->
             onUi { startQueueItemUi(item) }
-            ApplicationManager.getApplication().executeOnPooledThread { runQueueItem(item) }
+            AgentExecutors.shared.submit { runQueueItem(item) }
         }
     }
 
@@ -2387,6 +2390,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     override fun dispose() {
+        browserStateTimer.stop()
         agentRunSubscription?.close()
         agentRunDeliverySubscription?.close()
         if (chatBrowser.component.parent != null) Disposer.dispose(chatBrowser)
@@ -2473,6 +2477,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         ChatSessionService.listVisibleSessions(currentProjectPath())
 
     private fun syncBrowserState() {
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            browserStateTimer.restart()
+        } else {
+            ApplicationManager.getApplication().invokeLater { browserStateTimer.restart() }
+        }
+    }
+
+    private fun syncBrowserStateNow() {
         val sessions = visibleSessions().map {
             AgentBrowserSession(it.id, it.title, it.sessionType.value, it.projectPath)
         }

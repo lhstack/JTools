@@ -55,7 +55,7 @@ internal class AgentChatBrowser(
             Disposer.register(this, created)
             Disposer.register(this) { client.dispose() }
 
-            val query = JBCefJSQuery.create(created)
+            val query = JBCefJSQuery.create(created as com.intellij.ui.jcef.JBCefBrowserBase)
             query.addHandler { request ->
                 runCatching {
                     val command = parseCommand(request)
@@ -120,6 +120,7 @@ internal class AgentChatBrowser(
     }
 
     fun replaceState(state: Any) {
+        if (browser == null) return
         pendingState = state
         if (ready) renderTimer.restart()
     }
@@ -146,6 +147,8 @@ internal class AgentChatBrowser(
 
     override fun dispose() {
         renderTimer.stop()
+        pendingState = null
+        ready = false
     }
 
     private fun loadPage(): String {
