@@ -10,17 +10,14 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.FilenameIndex
@@ -41,7 +38,7 @@ internal class IdeProjectSupport(
     fun readFiles(requests: List<ReadFileRequest>): List<JsonObject> {
         require(requests.isNotEmpty()) { "read requests must not be empty" }
         return smartRead {
-            val files = requests.map { request -> resolveReadableFileInReadAction(request.path) }
+            val files = requests.map { request -> resolveProjectFileInReadAction(request.path) }
             require(files.map { it.url }.distinct().size == files.size) { "read paths must not contain duplicates" }
             requests.zip(files).map { (request, file) -> readFileInReadAction(file, request.ranges, request.maxLines) }
         }
@@ -154,16 +151,16 @@ internal class IdeProjectSupport(
         return PreparedReplacement(request, file, document, if (request.replaceAll) matches else listOf(matches.single()))
     }
 
-    fun findFiles(name: String, match: NameMatch, includeLibraries: Boolean, limit: Int): JsonObject {
+    fun findFiles(name: String, match: NameMatch, limit: Int): JsonObject {
         require(name.isNotBlank()) { "name must not be blank" }
         return smartRead {
-            val scope = if (includeLibraries) GlobalSearchScope.allScope(project) else GlobalSearchScope.projectScope(project)
+            val scope = GlobalSearchScope.projectScope(project)
             val results = linkedMapOf<String, VirtualFile>()
             var truncated = false
             fun collectFiles(candidate: String): Boolean {
                 var keepGoing = true
                 FilenameIndex.processFilesByName(candidate, false, scope, Processor { file ->
-                    if (includeLibraries || isProjectFileInReadAction(file)) {
+                    if (isProjectFileInReadAction(file)) {
                         results.putIfAbsent(file.url, file)
                         if (results.size >= limit) {
                             truncated = true
@@ -193,7 +190,6 @@ internal class IdeProjectSupport(
         query: String,
         regex: Boolean,
         caseSensitive: Boolean,
-        includeLibraries: Boolean,
         filePattern: String?,
         contextLines: Int,
         limit: Int,
@@ -204,7 +200,7 @@ internal class IdeProjectSupport(
             val fileMatcher = filePattern?.takeIf { it.isNotBlank() }?.let(::globMatcher)
             val results = JsonArray()
             var truncated = false
-            for (file in searchFilesInReadAction(includeLibraries, limit)) {
+            for (file in projectFilesInReadAction()) {
                 if (results.size() >= limit) {
                     truncated = true
                     break
@@ -252,7 +248,7 @@ internal class IdeProjectSupport(
         val file = resolveProjectFile(path)
         val psiFile = ApplicationManager.getApplication().runReadAction(
             Computable { PsiManager.getInstance(project).findFile(file) }
-        ) ?: throw ToolException("`${displayPath(file)}` is not a PSI source file")
+        ) ?: throw ToolException("`${displayPath(file)}` is not supported by an installed IDE file-type plugin")
         val document = ApplicationManager.getApplication().runReadAction(
             Computable { FileDocumentManager.getInstance().getDocument(file) }
         ) ?: throw ToolException("`${displayPath(file)}` is not a writable text file")
@@ -309,20 +305,9 @@ internal class IdeProjectSupport(
         val file = findLocalFileInReadAction(ioFile)
             ?: throw ToolException("file `${workspace.displayPath(ioFile)}` was not found in the IDE VFS")
         require(isProjectFileInReadAction(file)) {
-            "path `${workspace.displayPath(ioFile)}` is outside the project content"
+            "path `${workspace.displayPath(ioFile)}` is outside the project root"
         }
         return file
-    }
-
-    private fun resolveReadableFileInReadAction(path: String): VirtualFile {
-        val trimmed = path.trim()
-        if (trimmed.startsWith("jar://") || trimmed.startsWith("jrt://") || trimmed.startsWith("file://")) {
-            val file = VirtualFileManager.getInstance().findFileByUrl(trimmed)
-                ?: throw ToolException("IDE file `$trimmed` was not found")
-            require(!file.isDirectory) { "path `$trimmed` is a directory" }
-            return file
-        }
-        return resolveProjectFileInReadAction(trimmed)
     }
 
     private fun displayPathInReadAction(file: VirtualFile): String {
@@ -339,8 +324,7 @@ internal class IdeProjectSupport(
                 array.add(JsonObject().apply {
                     addProperty("path", displayPathInReadAction(file))
                     addProperty("name", file.name)
-                    addProperty("scope", if (isProjectFileInReadAction(file)) "project" else "library")
-                    addProperty("protocol", file.fileSystem.protocol)
+                    addProperty("scope", "project")
                 })
             }
             addProperty("count", array.size())
@@ -348,66 +332,23 @@ internal class IdeProjectSupport(
             add("files", array)
         }
 
-    private fun searchFilesInReadAction(includeLibraries: Boolean, limit: Int): LinkedHashSet<VirtualFile> {
+    private fun projectFilesInReadAction(): LinkedHashSet<VirtualFile> {
         val files = linkedSetOf<VirtualFile>()
-        ProjectFileIndex.getInstance(project).iterateContent { file ->
-            if (!file.isDirectory) files.add(file)
+        val root = project.baseDir ?: return files
+        VfsUtilCore.iterateChildrenRecursively(root, null) { file ->
+            ProgressManager.checkCanceled()
+            if (!file.isDirectory && isProjectFileInReadAction(file)) files.add(file)
             true
         }
-        if (includeLibraries) collectLibraryFilesInReadAction(files, limit)
         return files
     }
-
-    private fun collectLibraryFilesInReadAction(files: MutableSet<VirtualFile>, limit: Int) {
-        val fileIndex = ProjectFileIndex.getInstance(project)
-        val visitedRoots = mutableSetOf<String>()
-        val scope = GlobalSearchScope.allScope(project)
-        FilenameIndex.processAllFileNames(Processor { name ->
-            com.intellij.openapi.progress.ProgressManager.checkCanceled()
-            FilenameIndex.processFilesByName(name, false, scope, Processor { file ->
-                if (isProjectFileInReadAction(file) ||
-                    (!fileIndex.isInLibrarySource(file) && !fileIndex.isInLibraryClasses(file))
-                ) {
-                    return@Processor true
-                }
-                val libraryRoot = fileIndex.getSourceRootForFile(file)
-                    ?: fileIndex.getClassRootForFile(file)
-                    ?: return@Processor true
-                if (visitedRoots.add(libraryRoot.url)) {
-                    VfsUtilCore.iterateChildrenRecursively(
-                        libraryRoot,
-                        null,
-                        com.intellij.openapi.roots.ContentIterator { candidate ->
-                            if (!candidate.isDirectory && isLibraryTextCandidateInReadAction(candidate)) {
-                                files.add(candidate)
-                            }
-                            files.size < limit
-                        },
-                    )
-                }
-                files.size < limit
-            })
-            files.size < limit
-        }, scope, null)
-    }
-
-    private fun isLibraryTextCandidateInReadAction(file: VirtualFile): Boolean =
-        file.extension?.lowercase() in setOf(
-            "java", "kt", "kts", "groovy", "scala", "xml", "properties", "json", "yaml", "yml",
-            "md", "txt", "js", "ts", "tsx", "jsx", "vue", "html", "css", "sql",
-        )
 
     private fun readTextInReadAction(file: VirtualFile): String =
         FileDocumentManager.getInstance().getDocument(file)?.text
             ?: PsiManager.getInstance(project).findFile(file)?.text
             ?: VfsUtilCore.loadText(file)
 
-    private fun contentKindInReadAction(file: VirtualFile): String = when {
-        file.extension.equals("class", true) -> "decompiled"
-        file.fileSystem.protocol == JarFileSystem.PROTOCOL -> "jar"
-        file.fileSystem.protocol == "jrt" -> "jrt"
-        else -> "project"
-    }
+    private fun contentKindInReadAction(file: VirtualFile): String = "project"
 
     private fun resolveWritableProjectFile(path: String): File {
         val relative = WorkspaceTools.normalizeRelativeSegments(path) ?: throw ToolException.invalidPath(path)
@@ -426,8 +367,12 @@ internal class IdeProjectSupport(
     private fun findLocalFileInReadAction(file: File): VirtualFile? =
         LocalFileSystem.getInstance().findFileByIoFile(file)
 
-    private fun isProjectFileInReadAction(file: VirtualFile): Boolean =
-        ProjectFileIndex.getInstance(project).isInContent(file)
+    private fun isProjectFileInReadAction(file: VirtualFile): Boolean {
+        val basePath = project.basePath ?: return false
+        val projectRoot = WorkspaceTools.canonicalize(File(basePath))
+        val candidate = runCatching { WorkspaceTools.canonicalize(file.toNioPath().toFile()) }.getOrNull() ?: return false
+        return candidate.toPath().startsWith(projectRoot.toPath())
+    }
 
     private fun <T> smartRead(action: () -> T): T =
         ReadAction.nonBlocking(Callable { action() })

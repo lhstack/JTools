@@ -43,14 +43,14 @@ object BuiltinTools {
         BuiltinToolInfo("bash", "shell", "Run a shell command and return stdout, stderr, and exit code."),
         BuiltinToolInfo("web_fetch", "http", "Send an HTTP request with optional proxy, headers, and request body."),
         BuiltinToolInfo("cli", "cli", "Execute structured JTools CLI commands such as mcp.list, mcp.create, mcp.test, and mcp.call."),
-        BuiltinToolInfo("read_file", "ide", "Read one or a bounded batch of known project files or explicitly selected dependency/JAR/JRT paths; request focused line ranges for large files."),
-        BuiltinToolInfo("write_file", "ide", "Create or intentionally replace a whole project text file through JetBrains VFS/Document; prefer replace_text_in_file for local edits."),
-        BuiltinToolInfo("replace_text_in_file", "ide", "Apply focused, prevalidated edits to one or a bounded batch of existing project files through IDE Documents; report ambiguity instead of guessing."),
-        BuiltinToolInfo("find_files", "ide", "Find files for one or a bounded batch of filename patterns; enable library scope only when dependency/JAR/JRT inspection is explicitly needed."),
-        BuiltinToolInfo("search_text", "ide", "Search literal text or regex in project source/tests/docs/config; library/JAR scope is opt-in and not a bulk binary-class search."),
-        BuiltinToolInfo("format_file", "ide", "Format only explicitly selected line ranges of a modified project source file with the configured JetBrains language and Code Style; the range is required to protect collaborator changes."),
-        BuiltinToolInfo("compile_project", "ide", "Run the IDE ProjectTaskManager build and collect bounded platform BuildEvents for the same build session when the active runner publishes them."),
-        BuiltinToolInfo("get_file_problems", "ide", "Inspect one or a bounded batch of modified project source files for IDE errors/inspections; use Bash for project-wide builds, custom compilation, and tests."),
+        BuiltinToolInfo("read_project_files", "ide", "Read one or more current-project text files through the IDE, including unsaved editor content."),
+        BuiltinToolInfo("write_project_files", "ide", "Create or completely replace one or more current-project text files through the IDE."),
+        BuiltinToolInfo("replace_project_text", "ide", "Apply exact, prevalidated text replacements to existing current-project files."),
+        BuiltinToolInfo("find_project_files", "ide", "Find current-project files by exact, contains, or glob file-name queries."),
+        BuiltinToolInfo("search_project_text", "ide", "Search text file contents in the current project with optional regex, file-name glob, and line context."),
+        BuiltinToolInfo("format_project_files", "ide", "Format explicit line ranges with the formatter supplied by the active IDE and installed file-type support."),
+        BuiltinToolInfo("build_project", "ide", "Build the current project with JetBrains ProjectTaskManager and the task runner supplied by the active IDE."),
+        BuiltinToolInfo("inspect_project_files", "ide", "Run enabled local inspections for current-project files using the active IDE inspection profile."),
     )
 
     /** 照抄 builtin_tools：按配置的多模态资源类型追加 view_* 工具。 */

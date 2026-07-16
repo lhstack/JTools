@@ -189,6 +189,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var currentSessionId: Long? = null
     private var renderedSessionId: Long? = null
     private var inputRestoreSequence = 0L
+    private var historyRevision = 0L
     private var browserInputRestore: AgentBrowserInputRestore? = null
     private var updatingSessionSelection = false
     private var updatingAgentSelection = false
@@ -419,7 +420,23 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun refreshBrowserMessageCache() {
         val sessionId = currentSessionId ?: return
         val record = ChatSessionService.sessionById(sessionId) ?: return
+        discardUnpersistedQueueItemsForRefresh(sessionId)
         renderSessionHistory(record)
+    }
+
+    private fun discardUnpersistedQueueItemsForRefresh(sessionId: Long) {
+        val removed = synchronized(queueLock) {
+            val items = chatQueue.filter {
+                it.sessionId == sessionId &&
+                    it.status != ChatQueueStatus.PENDING &&
+                    it.status != ChatQueueStatus.PROCESSING &&
+                    it.persistedLogId == null
+            }
+            chatQueue.removeAll(items.toSet())
+            items
+        }
+        removed.forEach(::discardQueueCards)
+        if (removed.isNotEmpty()) refreshQueuePanel()
     }
 
     private fun clearCurrentSessionFromBrowser() {
@@ -462,6 +479,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun renderSessionHistory(record: ChatSessionRecord) {
         renderedSessionId = record.id
+        historyRevision++
         agentRunSubscription?.close()
         agentRunSubscription = AgentRunService.subscribe(record.id, ::updateAgentRunCard)
         messageCards.clear()
@@ -558,6 +576,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             onDelete = null,
             createdAt = turn.userMessageAt,
             cardId = "turn-${turn.logId}-user",
+            persisted = true,
         )
     }
 
@@ -1523,10 +1542,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun deleteQueueTurn(item: ChatQueueItem) {
-        item.persistedLogId?.let { ModelLogService.deleteModelLog(it) }
-        synchronized(queueLock) { chatQueue.remove(item) }
+        synchronized(queueLock) {
+            item.status = ChatQueueStatus.CANCELLED
+            item.token.cancel()
+            item.toolToken.cancel()
+            chatQueue.remove(item)
+        }
+        item.persistedLogId?.let(ModelLogService::deleteChatTurn)
+        discardQueueCards(item)
         refreshQueuePanel()
+        updateActiveStopButton()
         refreshCurrentSessionHistoryIfVisible(item.sessionId)
+        processQueue()
         project.infoNotify("对话", "消息已删除")
     }
 
@@ -1627,12 +1654,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         onDelete: (() -> Unit)? = null,
         toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
         cardId: String? = null,
+        persisted: Boolean = cardId?.startsWith("turn-") == true,
     ): AssistantTurnView {
         val card = AgentAssistantMessageCard(
             showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
             toolDetailLoader = toolDetailLoader,
             onDelete = onDelete,
             onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+            persisted = persisted,
             id = cardId ?: "assistant-${UUID.randomUUID()}",
         )
         addMessageCard(sessionId, card)
@@ -1659,6 +1688,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         onDelete: (() -> Unit)? = null,
         createdAt: String? = null,
         cardId: String? = null,
+        persisted: Boolean = false,
     ) {
         if (role == ROLE_USER) {
             addMessageCard(
@@ -1668,6 +1698,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     attachments,
                     onDelete,
                     createdAt,
+                    persisted,
                     cardId ?: "user-${UUID.randomUUID()}",
                 )
             )
@@ -2435,7 +2466,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
             "attachment.open" -> text?.let(::openAttachmentPath)
             "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
-            "message.delete" -> id?.let { messageId -> messageCards.firstOrNull { it.id == messageId }?.delete() }
+            "message.delete" -> id?.let { messageId ->
+                messageCards.firstOrNull { it.id == messageId }?.delete()
+                    ?: refreshBrowserMessageCache()
+            }
             "tool.detail" -> {
                 val messageId = payload.get("messageId")?.asString ?: error("缺少消息 ID")
                 val callId = payload.get("callId")?.asString ?: error("缺少工具调用 ID")
@@ -2512,6 +2546,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             currentSessionId = currentSessionId,
             currentAgentId = currentAgentId,
             messages = messageCards.map(AgentChatCard::toBrowserMessage),
+            historyRevision = historyRevision,
             queue = queue,
             drafts = draftAttachments.map { it.toBrowserAttachment() },
             inputRestore = browserInputRestore,
@@ -2530,6 +2565,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("currentSessionId") val currentSessionId: Long?,
         @SerializedName("currentAgentId") val currentAgentId: Long?,
         @SerializedName("messages") val messages: List<AgentBrowserMessage>,
+        @SerializedName("historyRevision") val historyRevision: Long,
         @SerializedName("queue") val queue: List<AgentBrowserQueueItem>,
         @SerializedName("drafts") val drafts: List<AgentBrowserAttachment>,
         @SerializedName("inputRestore") val inputRestore: AgentBrowserInputRestore?,

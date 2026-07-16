@@ -21,14 +21,14 @@ object RuntimeTools {
         SkillsListTool.NAME,
         SkillsViewTool.NAME,
         CliTool.NAME,
-        ReadFileTool.NAME,
-        WriteFileTool.NAME,
-        ReplaceTextInFileTool.NAME,
-        FindFilesTool.NAME,
-        SearchTextTool.NAME,
-        FormatFileTool.NAME,
-        CompileProjectTool.NAME,
-        GetFileProblemsTool.NAME,
+        ReadProjectFilesTool.NAME,
+        WriteProjectFilesTool.NAME,
+        ReplaceProjectTextTool.NAME,
+        FindProjectFilesTool.NAME,
+        SearchProjectTextTool.NAME,
+        FormatProjectFilesTool.NAME,
+        BuildProjectTool.NAME,
+        InspectProjectFilesTool.NAME,
     )
 
     fun create(
@@ -66,14 +66,14 @@ object RuntimeTools {
         if (enabled(CliTool.NAME)) tools.add(CliTool(cancel))
         if (project != null) {
             val ide = IdeProjectSupport(workspaceTools, project)
-            if (enabled(ReadFileTool.NAME)) tools.add(ReadFileTool(ide))
-            if (enabled(WriteFileTool.NAME)) tools.add(WriteFileTool(ide))
-            if (enabled(ReplaceTextInFileTool.NAME)) tools.add(ReplaceTextInFileTool(ide))
-            if (enabled(FindFilesTool.NAME)) tools.add(FindFilesTool(ide))
-            if (enabled(SearchTextTool.NAME)) tools.add(SearchTextTool(ide))
-            if (enabled(FormatFileTool.NAME)) tools.add(FormatFileTool(ide))
-            if (enabled(CompileProjectTool.NAME)) tools.add(CompileProjectTool(ide, cancel))
-            if (enabled(GetFileProblemsTool.NAME)) tools.add(GetFileProblemsTool(ide))
+            if (enabled(ReadProjectFilesTool.NAME)) tools.add(ReadProjectFilesTool(ide))
+            if (enabled(WriteProjectFilesTool.NAME)) tools.add(WriteProjectFilesTool(ide))
+            if (enabled(ReplaceProjectTextTool.NAME)) tools.add(ReplaceProjectTextTool(ide))
+            if (enabled(FindProjectFilesTool.NAME)) tools.add(FindProjectFilesTool(ide))
+            if (enabled(SearchProjectTextTool.NAME)) tools.add(SearchProjectTextTool(ide))
+            if (enabled(FormatProjectFilesTool.NAME)) tools.add(FormatProjectFilesTool(ide))
+            if (enabled(BuildProjectTool.NAME)) tools.add(BuildProjectTool(ide, cancel))
+            if (enabled(InspectProjectFilesTool.NAME)) tools.add(InspectProjectFilesTool(ide))
         }
         return tools
     }

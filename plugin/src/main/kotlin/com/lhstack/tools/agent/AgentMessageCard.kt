@@ -14,6 +14,7 @@ internal class AgentUserMessageCard(
     private val attachments: List<AgentAttachmentState> = emptyList(),
     private val onDelete: (() -> Unit)? = null,
     private val createdAt: String? = null,
+    private val persisted: Boolean = false,
     override val id: String = "user-${UUID.randomUUID()}",
 ) : AgentChatCard {
     override fun toBrowserMessage() = AgentBrowserMessage(
@@ -23,6 +24,7 @@ internal class AgentUserMessageCard(
         attachments = attachments.map(AgentAttachmentState::toBrowserAttachment),
         createdAt = compactCreatedAt(createdAt),
         deletable = onDelete != null,
+        persisted = persisted,
     )
 
     override fun delete() = onDelete?.invoke() ?: Unit
@@ -33,6 +35,7 @@ internal class AgentAssistantMessageCard(
     private val toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
     private val onDelete: (() -> Unit)? = null,
     @Suppress("UNUSED_PARAMETER") private val onCopyCode: (() -> Unit)? = null,
+    private val persisted: Boolean = false,
     override val id: String = "assistant-${UUID.randomUUID()}",
 ) : AgentChatCard {
     private var response = ""
@@ -108,6 +111,7 @@ internal class AgentAssistantMessageCard(
         usage = usage,
         usageDetails = usageDetails,
         deletable = onDelete != null,
+        persisted = persisted,
     )
 
     fun toolDetail(callId: String): AgentBrowserToolDetail? =
@@ -135,6 +139,7 @@ internal class AgentRunMessageCard(
     private var error: String? = null
     private var createdAt: String? = null
     private var tools: List<AgentBrowserTool> = emptyList()
+    private var persisted: Boolean = false
     internal var onChanged: (() -> Unit)? = null
 
     fun update(snapshot: AgentRunSnapshot) {
@@ -145,6 +150,7 @@ internal class AgentRunMessageCard(
         error = snapshot.error
         createdAt = snapshot.createdAt
         tools = snapshot.tools
+        persisted = snapshot.logId != null && snapshot.status != "running"
         onChanged?.invoke()
     }
 
@@ -158,6 +164,7 @@ internal class AgentRunMessageCard(
         createdAt = compactCreatedAt(createdAt),
         deletable = onDelete != null,
         messageType = "agent_run",
+        persisted = persisted,
         agentRun = AgentBrowserRun(runId, agentId, agentName, receiver, latestPrompt, status, error),
     )
 
@@ -198,6 +205,7 @@ internal data class AgentBrowserMessage(
     @SerializedName("usage") val usage: String? = null,
     @SerializedName("usageDetails") val usageDetails: List<AgentBrowserUsageItem> = emptyList(),
     @SerializedName("deletable") val deletable: Boolean = false,
+    @SerializedName("persisted") val persisted: Boolean = false,
     @SerializedName("messageType") val messageType: String = "message",
     @SerializedName("agentRun") val agentRun: AgentBrowserRun? = null,
 )

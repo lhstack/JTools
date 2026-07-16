@@ -1,13 +1,14 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Close, Delete, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Close, Delete, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, invoke } from '../bridge/jcefBridge'
 import ChatMessage from '../components/chat/ChatMessage.vue'
 
 const prompt = ref('')
 const messageList = ref(null)
 const sending = ref(false)
+const composerExpanded = ref(false)
 const dragging = ref(false)
 const sessionDialogVisible = ref(false)
 const sessionName = ref('')
@@ -38,6 +39,17 @@ function openAttachment(att) {
     invoke('attachment.open', { text: att.path })
   }
 }
+
+watch(
+  () => s.historyRevision,
+  (revision, previous) => {
+    if (!revision || revision === previous) return
+    persistMessages(s.currentSessionId, s.messages)
+    messageWindowStart.value = messageWindowMaxStart.value
+    scrollMessagesToBottom()
+  },
+  { flush: 'post' }
+)
 
 watch(
   () => s.inputRestore?.sequence,
@@ -93,7 +105,7 @@ function normalizeCachedMessages(value) {
   if (!Array.isArray(value)) return []
   const values = new Map()
   value.forEach((item) => {
-    if (item?.id) values.set(String(item.id), item)
+    if (item?.id && item.persisted === true) values.set(String(item.id), item)
   })
   return [...values.values()]
 }
@@ -202,12 +214,13 @@ function open(page) {
 }
 
 async function refreshCache() {
- try {
- localStorage.removeItem(messageCacheKey(s.currentSessionId))
- await invoke('cache.refresh')
- } catch {
- // The host reports refresh failures through the existing command channel.
- }
+  try {
+    const sessionId = s.currentSessionId
+    localStorage.removeItem(messageCacheKey(sessionId))
+    await invoke('cache.refresh')
+  } catch {
+    // The host reports refresh failures through the existing command channel.
+  }
 }
 
 function clear() {
@@ -311,15 +324,25 @@ function drop(event) {
         <el-button text @click="open('skills')">技能</el-button>
         <el-button text @click="open('settings')">设置</el-button>
       </div>
-      <el-input
-        v-model="prompt"
-        type="textarea"
-        :rows="4"
-        placeholder="输入消息…"
-        @paste="paste"
-        @keydown.meta.enter.prevent="send"
-        @keydown.ctrl.enter.prevent="send"
-      />
+      <div class="composer-input" :class="{ expanded: composerExpanded }">
+        <el-button
+          class="composer-expand"
+          :icon="composerExpanded ? ArrowDown : ArrowUp"
+          circle
+          plain
+          :title="composerExpanded ? '收起输入框' : '展开输入框'"
+          @click="composerExpanded = !composerExpanded"
+        />
+        <el-input
+          v-model="prompt"
+          type="textarea"
+          :rows="composerExpanded ? 10 : 4"
+          placeholder="输入消息…"
+          @paste="paste"
+          @keydown.meta.enter.prevent="send"
+          @keydown.ctrl.enter.prevent="send"
+        />
+      </div>
     </footer>
 
     <div v-if="dragging" class="drop-overlay"><div>释放文件以添加附件</div></div>

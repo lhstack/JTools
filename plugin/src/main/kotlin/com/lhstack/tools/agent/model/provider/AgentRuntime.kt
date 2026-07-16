@@ -31,7 +31,7 @@ import java.io.File
  * Agent 运行时。照抄 awake-claw agent_runtime.rs 的
  * execute_agent_prompt_with_attachments_and_tool_env 主路径。
  *
- * 当前 Kotlin 宿主已经具备的输入：Agent、provider/model、prompt template、workspace、
+ * 当前插件宿主已经具备的输入：Agent、provider/model、prompt template、workspace、
  * builtin tools。聊天历史、附件和 send_files 依赖宿主会话层，继续由调用方传入，
  * 不在这里兼容缺失数据。
  */
@@ -291,13 +291,11 @@ object AgentRuntime {
         append("- bash 工具系统编码：${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}\n")
         append("- 项目环境编码：${projectFileEncodingName(request)}\n")
 
-        append("\n## 用户项目文件与项目代码操作约定\n")
-        append("- 查找、搜索、读取、创建和修改项目文件时，使用 `find_files`、`search_text`、`read_file`、`write_file`、`replace_text_in_file` 等 IDE 原生文件工具；多个已知目标应优先使用这些工具的批量参数以减少调用次数。这些 IDE 原生工具仅支持操作项目中的文件，不要用 `bash` 代替。\n")
-        append("- 修改现有文件前先读取相关内容，再用 `replace_text_in_file` 精确修改必要范围；仅在新建文件或确需完整重写时使用 `write_file`。\n")
-        append("- 项目文件由 JetBrains VFS/Document 按项目环境编码保存；修改源码后使用 `format_file` 格式化，必须把本次修改涉及的 1-based 行范围作为 ranges 传入；不要格式化未修改的协作代码，并使用 `get_file_problems` 一次检查一个或多个修改文件的 IDE 诊断。\n")
-        append("- 查询依赖源码或资源时，可让 `find_files` 包含依赖/JAR，并将返回的 `jar://`、`jrt://` 或 `file://` 路径交给 `read_file`；不要批量反编译二进制 `.class`。\n")
-        append("- 当前项目通过 JetBrains ProjectTaskManager 构建时使用 `compile_project`；它会返回任务状态，并在当前 ProjectTaskRunner 将输出绑定到本次构建会话时返回通用 BuildEvent 错误和输出。未接入 ProjectTaskManager 的 Cargo、npm、测试及其他自定义构建命令使用 `bash`，并以 exit_code、success、stdout、stderr 判断结果。\n")
-        append("- bash 输出按 bash 工具系统编码处理，项目文件按项目环境编码处理。\n")
+        append("\n## 项目文件操作工具\n")
+        append("- 项目文件名查找使用 `find_project_files`；项目文本内容搜索使用 `search_project_text`。\n")
+        append("- 已知项目文件路径后，读取使用 `read_project_files`；创建或完整覆盖使用 `write_project_files`；精确修改已有文本使用 `replace_project_text`。\n")
+        append("- 需要 IDE 格式化时使用 `format_project_files`；需要当前 IDE Inspection Profile 检查文件时使用 `inspect_project_files`；需要当前 IDE 构建项目时使用 `build_project`。\n")
+        append("- 这些项目工具只操作当前项目根目录内的文件。多个目标通过工具的数组参数一次提交。\n")
 
         val template = agent.promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
         appendSection("以下是系统提示词", template)
