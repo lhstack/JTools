@@ -31,7 +31,7 @@ internal class ProjectBuildEventCollector(
     private val acceptedBuildIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Any>().apply { add(sessionId) }
 
     fun subscribe() {
-        BuildViewManager.getInstance(project).addListener(this, this)
+        project.getService(BuildViewManager::class.java).addListener(this, this)
     }
 
     override fun onEvent(buildId: Any, event: BuildEvent) {
@@ -77,7 +77,7 @@ internal class ProjectBuildEventCollector(
             Diagnostic(
                 message = event.message,
                 description = event.description,
-                file = position.file.path,
+                file = position.file?.path,
                 line = position.startLine.takeIf { it >= 0 }?.plus(1),
                 column = position.startColumn.takeIf { it >= 0 }?.plus(1),
             ),
@@ -118,7 +118,7 @@ internal class ProjectBuildEventCollector(
     }
 
     data class Diagnostic(
-        val message: String,
+        val message: String?,
         val description: String? = null,
         val file: String? = null,
         val line: Int? = null,
@@ -173,7 +173,7 @@ internal class ProjectBuildEventCollector(
 private fun List<ProjectBuildEventCollector.Diagnostic>.toJson() = JsonArray().apply {
     for (diagnostic in this@toJson) {
         add(JsonObject().apply {
-            addProperty("message", diagnostic.message)
+            diagnostic.message?.let { addProperty("message", it) }
             diagnostic.description?.takeIf { it.isNotBlank() && it != diagnostic.message }
                 ?.let { addProperty("description", it) }
             diagnostic.file?.let { addProperty("file", it) }
