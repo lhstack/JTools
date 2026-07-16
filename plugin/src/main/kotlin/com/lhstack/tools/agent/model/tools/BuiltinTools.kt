@@ -48,7 +48,7 @@ object BuiltinTools {
         BuiltinToolInfo("replace_text_in_file", "ide", "Apply a focused, unique edit to an existing project file through the current IDE Document; report ambiguity instead of guessing."),
         BuiltinToolInfo("find_files", "ide", "Find files by name in the project; enable library scope only when dependency/JAR/JRT inspection is explicitly needed."),
         BuiltinToolInfo("search_text", "ide", "Search literal text or regex in project source/tests/docs/config; library/JAR scope is opt-in and not a bulk binary-class search."),
-        BuiltinToolInfo("format_file", "ide", "Format a modified project source file with the configured JetBrains language and Code Style."),
+        BuiltinToolInfo("format_file", "ide", "Format only explicitly selected line ranges of a modified project source file with the configured JetBrains language and Code Style; the range is required to protect collaborator changes."),
         BuiltinToolInfo("compile_project", "ide", "Verify the IDE project with ProjectTaskManager; use Bash for Gradle/Maven/npm/custom builds and tests."),
         BuiltinToolInfo("get_file_problems", "ide", "Inspect one modified project source file for IDE errors/inspections; use Bash for project-wide compilation and tests."),
     )

@@ -129,28 +129,23 @@ internal class SearchTextTool(private val support: IdeProjectSupport) : ToolDyn 
 internal class FormatFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use after editing a project source file when formatting should follow the current JetBrains language plugin and project Code Style. It is not a search or a compiler, and should not be used on dependency/JAR files.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path; format the smallest relevant file after modifications."},"timeout_secs":{"type":"integer","description":"Default 30, hard limit 120."}},"required":["path"]}"""
+        "Use after editing a project source file. You must provide the exact 1-based line ranges containing this task's changes; only those ranges are formatted. Do not omit ranges and do not select the whole file merely to normalize a collaborator's style. It follows the current JetBrains language plugin and project Code Style, and cannot format dependency/JAR files.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path."},"ranges":{"type":"array","minItems":1,"description":"Required non-overlapping 1-based inclusive line ranges for only the code changed in this task. Use the full file range only for a newly created or intentionally fully rewritten file.","items":{"type":"object","properties":{"start":{"type":"integer","minimum":1},"end":{"type":"integer","minimum":1}},"required":["start","end"],"additionalProperties":false}},"timeout_secs":{"type":"integer","description":"Default 30, hard limit 120."}},"required":["path","ranges"],"additionalProperties":false}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
-        val file = support.resolveProjectFile(input.string("path"))
-        val psiFile = ApplicationManager.getApplication().runReadAction(
-            Computable { PsiManager.getInstance(support.project).findFile(file) }
-        ) ?: throw ToolException("`${support.displayPath(file)}` is not a PSI source file")
-        val done = CountDownLatch(1)
-        val processor = ApplicationManager.getApplication().runReadAction(
-            Computable { ReformatCodeProcessor(psiFile, false).apply { setPostRunnable(done::countDown) } }
-        )
-        ApplicationManager.getApplication().invokeLater(processor::run)
-        val timeout = input.intOr("timeout_secs", 30).coerceIn(1, 120).toLong()
-        require(done.await(timeout, TimeUnit.SECONDS)) { "formatting `${support.displayPath(file)}` timed out" }
-        support.saveDocument(file)
-        return JsonObject().apply {
-            addProperty("path", support.displayPath(file))
-            addProperty("formatted", true)
-        }
+        val ranges = input.get("ranges")
+            ?.takeIf { it.isJsonArray }
+            ?.asJsonArray
+            ?.map { element ->
+                val range = element.obj("line range")
+                LineRange(range.int("start"), range.int("end"))
+            }
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw ToolException("ranges must contain at least one line range")
+        val timeout = input.intOr("timeout_secs", 30).coerceIn(1, 120)
+        return support.format(input.string("path"), ranges, timeout)
     }
 
     companion object { const val NAME = "format_file" }

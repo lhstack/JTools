@@ -1,6 +1,7 @@
 package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonArray
+import com.intellij.codeInsight.actions.ReformatCodeProcessor
 import com.google.gson.JsonObject
 import com.intellij.find.FindManager
 import com.intellij.find.FindModel
@@ -13,6 +14,7 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Computable
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -26,6 +28,8 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.Processor
 import java.io.File
 import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.nio.file.FileSystems
 
 internal class IdeProjectSupport(
@@ -214,6 +218,58 @@ internal class IdeProjectSupport(
         }
     }
 
+    /**
+     * Formats only the explicitly selected line ranges. The caller must provide a
+     * range so formatting cannot silently reformat a collaborator's changes.
+     */
+    fun format(path: String, ranges: List<LineRange>, timeoutSecs: Int): JsonObject {
+        require(ranges.isNotEmpty()) { "ranges must contain at least one line range" }
+        val file = resolveProjectFile(path)
+        val psiFile = ApplicationManager.getApplication().runReadAction(
+            Computable { PsiManager.getInstance(project).findFile(file) }
+        ) ?: throw ToolException("`${displayPath(file)}` is not a PSI source file")
+        val document = ApplicationManager.getApplication().runReadAction(
+            Computable { FileDocumentManager.getInstance().getDocument(file) }
+        ) ?: throw ToolException("`${displayPath(file)}` is not a writable text file")
+        val selectedRanges = ranges.map { lineRange ->
+            require(lineRange.start >= 1 && lineRange.end >= lineRange.start) {
+                "invalid line range ${lineRange.start}-${lineRange.end}"
+            }
+            require(lineRange.end <= document.lineCount) {
+                "line range ${lineRange.start}-${lineRange.end} exceeds file line count ${document.lineCount}"
+            }
+            TextRange(
+                document.getLineStartOffset(lineRange.start - 1),
+                document.getLineEndOffset(lineRange.end - 1),
+            )
+        }
+        require(selectedRanges.zipWithNext().all { (left, right) -> left.endOffset <= right.startOffset }) {
+            "formatting line ranges must not overlap or be out of order"
+        }
+
+        val done = CountDownLatch(1)
+        val processor = ReformatCodeProcessor(psiFile, selectedRanges.toTypedArray()).apply {
+            setPostRunnable(done::countDown)
+        }
+        ApplicationManager.getApplication().invokeLater(processor::run)
+        require(done.await(timeoutSecs.toLong(), TimeUnit.SECONDS)) {
+            "formatting `${displayPath(file)}` timed out"
+        }
+        saveDocument(file)
+        return JsonObject().apply {
+            addProperty("path", displayPath(file))
+            addProperty("formatted", true)
+            add("ranges", JsonArray().apply {
+                ranges.forEach { range ->
+                    add(JsonObject().apply {
+                        addProperty("start", range.start)
+                        addProperty("end", range.end)
+                    })
+                }
+            })
+        }
+    }
+
     fun resolveProjectFile(path: String): VirtualFile = readModel { resolveProjectFileInReadAction(path) }
 
     fun displayPath(file: VirtualFile): String = readModel { displayPathInReadAction(file) }
@@ -245,9 +301,10 @@ internal class IdeProjectSupport(
     }
 
     private fun displayPathInReadAction(file: VirtualFile): String {
-        if (file.fileSystem.protocol == JarFileSystem.PROTOCOL) return file.url
-        val ioFile = runCatching { VfsUtilCore.virtualToIoFile(file) }.getOrNull()
-        return if (ioFile != null) workspace.displayPath(ioFile) else file.url
+        return when (file.fileSystem.protocol) {
+            LocalFileSystem.PROTOCOL -> workspace.displayPath(file.toNioPath().toFile())
+            else -> file.url
+        }
     }
 
     private fun filesResultInReadAction(files: Collection<VirtualFile>, truncated: Boolean): JsonObject =
