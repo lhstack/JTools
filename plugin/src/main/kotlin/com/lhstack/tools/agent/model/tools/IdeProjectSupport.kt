@@ -38,8 +38,16 @@ internal class IdeProjectSupport(
 ) {
     private val root: File get() = workspace.canonicalRoot()
 
-    fun read(path: String, ranges: List<LineRange>, maxLines: Int): JsonObject = smartRead {
-        val file = resolveReadableFileInReadAction(path)
+    fun readFiles(requests: List<ReadFileRequest>): List<JsonObject> {
+        require(requests.isNotEmpty()) { "read requests must not be empty" }
+        return smartRead {
+            val files = requests.map { request -> resolveReadableFileInReadAction(request.path) }
+            require(files.map { it.url }.distinct().size == files.size) { "read paths must not contain duplicates" }
+            requests.zip(files).map { (request, file) -> readFileInReadAction(file, request.ranges, request.maxLines) }
+        }
+    }
+
+    private fun readFileInReadAction(file: VirtualFile, ranges: List<LineRange>, maxLines: Int): JsonObject {
         require(!file.isDirectory) { "path `${displayPathInReadAction(file)}` is not a file" }
         val text = readTextInReadAction(file)
         val lines = text.split('\n')
@@ -59,7 +67,7 @@ internal class IdeProjectSupport(
             }
             if (emitted >= maxLines) break
         }
-        JsonObject().apply {
+        return JsonObject().apply {
             addProperty("path", displayPathInReadAction(file))
             addProperty("charset", file.charset.name())
             addProperty("content_kind", contentKindInReadAction(file))
@@ -69,64 +77,81 @@ internal class IdeProjectSupport(
         }
     }
 
-    fun write(path: String, content: String, overwrite: Boolean): JsonObject {
-        val target = resolveWritableProjectFile(path)
-        val existing = readModel { findLocalFileInReadAction(target) }
-        require(existing == null || overwrite) {
-            "file `${workspace.displayPath(target)}` already exists; set overwrite=true to replace it"
+    fun writeFiles(requests: List<WriteFileRequest>): List<JsonObject> {
+        require(requests.isNotEmpty()) { "write requests must not be empty" }
+        val prepared = requests.map { request ->
+            val target = resolveWritableProjectFile(request.path)
+            val existing = readModel { findLocalFileInReadAction(target) }
+            require(existing == null || request.overwrite) {
+                "file `${workspace.displayPath(target)}` already exists; set overwrite=true to replace it"
+            }
+            PreparedWrite(request, target, existing)
         }
-        val normalized = StringUtil.convertLineSeparators(content)
-        val charset = runOnEdt {
-            var value: String? = null
-            WriteCommandAction.runWriteCommandAction(project, "JTools Write File", null, {
-                val file = existing ?: createLocalFileInWriteAction(target)
-                val document = FileDocumentManager.getInstance().getDocument(file)
-                    ?: throw ToolException("`${workspace.displayPath(target)}` is not a writable text file")
-                document.setText(normalized)
-                FileDocumentManager.getInstance().saveDocument(document)
-                value = file.charset.name()
+        require(prepared.map { it.target }.distinct().size == prepared.size) { "write paths must not contain duplicates" }
+
+        val results = runOnEdt {
+            val values = mutableListOf<JsonObject>()
+            WriteCommandAction.runWriteCommandAction(project, "JTools Write Files", null, {
+                prepared.forEach { item ->
+                    val file = item.existing ?: createLocalFileInWriteAction(item.target)
+                    val document = FileDocumentManager.getInstance().getDocument(file)
+                        ?: throw ToolException("`${workspace.displayPath(item.target)}` is not a writable text file")
+                    document.setText(StringUtil.convertLineSeparators(item.request.content))
+                    FileDocumentManager.getInstance().saveDocument(document)
+                    values.add(JsonObject().apply {
+                        addProperty("path", workspace.displayPath(item.target))
+                        addProperty("charset", file.charset.name())
+                        addProperty("created", item.existing == null)
+                        addProperty("overwritten", item.existing != null)
+                    })
+                }
             })
-            value ?: throw ToolException("failed to write `${workspace.displayPath(target)}`")
+            values
         }
-        return JsonObject().apply {
-            addProperty("path", workspace.displayPath(target))
-            addProperty("charset", charset)
-            addProperty("created", existing == null)
-            addProperty("overwritten", existing != null)
+        return results
+    }
+
+    fun replaceFiles(requests: List<ReplaceTextRequest>): List<JsonObject> {
+        require(requests.isNotEmpty()) { "replace requests must not be empty" }
+        val prepared = requests.map { request -> prepareReplacement(request) }
+        require(prepared.map { it.file.url }.distinct().size == prepared.size) {
+            "replace batch supports at most one edit per file"
+        }
+
+        runOnEdt {
+            WriteCommandAction.runWriteCommandAction(project, "JTools Replace Text In Files", null, {
+                prepared.forEach { item ->
+                    item.ranges.asReversed().forEach { range ->
+                        item.document.replaceString(range.first, range.last + 1, item.request.newText)
+                    }
+                }
+                prepared.forEach { FileDocumentManager.getInstance().saveDocument(it.document) }
+            })
+        }
+        return prepared.map { item ->
+            val metadata = readModel { FileMetadata(displayPathInReadAction(item.file), item.file.charset.name()) }
+            JsonObject().apply {
+                addProperty("path", metadata.path)
+                addProperty("replacements", item.ranges.size)
+                addProperty("charset", metadata.charset)
+            }
         }
     }
 
-    fun replace(path: String, oldText: String, newText: String, replaceAll: Boolean, caseSensitive: Boolean): JsonObject {
-        require(oldText.isNotEmpty()) { "old_text must not be empty" }
-        val file = resolveProjectFile(path)
+    private fun prepareReplacement(request: ReplaceTextRequest): PreparedReplacement {
+        require(request.oldText.isNotEmpty()) { "old_text must not be empty for `${request.path}`" }
+        val file = resolveProjectFile(request.path)
         val document = readModel {
             require(!file.isDirectory) { "path `${displayPathInReadAction(file)}` is not a file" }
             FileDocumentManager.getInstance().getDocument(file)
                 ?: throw ToolException("`${displayPathInReadAction(file)}` is not a writable text file")
         }
-        val replacements = runOnEdt {
-            var count = 0
-            WriteCommandAction.runWriteCommandAction(project, "JTools Replace Text", null, {
-                val ranges = findOccurrences(document.text, oldText, caseSensitive)
-                require(ranges.isNotEmpty()) { "old_text was not found in the target file" }
-                require(replaceAll || ranges.size == 1) {
-                    "old_text occurs ${ranges.size} times; provide more context or set replace_all=true"
-                }
-                val selected = if (replaceAll) ranges else listOf(ranges.single())
-                for (range in selected.asReversed()) {
-                    document.replaceString(range.first, range.last + 1, newText)
-                }
-                FileDocumentManager.getInstance().saveDocument(document)
-                count = selected.size
-            })
-            count
+        val matches = findOccurrences(document.text, request.oldText, request.caseSensitive)
+        require(matches.isNotEmpty()) { "old_text was not found in `${request.path}`" }
+        require(request.replaceAll || matches.size == 1) {
+            "old_text occurs ${matches.size} times in `${request.path}`; provide more context or set replace_all=true"
         }
-        val metadata = readModel { FileMetadata(displayPathInReadAction(file), file.charset.name()) }
-        return JsonObject().apply {
-            addProperty("path", metadata.path)
-            addProperty("replacements", replacements)
-            addProperty("charset", metadata.charset)
-        }
+        return PreparedReplacement(request, file, document, if (request.replaceAll) matches else listOf(matches.single()))
     }
 
     fun findFiles(name: String, match: NameMatch, includeLibraries: Boolean, limit: Int): JsonObject {
@@ -448,6 +473,22 @@ internal class IdeProjectSupport(
     }
 }
 
+internal data class ReadFileRequest(val path: String, val ranges: List<LineRange>, val maxLines: Int)
+internal data class WriteFileRequest(val path: String, val content: String, val overwrite: Boolean)
+internal data class ReplaceTextRequest(
+    val path: String,
+    val oldText: String,
+    val newText: String,
+    val replaceAll: Boolean,
+    val caseSensitive: Boolean,
+)
+private data class PreparedWrite(val request: WriteFileRequest, val target: File, val existing: VirtualFile?)
+private data class PreparedReplacement(
+    val request: ReplaceTextRequest,
+    val file: VirtualFile,
+    val document: Document,
+    val ranges: List<IntRange>,
+)
 private data class FileMetadata(val path: String, val charset: String)
 internal data class LineRange(val start: Int, val end: Int)
 internal enum class NameMatch { EXACT, CONTAINS, GLOB }

@@ -102,7 +102,6 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState { *; }",
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState\$State { *; }",
     "-keep class com.lhstack.tools.agent.AgentAttachmentState { *; }",
-    "-keep class com.lhstack.tools.agent.model.tools.java.JavaCompilationDiagnosticsListener { *; }",
     "-keepclassmembers class * implements com.intellij.openapi.Disposable { public void dispose(); }",
     "-keepclassmembers class * { void dispose(); }",
     "-keepclassmembers class com.lhstack.tools.plugins.PluginState** { *; }",

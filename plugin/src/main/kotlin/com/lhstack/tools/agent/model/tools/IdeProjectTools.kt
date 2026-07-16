@@ -4,7 +4,6 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.intellij.codeInsight.actions.ReformatCodeProcessor
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.openapi.application.ApplicationManager
@@ -15,6 +14,7 @@ import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.task.ProjectTaskContext
 import com.intellij.task.ProjectTaskManager
 import com.intellij.profile.codeInspection.InspectionProfileManager
@@ -22,7 +22,6 @@ import com.intellij.psi.PsiManager
 import com.lhstack.tools.agent.model.llm.ToolDefinition
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import java.util.concurrent.Callable
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import org.jetbrains.concurrency.CancellablePromise
@@ -30,17 +29,24 @@ import org.jetbrains.concurrency.CancellablePromise
 internal class ReadFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use when you already know the target file path and need its source, documentation, dependency source, JAR resource, JRT source, or on-demand decompiled class text. Prefer this after find_files or search_text; do not use it to discover unknown filenames. Project files are read from the current IDE Document when available, so unsaved editor changes are included. For large files, request only the needed 1-based lines ranges. JAR/classpath content is read only when the path explicitly returned by find_files is provided.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative path, or a jar://, jrt://, or file:// URL returned by find_files."},"lines":{"type":"array","description":"Optional 1-based line ranges. Use this for focused reads instead of loading a large file.","items":{"type":"object","properties":{"start":{"type":"integer"},"end":{"type":"integer"}},"required":["start","end"]}},"max_lines":{"type":"integer","description":"Maximum returned lines, default 1000, hard limit 5000; the response is still bounded for UI safety."}},"required":["path"]}"""
+        "Use when you already know one or more target file paths and need their source, documentation, dependency source, JAR resource, JRT source, or on-demand decompiled class text. Use path for one file or files for a batch of up to 20 files; do not provide both. Project files are read from the current IDE Document when available, so unsaved editor changes are included. For large files, request only the needed 1-based line ranges.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Single project-relative path, or a jar://, jrt://, or file:// URL returned by find_files."},"lines":{"type":"array","description":"Optional 1-based line ranges for the single path.","items":{"type":"object","properties":{"start":{"type":"integer"},"end":{"type":"integer"}},"required":["start","end"]}},"max_lines":{"type":"integer","description":"Maximum returned lines for the single path; default 1000, hard limit 5000."},"files":{"type":"array","minItems":1,"maxItems":20,"description":"Batch read requests. Do not combine with path.","items":{"type":"object","properties":{"path":{"type":"string"},"lines":{"type":"array","items":{"type":"object","properties":{"start":{"type":"integer"},"end":{"type":"integer"}},"required":["start","end"]}},"max_lines":{"type":"integer","description":"Default 1000, hard limit 5000."}},"required":["path"]}}},"anyOf":[{"required":["path"]},{"required":["files"]}]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
+        val batch = input.fileBatch("path", "files")
+        val requests = batch.items.map(::parseReadRequest)
+        val results = support.readFiles(requests)
+        return if (batch.isBatch) batchResult("files", results) else results.single()
+    }
+
+    private fun parseReadRequest(input: JsonObject): ReadFileRequest {
         val ranges = input.getAsJsonArray("lines")?.map { element ->
             val range = element.obj("line range")
             LineRange(range.int("start"), range.int("end"))
         }.orEmpty()
-        return support.read(input.string("path"), ranges, input.intOr("max_lines", 1000).coerceIn(1, 5000))
+        return ReadFileRequest(input.string("path"), ranges, input.intOr("max_lines", 1000).coerceIn(1, 5000))
     }
 
     companion object { const val NAME = "read_file" }
@@ -49,13 +55,22 @@ internal class ReadFileTool(private val support: IdeProjectSupport) : ToolDyn {
 internal class WriteFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use for a new project file or an intentional complete replacement of an existing file. Missing parent directories are created through JetBrains VFS/Document and the IDE controls encoding. For a small change to an existing file, prefer replace_text_in_file; overwrite is false unless explicitly enabled.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative project text-file path; this tool is not for writing dependency/JAR files."},"content":{"type":"string","description":"Complete replacement content; use only when creating or intentionally rewriting the whole file."},"overwrite":{"type":"boolean","description":"Allow replacing an existing file; default false."}},"required":["path","content"]}"""
+        "Use for one or more new project files or intentional complete replacements. Use path/content for one file or files for a batch of up to 20 files; do not provide both. All batch requests are validated before the IDE write command starts. For focused changes to existing files, prefer replace_text_in_file.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Single project-relative project text-file path."},"content":{"type":"string","description":"Complete content for the single path."},"overwrite":{"type":"boolean","description":"Allow replacing the single existing file; default false."},"files":{"type":"array","minItems":1,"maxItems":20,"description":"Batch write requests. Do not combine with path/content.","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"overwrite":{"type":"boolean","description":"Default false."}},"required":["path","content"]}}},"anyOf":[{"required":["path","content"]},{"required":["files"]}]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
-        return support.write(input.string("path"), input.stringValue("content"), input.booleanOr("overwrite", false))
+        val batch = input.fileBatch("path", "files")
+        val requests = batch.items.map { item ->
+            WriteFileRequest(
+                item.string("path"),
+                item.stringValue("content"),
+                item.booleanOr("overwrite", false),
+            )
+        }
+        val results = support.writeFiles(requests)
+        return if (batch.isBatch) batchResult("files", results) else results.single()
     }
 
     companion object { const val NAME = "write_file" }
@@ -64,19 +79,24 @@ internal class WriteFileTool(private val support: IdeProjectSupport) : ToolDyn {
 internal class ReplaceTextInFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use for a focused edit to an existing project file. It uses the current IDE Document and WriteCommandAction. Include enough surrounding context for old_text to be unique; ambiguity is reported instead of guessing. Prefer this over write_file for local code changes. It cannot edit dependency/JAR content.",
-        """{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string","description":"Exact text to replace; include surrounding context to make it unique."},"new_text":{"type":"string","description":"Replacement text; may be empty."},"replace_all":{"type":"boolean","description":"Replace all matches; default false."},"case_sensitive":{"type":"boolean","description":"Default true."}},"required":["path","old_text","new_text"]}"""
+        "Use for focused edits to one or more existing project files. Use path/old_text/new_text for one file or files for a batch of up to 20 edits; do not provide both. Every batch edit is validated before any replacement starts, and ambiguity is reported instead of guessed. It cannot edit dependency/JAR content.",
+        """{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string","description":"Exact text to replace in the single path."},"new_text":{"type":"string","description":"Replacement text for the single path; may be empty."},"replace_all":{"type":"boolean","description":"Single path only; default false."},"case_sensitive":{"type":"boolean","description":"Single path only; default true."},"files":{"type":"array","minItems":1,"maxItems":20,"description":"Batch edit requests. Do not combine with path/old_text/new_text.","items":{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"replace_all":{"type":"boolean","description":"Default false."},"case_sensitive":{"type":"boolean","description":"Default true."}},"required":["path","old_text","new_text"]}}},"anyOf":[{"required":["path","old_text","new_text"]},{"required":["files"]}]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
-        return support.replace(
-            input.string("path"),
-            input.stringValue("old_text"),
-            input.stringValue("new_text"),
-            input.booleanOr("replace_all", false),
-            input.booleanOr("case_sensitive", true),
-        )
+        val batch = input.fileBatch("path", "files")
+        val requests = batch.items.map { item ->
+            ReplaceTextRequest(
+                item.string("path"),
+                item.stringValue("old_text"),
+                item.stringValue("new_text"),
+                item.booleanOr("replace_all", false),
+                item.booleanOr("case_sensitive", true),
+            )
+        }
+        val results = support.replaceFiles(requests)
+        return if (batch.isBatch) batchResult("files", results) else results.single()
     }
 
     companion object { const val NAME = "replace_text_in_file" }
@@ -85,19 +105,27 @@ internal class ReplaceTextInFileTool(private val support: IdeProjectSupport) : T
 internal class FindFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use when you need to locate a file by filename, class name, or path-independent name. The default scope is the current project only. Set include_libraries=true only when inspecting dependency source/JAR entries or JDK/JRT content; this may return many library matches and is not a content search. Pass returned jar:// or jrt:// paths to read_file. For text/content matches, use search_text instead.",
-        """{"type":"object","properties":{"name":{"type":"string","description":"Filename or class-name pattern; use match=contains for normal discovery, exact for a known filename, or glob for a filename pattern."},"match":{"type":"string","enum":["exact","contains","glob"],"description":"Default contains."},"include_libraries":{"type":"boolean","description":"Include indexed dependency sources, JAR entries, or JRT entries only when library inspection is required; default false to avoid noisy results."},"limit":{"type":"integer","description":"Default 100, hard limit 1000."}},"required":["name"]}"""
+        "Use when you need to locate files by one or more filename, class-name, or glob patterns. Use name for one query or names for up to 20 queries; do not provide both. The match, scope, and per-query limit apply to every name. Set include_libraries=true only for dependency/JAR/JRT inspection. For text/content matches, use search_text instead.",
+        """{"type":"object","properties":{"name":{"type":"string","description":"Single filename or class-name pattern."},"names":{"type":"array","minItems":1,"maxItems":20,"description":"Multiple filename or class-name patterns. Do not combine with name.","items":{"type":"string"}},"match":{"type":"string","enum":["exact","contains","glob"],"description":"Default contains; applies to every name."},"include_libraries":{"type":"boolean","description":"Include dependency/JAR/JRT files; default false."},"limit":{"type":"integer","description":"Per-name result limit; default 100, hard limit 1000."}},"anyOf":[{"required":["name"]},{"required":["names"]}]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
+        val names = input.singleOrStringBatch("name", "names")
         val match = when (input.stringOr("match", "contains").lowercase()) {
             "exact" -> NameMatch.EXACT
             "contains" -> NameMatch.CONTAINS
             "glob" -> NameMatch.GLOB
             else -> throw ToolException("match must be exact, contains, or glob")
         }
-        return support.findFiles(input.string("name"), match, input.booleanOr("include_libraries", false), input.intOr("limit", 100).coerceIn(1, 1000))
+        val includeLibraries = input.booleanOr("include_libraries", false)
+        val limit = input.intOr("limit", 100).coerceIn(1, 1000)
+        val results = names.values.map { name ->
+            support.findFiles(name, match, includeLibraries, limit).apply {
+                addProperty("query", name)
+            }
+        }
+        return if (names.isBatch) batchResult("results", results) else results.single()
     }
 
     companion object { const val NAME = "find_files" }
@@ -157,7 +185,7 @@ internal class CompileProjectTool(
 ) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use to verify the current IDE project after code changes when a JetBrains project build is appropriate. It saves open documents and uses the IDE project model; use Bash instead for Gradle/Maven/npm tasks, custom build commands, tests, Git, or scripts.",
+        "Use when the current project should be built through JetBrains ProjectTaskManager. It returns the authoritative task status and collects bounded platform BuildEvents (messages, file positions, failures, stdout, and stderr) when the active ProjectTaskRunner publishes them under this build session. Use Bash for build commands that do not run through ProjectTaskManager.",
         """{"type":"object","properties":{"mode":{"type":"string","enum":["build","rebuild"],"description":"Compilation mode; default build."},"timeout_secs":{"type":"integer","description":"Maximum wait time in seconds; default 600, hard limit 3600."}},"required":[]}"""
     )
 
@@ -185,11 +213,10 @@ internal class CompileProjectTool(
             throw ToolException.cancelled()
         } finally {
             interruptId?.let { cancel?.clearInterrupt(it) }
-            ProjectCompilationDiagnostics.finish(compilation.context)
+            Disposer.dispose(compilation.collector)
         }
         if (cancel?.isCancelled() == true) throw ToolException.cancelled()
-        val diagnostics = ProjectCompilationDiagnostics.collect(compilation.context)
-        return buildResult(mode, result, diagnostics)
+        return buildResult(mode, result, compilation.collector.snapshot())
     }
 
     private fun saveDocumentsBeforeCompilation() {
@@ -202,10 +229,16 @@ internal class CompileProjectTool(
         val execution = java.util.concurrent.atomic.AtomicReference<CompilationExecution>()
         val start = Runnable {
             val manager = ProjectTaskManager.getInstance(support.project)
-            val context = ProjectTaskContext(Any())
-            ProjectCompilationDiagnostics.prepare(context)
-            val task = manager.createAllModulesBuildTask(mode == "rebuild", support.project)
-            execution.set(CompilationExecution(context, manager.run(context, task)))
+            val sessionId = Any()
+            val context = ProjectTaskContext(sessionId)
+            val collector = ProjectBuildEventCollector.create(support.project, sessionId)
+            try {
+                val task = manager.createAllModulesBuildTask(mode == "rebuild", support.project)
+                execution.set(CompilationExecution(context, collector, manager.run(context, task)))
+            } catch (error: Throwable) {
+                Disposer.dispose(collector)
+                throw error
+            }
         }
         val application = ApplicationManager.getApplication()
         if (application.isDispatchThread) start.run() else application.invokeAndWait(start)
@@ -215,7 +248,7 @@ internal class CompileProjectTool(
     private fun buildResult(
         mode: String,
         result: ProjectTaskManager.Result,
-        diagnostics: ProjectCompilationDiagnostics.Snapshot,
+        diagnostics: ProjectBuildEventCollector.Snapshot,
     ) = JsonObject().apply {
         addProperty("project", support.project.name)
         addProperty("mode", mode)
@@ -227,20 +260,30 @@ internal class CompileProjectTool(
         addProperty("aborted", result.isAborted)
         addProperty("has_errors", result.hasErrors())
         addProperty("success", !result.isAborted && !result.hasErrors())
+        addProperty("build_events_available", diagnostics.buildEventsAvailable)
+        addProperty("build_output_truncated", diagnostics.outputTruncated)
         addProperty("error_count", diagnostics.errorCount)
         addProperty("warning_count", diagnostics.warningCount)
         add("errors", diagnostics.errors)
         add("warnings", diagnostics.warnings)
-        if (result.hasErrors() && diagnostics.errorCount == 0) {
+        addProperty("stdout", diagnostics.stdout)
+        addProperty("stderr", diagnostics.stderr)
+        if (!diagnostics.buildEventsAvailable) {
             addProperty(
-                "diagnostics_note",
-                "The active JetBrains build runner reported errors but did not publish structured compiler diagnostics for this build session. Open the IDE Build tool window for runner output.",
+                "output_note",
+                "The active ProjectTaskRunner did not publish BuildEvents under this ProjectTaskContext session id. The ProjectTaskManager status is authoritative, but detailed output is unavailable for this execution channel.",
+            )
+        } else if (result.hasErrors() && diagnostics.errorCount == 0 && diagnostics.stderr.isBlank()) {
+            addProperty(
+                "output_note",
+                "The IDE build reported errors but did not publish an error MessageEvent, FailureResult, or stderr output for this session.",
             )
         }
     }
 
     private data class CompilationExecution(
         val context: ProjectTaskContext,
+        val collector: ProjectBuildEventCollector,
         val promise: org.jetbrains.concurrency.Promise<ProjectTaskManager.Result>,
     )
 
@@ -250,19 +293,29 @@ internal class CompileProjectTool(
 internal class GetFileProblemsTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Use after editing a project source file to inspect IDE syntax, unresolved-reference, type, and inspection problems before or alongside Bash compilation. It analyzes one project source file, not dependency/JAR content and not a replacement for project-wide build/test commands. Use errors_only=true when only blocking errors matter.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path; format the smallest relevant file after modifications."},"errors_only":{"type":"boolean","description":"Return only ERROR severity; default false."}},"required":["path"]}"""
+        "Use after editing one or more project source files to inspect IDE syntax, unresolved-reference, type, and inspection problems before or alongside compilation. Use path for one file or paths for up to 20 files; do not provide both. This is file-scoped IDE analysis, not a replacement for project builds, tests, Cargo, Gradle, Maven, npm, or custom commands.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Single project-relative source file path."},"paths":{"type":"array","minItems":1,"maxItems":20,"description":"Multiple project-relative source file paths. Do not combine with path.","items":{"type":"string"}},"errors_only":{"type":"boolean","description":"Return only ERROR severity; default false."}},"anyOf":[{"required":["path"]},{"required":["paths"]}]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
-        val file = support.resolveProjectFile(input.string("path"))
+        val paths = input.singleOrStringBatch("path", "paths")
+        val files = paths.values.map(support::resolveProjectFile)
+        require(files.distinctBy { it.url }.size == files.size) { "paths must not contain duplicates" }
         DumbService.getInstance(support.project).waitForSmartMode()
         val indicator = EmptyProgressIndicator()
-        val problems = ProgressManager.getInstance().runProcess(
+        val errorsOnly = input.booleanOr("errors_only", false)
+        val results = ProgressManager.getInstance().runProcess(
             Computable {
                 ReadAction.nonBlocking(Callable {
-                    inspectFile(support, file, input.booleanOr("errors_only", false))
+                    files.map { file ->
+                        val problems = inspectFile(support, file, errorsOnly)
+                        JsonObject().apply {
+                            addProperty("path", support.displayPath(file))
+                            addProperty("count", problems.size())
+                            add("problems", problems)
+                        }
+                    }
                 })
                     .inSmartMode(support.project)
                     .withDocumentsCommitted(support.project)
@@ -271,11 +324,7 @@ internal class GetFileProblemsTool(private val support: IdeProjectSupport) : Too
             },
             indicator,
         )
-        return JsonObject().apply {
-            addProperty("path", support.displayPath(file))
-            addProperty("count", problems.size())
-            add("problems", problems)
-        }
+        return if (paths.isBatch) batchResult("files", results) else results.single()
     }
 
     companion object { const val NAME = "get_file_problems" }
@@ -343,6 +392,47 @@ private val ERROR_HIGHLIGHT_TYPES = setOf(
     com.intellij.codeInspection.ProblemHighlightType.GENERIC_ERROR,
     com.intellij.codeInspection.ProblemHighlightType.LIKE_UNKNOWN_SYMBOL,
 )
+
+private data class BatchObjects(val items: List<JsonObject>, val isBatch: Boolean)
+private data class BatchStrings(val values: List<String>, val isBatch: Boolean)
+
+private fun JsonObject.fileBatch(singleName: String, batchName: String): BatchObjects {
+    val hasSingle = get(singleName)?.let { !it.isJsonNull } == true
+    val batch = get(batchName)?.let { element ->
+        require(element.isJsonArray) { "$batchName must be an array" }
+        element.asJsonArray.map { it.obj("$batchName item") }.also { items ->
+            require(items.isNotEmpty()) { "$batchName must not be empty" }
+            require(items.size <= MAX_BATCH_ITEMS) { "$batchName supports at most $MAX_BATCH_ITEMS items" }
+        }
+    }
+    require(hasSingle.xor(batch != null)) { "provide exactly one of `$singleName` or `$batchName`" }
+    return if (batch != null) BatchObjects(batch, true) else BatchObjects(listOf(this), false)
+}
+
+private fun JsonObject.singleOrStringBatch(singleName: String, batchName: String): BatchStrings {
+    val single = optionalString(singleName)?.takeIf { it.isNotBlank() }
+    val batch = get(batchName)?.let { element ->
+        require(element.isJsonArray) { "$batchName must be an array" }
+        element.asJsonArray.mapIndexed { index, item ->
+            item.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+                ?.asString?.takeIf { it.isNotBlank() }
+                ?: throw ToolException("$batchName item ${index + 1} must be a non-blank string")
+        }.also { items ->
+            require(items.isNotEmpty()) { "$batchName must not be empty" }
+            require(items.size <= MAX_BATCH_ITEMS) { "$batchName supports at most $MAX_BATCH_ITEMS items" }
+            require(items.distinct().size == items.size) { "$batchName must not contain duplicates" }
+        }
+    }
+    require((single != null).xor(batch != null)) { "provide exactly one of `$singleName` or `$batchName`" }
+    return if (batch != null) BatchStrings(batch, true) else BatchStrings(listOf(single!!), false)
+}
+
+private fun batchResult(property: String, results: List<JsonObject>) = JsonObject().apply {
+    addProperty("count", results.size)
+    add(property, JsonArray().apply { results.forEach(::add) })
+}
+
+private const val MAX_BATCH_ITEMS = 20
 
 private fun definition(name: String, description: String, schema: String) = ToolDefinition(
     name = name,
