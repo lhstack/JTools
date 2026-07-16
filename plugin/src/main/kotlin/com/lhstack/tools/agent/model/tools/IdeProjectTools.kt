@@ -30,8 +30,8 @@ import org.jetbrains.concurrency.CancellablePromise
 internal class ReadFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Read text from a project file or from a jar://, jrt://, or file:// URL returned by find_files. Reads the current IDE Document when available. Use lines for fine-grained ranges; line numbers are 1-based.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative path or IDE URL returned by find_files."},"lines":{"type":"array","description":"Optional line ranges; omitted reads from line 1 up to max_lines.","items":{"type":"object","properties":{"start":{"type":"integer"},"end":{"type":"integer"}},"required":["start","end"]}},"max_lines":{"type":"integer","description":"Maximum returned lines, default 1000, hard limit 5000."}},"required":["path"]}"""
+        "Use when you already know the target file path and need its source, documentation, dependency source, JAR resource, JRT source, or on-demand decompiled class text. Prefer this after find_files or search_text; do not use it to discover unknown filenames. Project files are read from the current IDE Document when available, so unsaved editor changes are included. For large files, request only the needed 1-based lines ranges. JAR/classpath content is read only when the path explicitly returned by find_files is provided.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative path, or a jar://, jrt://, or file:// URL returned by find_files."},"lines":{"type":"array","description":"Optional 1-based line ranges. Use this for focused reads instead of loading a large file.","items":{"type":"object","properties":{"start":{"type":"integer"},"end":{"type":"integer"}},"required":["start","end"]}},"max_lines":{"type":"integer","description":"Maximum returned lines, default 1000, hard limit 5000; the response is still bounded for UI safety."}},"required":["path"]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -49,8 +49,8 @@ internal class ReadFileTool(private val support: IdeProjectSupport) : ToolDyn {
 internal class WriteFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Create or fully overwrite a project text file through JetBrains VFS/Document. Missing parent directories are created. The IDE controls the target file encoding; overwrite defaults to false.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative path."},"content":{"type":"string","description":"Complete file content."},"overwrite":{"type":"boolean","description":"Allow replacing an existing file; default false."}},"required":["path","content"]}"""
+        "Use for a new project file or an intentional complete replacement of an existing file. Missing parent directories are created through JetBrains VFS/Document and the IDE controls encoding. For a small change to an existing file, prefer replace_text_in_file; overwrite is false unless explicitly enabled.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative project text-file path; this tool is not for writing dependency/JAR files."},"content":{"type":"string","description":"Complete replacement content; use only when creating or intentionally rewriting the whole file."},"overwrite":{"type":"boolean","description":"Allow replacing an existing file; default false."}},"required":["path","content"]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -64,7 +64,7 @@ internal class WriteFileTool(private val support: IdeProjectSupport) : ToolDyn {
 internal class ReplaceTextInFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Precisely replace text in one project file through the current IDE Document and a WriteCommandAction. old_text must match exactly once unless replace_all=true. Prefer this over rewriting a whole existing file.",
+        "Use for a focused edit to an existing project file. It uses the current IDE Document and WriteCommandAction. Include enough surrounding context for old_text to be unique; ambiguity is reported instead of guessing. Prefer this over write_file for local code changes. It cannot edit dependency/JAR content.",
         """{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string","description":"Exact text to replace; include surrounding context to make it unique."},"new_text":{"type":"string","description":"Replacement text; may be empty."},"replace_all":{"type":"boolean","description":"Replace all matches; default false."},"case_sensitive":{"type":"boolean","description":"Default true."}},"required":["path","old_text","new_text"]}"""
     )
 
@@ -85,8 +85,8 @@ internal class ReplaceTextInFileTool(private val support: IdeProjectSupport) : T
 internal class FindFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Find files by file name using the JetBrains filename index. By default searches project files only; set include_libraries=true to include dependency sources and JAR entries. Returned jar:// or jrt:// paths can be passed to read_file.",
-        """{"type":"object","properties":{"name":{"type":"string","description":"Name or pattern."},"match":{"type":"string","enum":["exact","contains","glob"],"description":"Default contains."},"include_libraries":{"type":"boolean","description":"Include dependency/JAR files; default false."},"limit":{"type":"integer","description":"Default 100, hard limit 1000."}},"required":["name"]}"""
+        "Use when you need to locate a file by filename, class name, or path-independent name. The default scope is the current project only. Set include_libraries=true only when inspecting dependency source/JAR entries or JDK/JRT content; this may return many library matches and is not a content search. Pass returned jar:// or jrt:// paths to read_file. For text/content matches, use search_text instead.",
+        """{"type":"object","properties":{"name":{"type":"string","description":"Filename or class-name pattern; use match=contains for normal discovery, exact for a known filename, or glob for a filename pattern."},"match":{"type":"string","enum":["exact","contains","glob"],"description":"Default contains."},"include_libraries":{"type":"boolean","description":"Include indexed dependency sources, JAR entries, or JRT entries only when library inspection is required; default false to avoid noisy results."},"limit":{"type":"integer","description":"Default 100, hard limit 1000."}},"required":["name"]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -106,8 +106,8 @@ internal class FindFilesTool(private val support: IdeProjectSupport) : ToolDyn {
 internal class SearchTextTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Search project file contents with the JetBrains Find engine and return matching line plus fine-grained surrounding lines. By default searches project files; include_libraries also searches indexed dependency source/resource files in JARs (binary .class files are not bulk-decompiled).",
-        """{"type":"object","properties":{"query":{"type":"string"},"regex":{"type":"boolean","description":"Treat query as regex; default false."},"case_sensitive":{"type":"boolean","description":"Default true."},"include_libraries":{"type":"boolean","description":"Include dependency source/resource files; default false."},"file_pattern":{"type":"string","description":"Optional file-name glob, such as *.kt."},"context_lines":{"type":"integer","description":"Lines before and after each match, default 2, hard limit 20."},"limit":{"type":"integer","description":"Default 100, hard limit 1000."}},"required":["query"]}"""
+        "Use for text or regular-expression matches inside project source, tests, documentation, and configuration files. The default scope is project content and should be used for normal code work. Set include_libraries=true only to inspect indexed dependency source/resource files or JAR text; binary .class files are not bulk-decompiled. Use find_files for filename discovery and read_file for a known file. If there are no results, check the path scope, file_pattern, case_sensitive, and regex settings rather than repeatedly calling the same search. Results contain bounded line context; read the relevant file ranges for more code.",
+        """{"type":"object","properties":{"query":{"type":"string"},"regex":{"type":"boolean","description":"Treat query as a regular expression; keep false for literal text search."},"case_sensitive":{"type":"boolean","description":"Default true."},"include_libraries":{"type":"boolean","description":"Search indexed dependency source/resource files and JAR text only when explicitly needed; default false. This is not a bulk search of every binary class."},"file_pattern":{"type":"string","description":"Optional filename glob to narrow the search, such as *.kt, *Test.java, or *.md."},"context_lines":{"type":"integer","description":"Number of bounded context lines before and after each match; default 2, hard limit 20."},"limit":{"type":"integer","description":"Default 100, hard limit 1000."}},"required":["query"]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -129,8 +129,8 @@ internal class SearchTextTool(private val support: IdeProjectSupport) : ToolDyn 
 internal class FormatFileTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Reformat one project source file with the JetBrains formatter and the project's configured code style.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path."},"timeout_secs":{"type":"integer","description":"Default 30, hard limit 120."}},"required":["path"]}"""
+        "Use after editing a project source file when formatting should follow the current JetBrains language plugin and project Code Style. It is not a search or a compiler, and should not be used on dependency/JAR files.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path; format the smallest relevant file after modifications."},"timeout_secs":{"type":"integer","description":"Default 30, hard limit 120."}},"required":["path"]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -162,7 +162,7 @@ internal class CompileProjectTool(
 ) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Compile the current project through JetBrains ProjectTaskManager and the build runner supplied by the current IDE/product. Returns structured compiler diagnostics when the active build runner reports them. Use mode=build for incremental compilation or mode=rebuild for a full rebuild.",
+        "Use to verify the current IDE project after code changes when a JetBrains project build is appropriate. It saves open documents and uses the IDE project model; use Bash instead for Gradle/Maven/npm tasks, custom build commands, tests, Git, or scripts.",
         """{"type":"object","properties":{"mode":{"type":"string","enum":["build","rebuild"],"description":"Compilation mode; default build."},"timeout_secs":{"type":"integer","description":"Maximum wait time in seconds; default 600, hard limit 3600."}},"required":[]}"""
     )
 
@@ -255,8 +255,8 @@ internal class CompileProjectTool(
 internal class GetFileProblemsTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Run JetBrains code analysis for one project source file and return structured diagnostics with severity, line, column, and description. This sees IDE/inspection problems that a shell compiler may not report.",
-        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path."},"errors_only":{"type":"boolean","description":"Return only ERROR severity; default false."}},"required":["path"]}"""
+        "Use after editing a project source file to inspect IDE syntax, unresolved-reference, type, and inspection problems before or alongside Bash compilation. It analyzes one project source file, not dependency/JAR content and not a replacement for project-wide build/test commands. Use errors_only=true when only blocking errors matter.",
+        """{"type":"object","properties":{"path":{"type":"string","description":"Project-relative source file path; format the smallest relevant file after modifications."},"errors_only":{"type":"boolean","description":"Return only ERROR severity; default false."}},"required":["path"]}"""
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {

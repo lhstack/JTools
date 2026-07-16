@@ -2,6 +2,7 @@ package com.lhstack.tools.agent
 
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 
 class AgentToolLazyLoadingTest {
@@ -20,5 +21,14 @@ class AgentToolLazyLoadingTest {
             AgentBrowserToolDetail("{\"query\":\"large\"}", "very large result"),
             card.toolDetail("call-1"),
         )
+    }
+}
+class AgentToolDetailLimitTest {
+    @org.junit.jupiter.api.Test
+    fun `tool detail is bounded before it reaches the browser`() {
+        val detail = com.lhstack.tools.agent.toolDetail("a".repeat(20_000), "r".repeat(20_000))
+        assertTrue(detail.args.length <= com.lhstack.tools.agent.MAX_TOOL_DETAIL_CHARS + 100)
+        assertTrue(detail.result.length <= com.lhstack.tools.agent.MAX_TOOL_DETAIL_CHARS + 100)
+        assertTrue(detail.result.contains("["))
     }
 }

@@ -246,7 +246,7 @@ internal object OpenAiMessages {
 
         else -> JsonObject().apply {
             addProperty("type", "input_text")
-            addProperty("text", content.toString())
+            addProperty("text", com.google.gson.Gson().toJson(content))
         }
     }
 

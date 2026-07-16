@@ -111,7 +111,7 @@ internal class AgentAssistantMessageCard(
     )
 
     fun toolDetail(callId: String): AgentBrowserToolDetail? =
-        toolDetailLoader?.invoke(callId) ?: tools[callId]?.let { AgentBrowserToolDetail(it.args, it.result) }
+        toolDetailLoader?.invoke(callId) ?: tools[callId]?.let { toolDetail(it.args, it.result) }
 
     override fun delete() = onDelete?.invoke() ?: Unit
 
@@ -214,6 +214,18 @@ internal data class AgentBrowserTool(
     @SerializedName("finished") val finished: Boolean,
     @SerializedName("failed") val failed: Boolean,
 )
+
+
+internal const val MAX_TOOL_DETAIL_CHARS = 16_384
+
+internal fun toolDetailText(value: String): String {
+    if (value.length <= MAX_TOOL_DETAIL_CHARS) return value
+    val omitted = value.length - MAX_TOOL_DETAIL_CHARS
+    return value.take(MAX_TOOL_DETAIL_CHARS) + "\n\n[内容已截断，原始内容还剩 $omitted 个字符；请使用专门工具按范围读取。]"
+}
+
+internal fun toolDetail(args: String, result: String): AgentBrowserToolDetail =
+    AgentBrowserToolDetail(toolDetailText(args), toolDetailText(result))
 
 internal data class AgentBrowserToolDetail(
     @SerializedName("args") val args: String,

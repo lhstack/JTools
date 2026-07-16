@@ -43,14 +43,14 @@ object BuiltinTools {
         BuiltinToolInfo("bash", "shell", "Run a shell command and return stdout, stderr, and exit code."),
         BuiltinToolInfo("web_fetch", "http", "Send an HTTP request with optional proxy, headers, and request body."),
         BuiltinToolInfo("cli", "cli", "Execute structured JTools CLI commands such as mcp.list, mcp.create, mcp.test, and mcp.call."),
-        BuiltinToolInfo("read_file", "ide", "Read project, dependency source, JAR resource, or decompiled IDE file content by fine-grained line ranges."),
-        BuiltinToolInfo("write_file", "ide", "Create or fully write a project text file through JetBrains VFS/Document."),
-        BuiltinToolInfo("replace_text_in_file", "ide", "Precisely replace text in a project file through the current IDE Document."),
-        BuiltinToolInfo("find_files", "ide", "Find project files by name, optionally including dependency and JAR entries."),
-        BuiltinToolInfo("search_text", "ide", "Search project contents with the JetBrains Find engine and structured line context."),
-        BuiltinToolInfo("format_file", "ide", "Format one project source file using JetBrains code style."),
-        BuiltinToolInfo("compile_project", "ide", "Compile the project through JetBrains ProjectTaskManager and the current IDE build runner."),
-        BuiltinToolInfo("get_file_problems", "ide", "Run JetBrains code analysis and return structured file diagnostics."),
+        BuiltinToolInfo("read_file", "ide", "Read a known project file or explicitly selected dependency/JAR/JRT path; use after find_files/search_text and request focused line ranges for large files."),
+        BuiltinToolInfo("write_file", "ide", "Create or intentionally replace a whole project text file through JetBrains VFS/Document; prefer replace_text_in_file for local edits."),
+        BuiltinToolInfo("replace_text_in_file", "ide", "Apply a focused, unique edit to an existing project file through the current IDE Document; report ambiguity instead of guessing."),
+        BuiltinToolInfo("find_files", "ide", "Find files by name in the project; enable library scope only when dependency/JAR/JRT inspection is explicitly needed."),
+        BuiltinToolInfo("search_text", "ide", "Search literal text or regex in project source/tests/docs/config; library/JAR scope is opt-in and not a bulk binary-class search."),
+        BuiltinToolInfo("format_file", "ide", "Format a modified project source file with the configured JetBrains language and Code Style."),
+        BuiltinToolInfo("compile_project", "ide", "Verify the IDE project with ProjectTaskManager; use Bash for Gradle/Maven/npm/custom builds and tests."),
+        BuiltinToolInfo("get_file_problems", "ide", "Inspect one modified project source file for IDE errors/inspections; use Bash for project-wide compilation and tests."),
     )
 
     /** 照抄 builtin_tools：按配置的多模态资源类型追加 view_* 工具。 */

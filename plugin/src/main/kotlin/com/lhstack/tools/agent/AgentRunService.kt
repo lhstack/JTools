@@ -355,7 +355,7 @@ internal object AgentRunService {
     fun toolDetail(runId: String, callId: String): AgentBrowserToolDetail? {
         runs[runId]?.let { run ->
             return synchronized(run) {
-                run.tools[callId]?.let { AgentBrowserToolDetail(it.args, it.result) }
+                run.tools[callId]?.let { toolDetail(it.args, it.result) }
             }
         }
         val structured = ModelLogService.agentRunLogByRunId(runId)
@@ -374,7 +374,7 @@ internal object AgentRunService {
             ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
             ?.firstOrNull { it.get("internal_call_id")?.asString == callId }
         val args = call.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
-        return AgentBrowserToolDetail(args, result?.get("result")?.asString.orEmpty())
+        return toolDetail(args, result?.get("result")?.asString.orEmpty())
     }
 
     private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> =

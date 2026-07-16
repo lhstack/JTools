@@ -6,6 +6,15 @@ const props = defineProps({ item: Object })
 const toolDetails = reactive({})
 const toolLoading = reactive({})
 const expandedTools = new Set()
+const MAX_TOOL_DETAIL_CHARS = 16_384
+function limitToolDetail(value) {
+  const text = String(value ?? '')
+  if (text.length <= MAX_TOOL_DETAIL_CHARS) return text
+  return text.slice(0, MAX_TOOL_DETAIL_CHARS) + `\n\n[内容已截断，原始内容还剩 ${text.length - MAX_TOOL_DETAIL_CHARS} 个字符；请使用专门工具按范围读取。]`
+}
+function limitToolDetails(detail) {
+  return { args: limitToolDetail(detail?.args), result: limitToolDetail(detail?.result) }
+}
 const previewSrc = ref('')
 const previewVisible = ref(false)
 const runExpanded = ref(true)
@@ -33,7 +42,7 @@ async function toolChanged(tool, expanded) {
   toolLoading[tool.id] = true
   try {
     const detail = await api('tool.detail', { messageId: props.item.id, callId: tool.id })
-    if (expandedTools.has(tool.id)) toolDetails[tool.id] = detail
+    if (expandedTools.has(tool.id)) toolDetails[tool.id] = limitToolDetails(detail)
   } catch (error) {
     if (expandedTools.has(tool.id)) {
       toolDetails[tool.id] = { args: '', result: `加载失败：${error?.message || String(error)}` }

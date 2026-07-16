@@ -672,7 +672,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
             ?.firstOrNull { jsonString(it.get("internal_call_id")) == callId }
         val args = call.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
-        return AgentBrowserToolDetail(args, jsonString(result?.get("result")))
+        return toolDetail(args, jsonString(result?.get("result")))
     }
 
     private fun readAttachmentSnapshots(snapshot: JsonObject): List<AgentAttachmentState> {

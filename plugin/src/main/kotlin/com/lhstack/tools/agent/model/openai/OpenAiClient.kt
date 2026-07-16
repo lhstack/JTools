@@ -271,9 +271,9 @@ class OpenAiClient(private val params: OpenAiClientParams) {
                 if (delta != null) {
                     collectChatDelta(delta, responseText, reasoning, calls)
                 }
-                value.takeIf { it.isJsonObject }?.asJsonObject?.get("usage")?.let {
-                    usage = OpenAiParser.chatUsage(it)
-                }
+                value.takeIf { it.isJsonObject }?.asJsonObject?.get("usage")
+                    ?.takeIf { !it.isJsonNull }
+                    ?.let { usage = OpenAiParser.chatUsage(it) }
             }
         }
         throwIfCancelled(cancel)
@@ -369,7 +369,6 @@ class OpenAiClient(private val params: OpenAiClientParams) {
                     "response.output_item.done" -> collectDoneOutputItem(obj, outputItems)
                     "response.completed" -> {
                         rawFinal = completedStreamResponse(obj)
-                        break
                     }
                 }
             }
@@ -528,11 +527,13 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         if (toolCalls.isEmpty()) {
             return LoopResult(false, rounds)
         }
+        throwIfCancelled(cancel)
         val nextRounds = rounds + 1
         if (nextRounds > request.maxToolRounds) {
             throw IllegalStateException("工具回环超过最大轮次 ${request.maxToolRounds}")
         }
         val toolMessage = toolResultMessage(toolRuntime.executeToolCalls(toolCalls))
+        throwIfCancelled(cancel)
         val appended = buildList {
             total.providerMessages.lastOrNull()?.let { add(it) }
             add(toolMessage)
