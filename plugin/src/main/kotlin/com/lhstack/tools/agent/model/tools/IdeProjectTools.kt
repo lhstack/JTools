@@ -261,6 +261,7 @@ internal class CompileProjectTool(
         addProperty("has_errors", result.hasErrors())
         addProperty("success", !result.isAborted && !result.hasErrors())
         addProperty("build_events_available", diagnostics.buildEventsAvailable)
+        addProperty("compiler_diagnostics_available", diagnostics.compilerDiagnosticsAvailable)
         addProperty("build_output_truncated", diagnostics.outputTruncated)
         addProperty("error_count", diagnostics.errorCount)
         addProperty("warning_count", diagnostics.warningCount)
@@ -268,10 +269,15 @@ internal class CompileProjectTool(
         add("warnings", diagnostics.warnings)
         addProperty("stdout", diagnostics.stdout)
         addProperty("stderr", diagnostics.stderr)
-        if (!diagnostics.buildEventsAvailable) {
+        if (!diagnostics.buildEventsAvailable && !diagnostics.compilerDiagnosticsAvailable) {
             addProperty(
                 "output_note",
-                "The active ProjectTaskRunner did not publish BuildEvents under this ProjectTaskContext session id. The ProjectTaskManager status is authoritative, but detailed output is unavailable for this execution channel.",
+                "The active ProjectTaskRunner did not expose session-correlated BuildEvents or compiler diagnostics. The ProjectTaskManager status is authoritative, but detailed output is unavailable for this execution channel.",
+            )
+        } else if (!diagnostics.buildEventsAvailable) {
+            addProperty(
+                "output_note",
+                "The build runner did not correlate BuildEvents with this ProjectTaskContext, so stdout and stderr are unavailable; structured compiler diagnostics were collected from the same compiler execution context.",
             )
         } else if (result.hasErrors() && diagnostics.errorCount == 0 && diagnostics.stderr.isBlank()) {
             addProperty(

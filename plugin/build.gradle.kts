@@ -89,6 +89,7 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.listener.PluginProjectManagerListener { *; }",
     "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
+    "-keep class com.lhstack.tools.agent.model.tools.java.JpsCompilationDiagnosticsListener { *; }",
     "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
     "-keep class com.lhstack.tools.plugins.PluginState { *; }",
     "-keep class com.lhstack.tools.db.entity.** { *; }",

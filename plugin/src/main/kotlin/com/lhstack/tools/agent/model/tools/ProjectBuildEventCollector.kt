@@ -28,6 +28,7 @@ internal class ProjectBuildEventCollector(
     private val stdout = BoundedOutput()
     private val stderr = BoundedOutput()
     private val observedBuild = AtomicBoolean(false)
+    private val compilerDiagnosticsAvailable = AtomicBoolean(false)
     private val acceptedBuildIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Any>().apply { add(sessionId) }
 
     fun subscribe() {
@@ -46,8 +47,21 @@ internal class ProjectBuildEventCollector(
         }
     }
 
+    fun compilerDiagnosticsStarted() {
+        compilerDiagnosticsAvailable.set(true)
+    }
+
+    fun error(diagnostic: Diagnostic) {
+        errors.add(diagnostic)
+    }
+
+    fun warning(diagnostic: Diagnostic) {
+        warnings.add(diagnostic)
+    }
+
     fun snapshot(): Snapshot = Snapshot(
         observedBuild.get(),
+        compilerDiagnosticsAvailable.get(),
         errors.distinct(),
         warnings.distinct(),
         stdout.value(),
@@ -55,7 +69,9 @@ internal class ProjectBuildEventCollector(
         stdout.truncated || stderr.truncated,
     )
 
-    override fun dispose() = Unit
+    override fun dispose() {
+        ACTIVE.remove(sessionId, this)
+    }
 
     private fun belongsToExecution(buildId: Any, event: BuildEvent): Boolean {
         val belongs = buildId in acceptedBuildIds ||
@@ -127,6 +143,7 @@ internal class ProjectBuildEventCollector(
 
     data class Snapshot(
         val buildEventsAvailable: Boolean,
+        val compilerDiagnosticsAvailable: Boolean,
         private val errorDiagnostics: List<Diagnostic>,
         private val warningDiagnostics: List<Diagnostic>,
         val stdout: String,
@@ -164,9 +181,23 @@ internal class ProjectBuildEventCollector(
 
     companion object {
         private const val MAX_OUTPUT_CHARS = 65_536
+        private val ACTIVE = java.util.concurrent.ConcurrentHashMap<Any, ProjectBuildEventCollector>()
 
-        fun create(project: Project, sessionId: Any): ProjectBuildEventCollector =
-            ProjectBuildEventCollector(project, sessionId).also(ProjectBuildEventCollector::subscribe)
+        fun create(project: Project, sessionId: Any): ProjectBuildEventCollector {
+            val collector = ProjectBuildEventCollector(project, sessionId)
+            check(ACTIVE.putIfAbsent(sessionId, collector) == null) {
+                "A build collector is already registered for this ProjectTaskContext session"
+            }
+            try {
+                collector.subscribe()
+                return collector
+            } catch (error: Throwable) {
+                ACTIVE.remove(sessionId, collector)
+                throw error
+            }
+        }
+
+        fun active(sessionId: Any?): ProjectBuildEventCollector? = sessionId?.let(ACTIVE::get)
     }
 }
 
