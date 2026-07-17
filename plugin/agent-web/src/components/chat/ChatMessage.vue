@@ -62,6 +62,7 @@ onBeforeUnmount(() => {
   <article class="message" :class="item.role">
     <div class="avatar">{{item.role==='user'?'我':item.messageType==='agent_run'?'A':'AI'}}</div>
     <div class="bubble">
+      <div v-if="item.actorLabel" class="message-actor">{{item.actorLabel}}</div>
       <button v-if="item.messageType==='agent_run'" class="agent-run-head" type="button" @click="runExpanded=!runExpanded">
         <span>
           <b><el-tag size="small" effect="plain">Agent 运行</el-tag> {{item.agentRun?.agentName}}</b>

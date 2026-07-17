@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper
 import com.lhstack.tools.db.AgentDatabase
 import com.lhstack.tools.db.entity.ModelRequestLogEntity
 import com.lhstack.tools.db.mapper.ModelRequestLogMapper
+import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.agent.model.params.ResolvedModelConfig
 import java.time.LocalDateTime
 
@@ -169,6 +170,7 @@ object ModelLogService {
      */
     data class ChatTurn(
         val logId: Long,
+        val agentId: Long?,
         val status: String,
         val requestData: JsonObject,
         val responseData: JsonObject,
@@ -226,12 +228,12 @@ object ModelLogService {
             ?.let(::toModelLogRecord)
     }
 
-    fun listAgentRunLogs(sourceId: String): List<ModelLogRecord> = AgentDatabase.execute { session ->
+    fun listAgentRunLogsForSession(sessionId: Long): List<ModelLogRecord> = AgentDatabase.execute { session ->
         session.getMapper(ModelRequestLogMapper::class.java)
             .selectList(
                 QueryWrapper<ModelRequestLogEntity>()
-                    .eq("source_type", "agent")
-                    .eq("source_id", sourceId)
+                    .eq("source_type", ChatSessionService.SESSION_SOURCE_TYPE)
+                    .likeLeft("source_id", sessionSourceSuffix(sessionId))
                     .eq("message_type", "agent_run")
                     .orderByAsc("id")
             )
@@ -333,19 +335,20 @@ object ModelLogService {
      * 按会话来源读取全部对话轮次，按 id 升序。
      * source_id 约定为 "$agentId:$sessionId"，source_type 固定为 chat。
      */
-    internal fun sessionSourcePattern(sessionId: Long): String = "%:$sessionId"
+    internal fun sessionSourceSuffix(sessionId: Long): String = ":$sessionId"
 
     fun listChatTurnsForSession(sessionId: Long): List<ChatTurn> = AgentDatabase.execute { session ->
         session.getMapper(ModelRequestLogMapper::class.java)
             .selectList(
                 QueryWrapper<ModelRequestLogEntity>()
                     .eq("source_type", "agent")
-                    .like("source_id", sessionSourcePattern(sessionId))
+                    .likeLeft("source_id", sessionSourceSuffix(sessionId))
                     .orderByAsc("id")
             )
             .map { entity ->
                 ChatTurn(
                     logId = entity.id ?: 0,
+                    agentId = entity.agentId,
                     status = entity.status,
                     requestData = parseObject(entity.requestData),
                     responseData = parseObject(entity.responseData),
@@ -369,6 +372,7 @@ object ModelLogService {
             .map { entity ->
                 ChatTurn(
                     logId = entity.id ?: 0,
+                    agentId = entity.agentId,
                     status = entity.status,
                     requestData = parseObject(entity.requestData),
                     responseData = parseObject(entity.responseData),
@@ -401,7 +405,7 @@ object ModelLogService {
             .delete(
                 QueryWrapper<ModelRequestLogEntity>()
                     .eq("source_type", "agent")
-                    .like("source_id", sessionSourcePattern(sessionId))
+                    .likeLeft("source_id", sessionSourceSuffix(sessionId))
             )
         Unit
     }

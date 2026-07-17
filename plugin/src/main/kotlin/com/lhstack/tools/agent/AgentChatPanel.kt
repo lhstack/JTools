@@ -402,6 +402,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val sessionId = currentSessionId ?: return
         val agentId = agent.id ?: return
         ChatSessionService.updateSessionAgent(sessionId, agentId)
+        ChatSessionService.sessionById(sessionId)?.let(::renderSessionHistory)
         updateStatus()
     }
 
@@ -484,11 +485,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         agentRunSubscription = AgentRunService.subscribe(record.id, ::updateAgentRunCard)
         messageCards.clear()
         clearStreamingRefs()
-        val sourceId = ChatSessionService.sessionSourceId(record.agentId, record.id)
-        val entries = buildSessionRenderEntries(record.id, sourceId)
+        val entries = buildSessionRenderEntries(record.id)
         entries.forEach { entry ->
             when (entry) {
-                is SessionRenderEntry.History -> renderTurn(record.id, entry.turn)
+                is SessionRenderEntry.History -> renderTurn(record.id, record.agentId, entry.turn)
                 is SessionRenderEntry.AgentRun -> updateAgentRunCard(entry.run)
                 is SessionRenderEntry.Queue -> renderQueuedItem(entry.item)
             }
@@ -497,7 +497,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         syncBrowserState()
     }
 
-    private fun buildSessionRenderEntries(sessionId: Long, sourceId: String): List<SessionRenderEntry> {
+    private fun buildSessionRenderEntries(sessionId: Long): List<SessionRenderEntry> {
         val queued = synchronized(queueLock) {
             chatQueue
                 .filter { it.sessionId == sessionId && it.shouldRenderInHistory() }
@@ -528,7 +528,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?.asLong
     }
 
-    private fun renderTurn(sessionId: Long, turn: ModelLogService.ChatTurn) {
+    private fun renderTurn(sessionId: Long, currentAgentId: Long?, turn: ModelLogService.ChatTurn) {
         renderTurnUserBubble(sessionId, turn)
         val structured = jsonObject(turn.responseData, "structured_response")
         if (structured != null) {
@@ -541,6 +541,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     onDelete = { deleteChatTurn(turn.logId) },
                     toolDetailLoader = { callId -> loadPersistedToolDetail(turn.logId, callId) },
                     cardId = "turn-${turn.logId}-assistant",
+                    actorLabel = assistantActorLabel(turn.agentId, currentAgentId),
                 )
                 if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
                 if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
@@ -554,6 +555,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 sessionId,
                 onDelete = { deleteChatTurn(turn.logId) },
                 cardId = "turn-${turn.logId}-assistant",
+                actorLabel = assistantActorLabel(turn.agentId, currentAgentId),
             )
             turnView.card.setResponse("错误：${turn.errorData}")
             turnView.card.finish(turn.assistantMessageAt, null)
@@ -577,7 +579,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             createdAt = turn.userMessageAt,
             cardId = "turn-${turn.logId}-user",
             persisted = true,
+            actorLabel = userActorLabel(snapshot),
         )
+    }
+
+    private fun userActorLabel(snapshot: JsonObject): String? {
+        val sourceRunId = jsonString(snapshot.get("source_agent_run_id"))
+        if (sourceRunId.isBlank()) return null
+        val sourceAgentName = jsonString(snapshot.get("source_agent_name"))
+        return sourceAgentLabel(sourceAgentName, "发送")
+    }
+
+    private fun sourceAgentLabel(agentName: String, action: String): String {
+        val displayName = agentName.trim().ifBlank { "子 Agent" }
+        val suffix = if (displayName.endsWith("Agent", ignoreCase = true)) "" else " Agent"
+        return "$displayName$suffix $action"
+    }
+
+    private fun assistantActorLabel(agentId: Long?, currentAgentId: Long?): String? {
+        if (agentId == null || agentId == currentAgentId) return null
+        val agentName = AgentService.agentById(agentId)?.name ?: "Agent #$agentId"
+        return sourceAgentLabel(agentName, "回复")
     }
 
     private fun deleteChatTurn(logId: Long) {
@@ -977,7 +999,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun enqueueAgentRunDelivery(delivery: AgentRunDelivery) {
         val record = ChatSessionService.visibleSessionById(delivery.sessionId, currentProjectPath()) ?: return
         val agent = resolveSessionAgent(record) ?: return
-        enqueueChatMessage(record, agent, delivery.content, emptyList(), delivery.runId)
+        enqueueChatMessage(
+            record,
+            agent,
+            delivery.content,
+            emptyList(),
+            delivery.runId,
+            delivery.agentId,
+            delivery.agentName,
+        )
         AgentRunService.markDeliveryAccepted(delivery.runId)
     }
 
@@ -987,6 +1017,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         prompt: String,
         attachments: List<AgentAttachmentState>,
         sourceAgentRunId: String? = null,
+        sourceAgentId: Long? = null,
+        sourceAgentName: String? = null,
     ) {
         val item = ChatQueueItem(
             messageId = UUID.randomUUID().toString(),
@@ -996,6 +1028,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             order = queueOrder.incrementAndGet(),
             attachments = attachments,
             sourceAgentRunId = sourceAgentRunId,
+            sourceAgentId = sourceAgentId,
+            sourceAgentName = sourceAgentName,
             userMessageAt = messageTimeNow(),
         )
         synchronized(queueLock) { chatQueue.add(item) }
@@ -1090,7 +1124,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             userMessageAt = item.userMessageAt,
             project = project,
             requestMetadata = item.sourceAgentRunId?.let { runId ->
-                JsonObject().apply { addProperty("source_agent_run_id", runId) }
+                JsonObject().apply {
+                    addProperty("source_agent_run_id", runId)
+                    item.sourceAgentId?.let { addProperty("source_agent_id", it) }
+                    item.sourceAgentName?.let { addProperty("source_agent_name", it) }
+                }
             },
         )
     }
@@ -1610,6 +1648,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             content = item.prompt,
             attachments = item.attachments,
             createdAt = item.userMessageAt,
+            actorLabel = item.sourceAgentRunId?.let {
+                sourceAgentLabel(item.sourceAgentName.orEmpty(), "发送")
+            },
         )
         item.userCard = card
         return card
@@ -1622,6 +1663,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             showToolDetail = { toolItem, anchor -> showAgentToolDetailPopup(toolItem, anchor) },
             onDelete = { deleteQueueTurn(item) },
             onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+            actorLabel = queuedAssistantActorLabel(item),
         )
         item.assistantCard = card
         return card
@@ -1634,7 +1676,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun renderQueuedItem(item: ChatQueueItem) {
         attachQueueCardIfVisible(item, ensureQueueUserCard(item))
-        item.assistantCard?.let { attachQueueCardIfVisible(item, it) }
+        item.assistantCard?.let { card ->
+            card.setActorLabel(queuedAssistantActorLabel(item))
+            attachQueueCardIfVisible(item, card)
+        }
+    }
+
+    private fun queuedAssistantActorLabel(item: ChatQueueItem): String? {
+        val currentAgentId = ChatSessionService.sessionById(item.sessionId)?.agentId
+        return assistantActorLabel(item.agentId, currentAgentId)
     }
 
     private fun ChatQueueItem.shouldRenderInHistory(): Boolean =
@@ -1655,6 +1705,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
         cardId: String? = null,
         persisted: Boolean = cardId?.startsWith("turn-") == true,
+        actorLabel: String? = null,
     ): AssistantTurnView {
         val card = AgentAssistantMessageCard(
             showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
@@ -1662,6 +1713,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             onDelete = onDelete,
             onCopyCode = { project.infoNotify("复制", "已复制代码块") },
             persisted = persisted,
+            actorLabel = actorLabel,
             id = cardId ?: "assistant-${UUID.randomUUID()}",
         )
         addMessageCard(sessionId, card)
@@ -1689,17 +1741,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         createdAt: String? = null,
         cardId: String? = null,
         persisted: Boolean = false,
+        actorLabel: String? = null,
     ) {
         if (role == ROLE_USER) {
             addMessageCard(
                 sessionId,
                 AgentUserMessageCard(
-                    content,
-                    attachments,
-                    onDelete,
-                    createdAt,
-                    persisted,
-                    cardId ?: "user-${UUID.randomUUID()}",
+                    content = content,
+                    attachments = attachments,
+                    onDelete = onDelete,
+                    createdAt = createdAt,
+                    persisted = persisted,
+                    actorLabel = actorLabel,
+                    id = cardId ?: "user-${UUID.randomUUID()}",
                 )
             )
             return
@@ -2620,6 +2674,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val order: Long,
         val attachments: List<AgentAttachmentState> = emptyList(),
         val sourceAgentRunId: String? = null,
+        val sourceAgentId: Long? = null,
+        val sourceAgentName: String? = null,
         val userMessageAt: String,
         val token: ModelCancel = ModelCancel(),
         val toolToken: ModelCancel = ModelCancel(),

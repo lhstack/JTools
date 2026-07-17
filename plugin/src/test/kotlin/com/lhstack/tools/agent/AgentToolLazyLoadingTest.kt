@@ -22,6 +22,31 @@ class AgentToolLazyLoadingTest {
             card.toolDetail("call-1"),
         )
     }
+    @org.junit.jupiter.api.Test
+    fun `delegated cards expose their agent identity`() {
+        val user = AgentUserMessageCard(content = "delegated", actorLabel = "Writer Agent 发送").toBrowserMessage()
+        val assistant = AgentAssistantMessageCard(
+            showToolDetail = { _, _ -> },
+            actorLabel = "Reviewer Agent 回复",
+        ).toBrowserMessage()
+
+        assertEquals("Writer Agent 发送", user.actorLabel)
+        assertEquals("Reviewer Agent 回复", assistant.actorLabel)
+    }
+
+    @org.junit.jupiter.api.Test
+    fun `agent run card identifies whether the agent replies or sends`() {
+        val reply = AgentRunMessageCard("reply", 1, "Writer", AgentRunReceiver.USER.value).apply {
+            update(AgentRunSnapshot("reply", 1, "Writer", null, 9, "user", "prompt", "completed", "output", "", emptyList(), null, 1))
+        }.toBrowserMessage()
+        val send = AgentRunMessageCard("send", 1, "Writer", AgentRunReceiver.AI.value).apply {
+            update(AgentRunSnapshot("send", 1, "Writer", null, 9, "ai", "prompt", "completed", "output", "", emptyList(), null, 2))
+        }.toBrowserMessage()
+
+        assertEquals("Writer Agent 回复", reply.actorLabel)
+        assertEquals("Writer Agent 发送", send.actorLabel)
+    }
+
 }
 class AgentToolDetailLimitTest {
     @org.junit.jupiter.api.Test

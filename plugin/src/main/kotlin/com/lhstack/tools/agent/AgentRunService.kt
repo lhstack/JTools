@@ -45,6 +45,8 @@ internal data class AgentRunStartRequest(
 
 internal data class AgentRunDelivery(
     val runId: String,
+    val agentId: Long,
+    val agentName: String,
     val projectPath: String,
     val sessionId: Long,
     val content: String,
@@ -152,9 +154,8 @@ internal object AgentRunService {
     }
 
     fun history(sessionId: Long): List<AgentRunSnapshot> {
-        val session = ChatSessionService.sessionById(sessionId) ?: return emptyList()
-        val sourceId = ChatSessionService.sessionSourceId(session.agentId, session.id)
-        return ModelLogService.listAgentRunLogs(sourceId).map { log ->
+        if (ChatSessionService.sessionById(sessionId) == null) return emptyList()
+        return ModelLogService.listAgentRunLogsForSession(sessionId).map { log ->
             val request = log.requestData.getAsJsonObject("request_snapshot")
             val structured = log.responseData.getAsJsonObject("structured_response")
             AgentRunSnapshot(
@@ -281,7 +282,7 @@ internal object AgentRunService {
             }
             run.deliveryDispatched = true
             deliveredRunIds.add(run.runId)
-            AgentRunDelivery(run.runId, run.projectPath, run.sessionId, run.response)
+            AgentRunDelivery(run.runId, run.agentId, run.agentName, run.projectPath, run.sessionId, run.response)
         }
         ApplicationManager.getApplication().invokeLater { listener(delivery) }
     }
@@ -297,7 +298,7 @@ internal object AgentRunService {
             .filterNot { run -> ModelLogService.hasAgentRunDelivery(run.runId) }
             .filter { run -> deliveredRunIds.add(run.runId) }
             .forEach { run ->
-                val delivery = AgentRunDelivery(run.runId, projectPath, requireNotNull(run.sessionId), run.response)
+                val delivery = AgentRunDelivery(run.runId, run.agentId, run.agentName, projectPath, requireNotNull(run.sessionId), run.response)
                 ApplicationManager.getApplication().invokeLater { listener(delivery) }
             }
     }
@@ -380,23 +381,25 @@ internal object AgentRunService {
     private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> =
         ModelLogService.listChatTurnsForSession(session.id)
             .filter { it.status == "completed" || it.status == "cancelled" }
-            .flatMap { turn ->
-                val request = turn.requestData.getAsJsonObject("request_snapshot")
-                val structured = turn.responseData.getAsJsonObject("structured_response")
-                val response = structured?.get("response")?.asString.orEmpty()
-                if (turn.messageType == "agent_run") {
-                    return@flatMap if (request?.get("agent_run_receiver")?.asString?.let(AgentRunReceiver::from)?.isAssistantMessage() == true && response.isNotBlank()) {
-                        listOf(Message.assistant(response))
-                    } else {
-                        emptyList()
-                    }
-                }
-                val prompt = request?.get("prompt_message")?.asString.orEmpty()
-                buildList {
-                    if (prompt.isNotBlank()) add(Message.user(prompt))
-                    if (response.isNotBlank()) add(Message.assistant(response))
-                }
+            .flatMap { turn -> sessionHistoryMessages(turn) }
+
+    private fun sessionHistoryMessages(turn: ModelLogService.ChatTurn): List<Message> {
+        val request = turn.requestData.getAsJsonObject("request_snapshot")
+        val structured = turn.responseData.getAsJsonObject("structured_response")
+        val response = structured?.get("response")?.asString.orEmpty()
+        if (turn.messageType == "agent_run") {
+            return if (request?.get("agent_run_receiver")?.asString?.let(AgentRunReceiver::from)?.isAssistantMessage() == true && response.isNotBlank()) {
+                listOf(Message.assistant(response))
+            } else {
+                emptyList()
             }
+        }
+        val prompt = request?.get("prompt_message")?.asString.orEmpty()
+        return buildList {
+            if (prompt.isNotBlank()) add(Message.user(prompt))
+            if (response.isNotBlank()) add(Message.assistant(response))
+        }
+    }
 
     private fun resolveProject(projectPath: String): Project {
         val normalized = ChatSessionService.normalizeProjectPath(projectPath)

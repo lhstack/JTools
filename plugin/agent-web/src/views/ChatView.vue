@@ -79,6 +79,7 @@ watch(
     item.content,
     item.reasoning,
     item.generating,
+    item.actorLabel,
     item.tools?.map((tool) => `${tool.id}:${tool.finished}:${tool.failed}`).join('|')
   ]),
   () => {

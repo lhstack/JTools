@@ -15,6 +15,7 @@ internal class AgentUserMessageCard(
     private val onDelete: (() -> Unit)? = null,
     private val createdAt: String? = null,
     private val persisted: Boolean = false,
+    private val actorLabel: String? = null,
     override val id: String = "user-${UUID.randomUUID()}",
 ) : AgentChatCard {
     override fun toBrowserMessage() = AgentBrowserMessage(
@@ -25,6 +26,7 @@ internal class AgentUserMessageCard(
         createdAt = compactCreatedAt(createdAt),
         deletable = onDelete != null,
         persisted = persisted,
+        actorLabel = actorLabel,
     )
 
     override fun delete() = onDelete?.invoke() ?: Unit
@@ -36,8 +38,10 @@ internal class AgentAssistantMessageCard(
     private val onDelete: (() -> Unit)? = null,
     @Suppress("UNUSED_PARAMETER") private val onCopyCode: (() -> Unit)? = null,
     private val persisted: Boolean = false,
+    actorLabel: String? = null,
     override val id: String = "assistant-${UUID.randomUUID()}",
 ) : AgentChatCard {
+    private var actorLabel = actorLabel
     private var response = ""
     private var reasoning = ""
     private var reasoningExpanded = true
@@ -89,6 +93,12 @@ internal class AgentAssistantMessageCard(
         changed()
     }
 
+    fun setActorLabel(value: String?) {
+        if (actorLabel == value) return
+        actorLabel = value
+        changed()
+    }
+
     fun finish(createdAt: String?, usageText: String?, details: List<AgentBrowserUsageItem> = emptyList()) {
         generating = false
         this.createdAt = createdAt
@@ -112,6 +122,7 @@ internal class AgentAssistantMessageCard(
         usageDetails = usageDetails,
         deletable = onDelete != null,
         persisted = persisted,
+        actorLabel = actorLabel,
     )
 
     fun toolDetail(callId: String): AgentBrowserToolDetail? =
@@ -166,7 +177,15 @@ internal class AgentRunMessageCard(
         messageType = "agent_run",
         persisted = persisted,
         agentRun = AgentBrowserRun(runId, agentId, agentName, receiver, latestPrompt, status, error),
+        actorLabel = runActorLabel(),
     )
+
+    private fun runActorLabel(): String {
+        val displayName = agentName.trim().ifBlank { "子 Agent" }
+        val suffix = if (displayName.endsWith("Agent", ignoreCase = true)) "" else " Agent"
+        val action = if (receiver == AgentRunReceiver.USER.value) "回复" else "发送"
+        return "$displayName$suffix $action"
+    }
 
     fun toolDetail(callId: String): AgentBrowserToolDetail? = toolDetailLoader(runId, callId)
 
@@ -208,6 +227,7 @@ internal data class AgentBrowserMessage(
     @SerializedName("persisted") val persisted: Boolean = false,
     @SerializedName("messageType") val messageType: String = "message",
     @SerializedName("agentRun") val agentRun: AgentBrowserRun? = null,
+    @SerializedName("actorLabel") val actorLabel: String? = null,
 )
 
 

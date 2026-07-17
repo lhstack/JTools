@@ -120,6 +120,7 @@ object AgentRuntime {
             userMessageAt = request.userMessageAt,
             requestSnapshot = JsonObject().apply {
                 add("prompt_message", JsonPrimitive(request.logPromptMessage ?: request.prompt))
+                request.sessionId?.let { addProperty("session_id", it) }
                 request.clientMessageOrder?.let { addProperty("client_message_order", it) }
                 add("history_params", JsonObject().apply {
                     addProperty("include_history", agent.runtimeParams.includeHistory)
