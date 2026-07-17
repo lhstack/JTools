@@ -79,8 +79,8 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 
 /* Chat role alignment and expandable composer */
 .message.assistant,.message.agent_run{justify-content:flex-start}
-.message.user{justify-content:flex-end}
-.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:90%;max-width:90%}
+.message.user{justify-content:flex-start}
+.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:85%;max-width:85%}
 .composer-input{position:relative}
 .composer-input>.el-textarea{display:block}
 .composer-input .el-textarea__inner{padding-right:44px;transition:min-height .18s ease}
@@ -95,8 +95,8 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .max-text-dialog .el-dialog__body{display:flex;min-height:0}
 .max-text-dialog .el-textarea,.max-text-dialog .el-textarea__inner{width:100%;min-height:min(56vh,560px)}
 
-@media(max-width:780px){.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:90%;max-width:90%}}
-@media(max-width:560px){.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:90%;max-width:90%}}
+@media(max-width:780px){.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:85%;max-width:85%}}
+@media(max-width:560px){.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:85%;max-width:85%}}
 .expandable-text-field{position:relative;width:100%}
 .expandable-text-field>.el-textarea{display:block}
 .expandable-text-field .el-textarea__inner{padding-right:42px;padding-bottom:34px}
