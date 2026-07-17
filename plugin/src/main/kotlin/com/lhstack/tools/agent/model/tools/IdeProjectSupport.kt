@@ -312,7 +312,7 @@ internal class IdeProjectSupport(
 
     private fun displayPathInReadAction(file: VirtualFile): String {
         return when (file.fileSystem.protocol) {
-            LocalFileSystem.PROTOCOL -> workspace.displayPath(file.toNioPath().toFile())
+            LocalFileSystem.PROTOCOL -> workspace.displayPath(File(file.path))
             else -> file.url
         }
     }
@@ -370,7 +370,8 @@ internal class IdeProjectSupport(
     private fun isProjectFileInReadAction(file: VirtualFile): Boolean {
         val basePath = project.basePath ?: return false
         val projectRoot = WorkspaceTools.canonicalize(File(basePath))
-        val candidate = runCatching { WorkspaceTools.canonicalize(file.toNioPath().toFile()) }.getOrNull() ?: return false
+        if (file.fileSystem.protocol != LocalFileSystem.PROTOCOL) return false
+        val candidate = WorkspaceTools.canonicalize(File(file.path))
         return candidate.toPath().startsWith(projectRoot.toPath())
     }
 
