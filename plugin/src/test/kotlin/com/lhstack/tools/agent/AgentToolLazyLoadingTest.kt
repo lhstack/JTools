@@ -35,6 +35,31 @@ class AgentToolLazyLoadingTest {
     }
 
     @org.junit.jupiter.api.Test
+    fun `persisted agent run card loads tool detail by its log id`() {
+        var requestedLogId: Long? = null
+        val expected = AgentBrowserToolDetail("{\"timezone\":\"UTC\"}", "{\"datetime\":\"now\"}")
+        val card = AgentRunMessageCard(
+            "run-1",
+            1,
+            "Writer",
+            AgentRunReceiver.USER.value,
+            toolDetailLoader = { runId, logId, callId ->
+                assertEquals("run-1", runId)
+                assertEquals("call-1", callId)
+                requestedLogId = logId
+                expected
+            },
+        )
+        card.update(AgentRunSnapshot(
+            "run-1", 1, "Writer", null, 9, "user", "prompt", "completed", "output", "",
+            listOf(AgentBrowserTool("call-1", "get_time", true, false)), null, 208,
+        ))
+
+        assertEquals(expected, card.toolDetail("call-1"))
+        assertEquals(208, requestedLogId)
+    }
+
+    @org.junit.jupiter.api.Test
     fun `agent run card identifies whether the agent replies or sends`() {
         val reply = AgentRunMessageCard("reply", 1, "Writer", AgentRunReceiver.USER.value).apply {
             update(AgentRunSnapshot("reply", 1, "Writer", null, 9, "user", "prompt", "completed", "output", "", emptyList(), null, 1))

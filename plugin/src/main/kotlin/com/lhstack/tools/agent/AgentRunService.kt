@@ -353,16 +353,18 @@ internal object AgentRunService {
         }.orEmpty()
     }
 
-    fun toolDetail(runId: String, callId: String): AgentBrowserToolDetail? {
+    fun toolDetail(runId: String, logId: Long?, callId: String): AgentBrowserToolDetail? {
         runs[runId]?.let { run ->
             return synchronized(run) {
                 run.tools[callId]?.let { toolDetail(it.args, it.result) }
             }
         }
-        val structured = ModelLogService.agentRunLogByRunId(runId)
-            ?.responseData
-            ?.getAsJsonObject("structured_response")
-            ?: return null
+        val persistedLogId = logId ?: return null
+        val log = ModelLogService.modelLogById(persistedLogId) ?: return null
+        if (log.messageType != "agent_run") return null
+        val snapshot = log.requestData.getAsJsonObject("request_snapshot") ?: return null
+        if (snapshot.get("agent_run_id")?.asString != runId) return null
+        val structured = log.responseData.getAsJsonObject("structured_response") ?: return null
         return persistedToolDetail(structured, callId)
     }
 

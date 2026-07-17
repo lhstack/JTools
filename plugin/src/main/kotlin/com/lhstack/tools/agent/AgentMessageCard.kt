@@ -140,7 +140,7 @@ internal class AgentRunMessageCard(
     private val agentName: String,
     private val receiver: String,
     private val onDelete: (() -> Unit)? = null,
-    private val toolDetailLoader: (String, String) -> AgentBrowserToolDetail? = { _, _ -> null },
+    private val toolDetailLoader: (String, Long?, String) -> AgentBrowserToolDetail? = { _, _, _ -> null },
     override val id: String = "agent-run-$runId",
 ) : AgentChatCard {
     private var status: String = "running"
@@ -151,6 +151,7 @@ internal class AgentRunMessageCard(
     private var createdAt: String? = null
     private var tools: List<AgentBrowserTool> = emptyList()
     private var persisted: Boolean = false
+    private var logId: Long? = null
     internal var onChanged: (() -> Unit)? = null
 
     fun update(snapshot: AgentRunSnapshot) {
@@ -161,7 +162,8 @@ internal class AgentRunMessageCard(
         error = snapshot.error
         createdAt = snapshot.createdAt
         tools = snapshot.tools
-        persisted = snapshot.logId != null && snapshot.status != "running"
+        logId = snapshot.logId
+        persisted = logId != null && snapshot.status != "running"
         onChanged?.invoke()
     }
 
@@ -187,7 +189,7 @@ internal class AgentRunMessageCard(
         return "$displayName$suffix $action"
     }
 
-    fun toolDetail(callId: String): AgentBrowserToolDetail? = toolDetailLoader(runId, callId)
+    fun toolDetail(callId: String): AgentBrowserToolDetail? = toolDetailLoader(runId, logId, callId)
 
     override fun delete() = onDelete?.invoke() ?: Unit
 }
