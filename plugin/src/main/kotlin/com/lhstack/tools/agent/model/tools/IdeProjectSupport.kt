@@ -1,8 +1,8 @@
 package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonArray
-import com.intellij.codeInsight.actions.ReformatCodeProcessor
 import com.google.gson.JsonObject
+import com.intellij.codeInsight.actions.ReformatCodeProcessor
 import com.intellij.find.FindManager
 import com.intellij.find.FindModel
 import com.intellij.openapi.application.ApplicationManager
@@ -17,17 +17,17 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.Processor
 import java.io.File
+import java.nio.file.FileSystems
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.nio.file.FileSystems
 
 internal class IdeProjectSupport(
     private val workspace: WorkspaceTools,
@@ -38,7 +38,10 @@ internal class IdeProjectSupport(
     fun readFiles(requests: List<ReadFileRequest>): List<JsonObject> {
         require(requests.isNotEmpty()) { "read requests must not be empty" }
         return smartRead {
-            val files = requests.map { request -> resolveProjectFileInReadAction(request.path) }
+            val files = requests.map { request ->
+                checkToolThreadCancellation()
+                resolveProjectFileInReadAction(request.path)
+            }
             require(files.map { it.url }.distinct().size == files.size) { "read paths must not contain duplicates" }
             requests.zip(files).map { (request, file) -> readFileInReadAction(file, request.ranges, request.maxLines) }
         }
@@ -84,7 +87,8 @@ internal class IdeProjectSupport(
             }
             PreparedWrite(request, target, existing)
         }
-        require(prepared.map { it.target }.distinct().size == prepared.size) { "write paths must not contain duplicates" }
+        require(prepared.map { it.target }
+            .distinct().size == prepared.size) { "write paths must not contain duplicates" }
 
         val results = runOnEdt {
             val values = mutableListOf<JsonObject>()
@@ -148,7 +152,12 @@ internal class IdeProjectSupport(
         require(request.replaceAll || matches.size == 1) {
             "old_text occurs ${matches.size} times in `${request.path}`; provide more context or set replace_all=true"
         }
-        return PreparedReplacement(request, file, document, if (request.replaceAll) matches else listOf(matches.single()))
+        return PreparedReplacement(
+            request,
+            file,
+            document,
+            if (request.replaceAll) matches else listOf(matches.single())
+        )
     }
 
     fun findFiles(name: String, match: NameMatch, limit: Int): JsonObject {
@@ -201,6 +210,7 @@ internal class IdeProjectSupport(
             val results = JsonArray()
             var truncated = false
             for (file in projectFilesInReadAction()) {
+                checkToolThreadCancellation()
                 if (results.size() >= limit) {
                     truncated = true
                     break
@@ -209,6 +219,7 @@ internal class IdeProjectSupport(
                 val text = runCatching { readTextInReadAction(file) }.getOrNull() ?: continue
                 val lines = text.split('\n')
                 for ((index, rawLine) in lines.withIndex()) {
+                    checkToolThreadCancellation()
                     if (!matcher.matches(rawLine)) continue
                     val from = maxOf(0, index - contextLines)
                     val to = minOf(lines.lastIndex, index + contextLines)
@@ -336,6 +347,7 @@ internal class IdeProjectSupport(
         val files = linkedSetOf<VirtualFile>()
         val root = project.baseDir ?: return files
         VfsUtilCore.iterateChildrenRecursively(root, null) { file ->
+            checkToolThreadCancellation()
             ProgressManager.checkCanceled()
             if (!file.isDirectory && isProjectFileInReadAction(file)) files.add(file)
             true
@@ -373,6 +385,12 @@ internal class IdeProjectSupport(
         if (file.fileSystem.protocol != LocalFileSystem.PROTOCOL) return false
         val candidate = WorkspaceTools.canonicalize(File(file.path))
         return candidate.toPath().startsWith(projectRoot.toPath())
+    }
+
+    private fun checkToolThreadCancellation() {
+        if (Thread.currentThread().isInterrupted) {
+            throw java.util.concurrent.CancellationException("tool execution interrupted")
+        }
     }
 
     private fun <T> smartRead(action: () -> T): T =
@@ -428,6 +446,7 @@ internal data class ReplaceTextRequest(
     val replaceAll: Boolean,
     val caseSensitive: Boolean,
 )
+
 private data class PreparedWrite(val request: WriteFileRequest, val target: File, val existing: VirtualFile?)
 private data class PreparedReplacement(
     val request: ReplaceTextRequest,
@@ -435,6 +454,7 @@ private data class PreparedReplacement(
     val document: Document,
     val ranges: List<IntRange>,
 )
+
 private data class FileMetadata(val path: String, val charset: String)
 internal data class LineRange(val start: Int, val end: Int)
 internal enum class NameMatch { EXACT, CONTAINS, GLOB }

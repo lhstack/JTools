@@ -10,9 +10,12 @@ import com.lhstack.tools.agent.model.llm.ToolDyn
 import com.lhstack.tools.agent.model.llm.ToolResult
 import com.lhstack.tools.agent.model.llm.ToolResultContent
 import com.lhstack.tools.agent.model.llm.UserContent
+import com.lhstack.tools.agent.model.tools.ToolOutputLimit
 import java.util.concurrent.Callable
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * 工具调用运行时。完全照抄 awake-claw 的 ToolRuntime（src/service/model_provider.rs）。
@@ -58,21 +61,33 @@ class ToolRuntime(
      * 用共享线程池提交，futures 按提交顺序 get，等价 join_all 的保序语义。
      */
     private fun executeToolCallsConcurrently(calls: List<ProviderToolCall>): List<String> {
-        if (calls.isEmpty()) {
-            return emptyList()
+        if (calls.isEmpty()) return emptyList()
+        val pending = calls.map { call ->
+            val index = definitions.indexOfFirst { it.name == call.name }
+            val timeoutSeconds = if (index >= 0) tools[index].executionTimeoutSeconds else 120L
+            PendingTool(call, timeoutSeconds.coerceAtLeast(1L), AgentExecutors.shared.submit(Callable { executeToolCall(call) }))
         }
-        val futures = calls.map { call ->
-            AgentExecutors.shared.submit(Callable { executeToolCall(call) })
-        }
+        val futures = pending.map { it.future }
         val cancelFutures = { futures.forEach { it.cancel(true) }; Unit }
         val toolInterruptId = toolCancel?.registerInterrupt(cancelFutures)
         val conversationInterruptId = conversationCancel?.registerInterrupt(cancelFutures)
+        val deadlines = pending.associate { it.future to System.nanoTime() + TimeUnit.SECONDS.toNanos(it.timeoutSeconds) }
         try {
-            return futures.map { future ->
+            return pending.map { invocation ->
                 try {
-                    future.get()
+                    val remaining = deadlines.getValue(invocation.future) - System.nanoTime()
+                    if (remaining <= 0L) throw TimeoutException()
+                    invocation.future.get(remaining, TimeUnit.NANOSECONDS)
                 } catch (_: CancellationException) {
-                    "用户手动取消"
+                    if (isCancellationRequested()) "用户手动取消"
+                    else "工具调用失败: `${invocation.call.name}` 被执行器取消"
+                } catch (_: TimeoutException) {
+                    cancelFutures()
+                    if (isCancellationRequested()) {
+                        "用户手动取消"
+                    } else {
+                        "工具调用失败: `${invocation.call.name}` 超过 ${invocation.timeoutSeconds} 秒未完成"
+                    }
                 } catch (error: ExecutionException) {
                     val cause = error.cause ?: error
                     "工具调用失败: ${describeThrowable(cause)}"
@@ -98,9 +113,12 @@ class ToolRuntime(
         }
         return try {
             val output = stringifyToolOutput(tools[index].callJsonBlocking(call.arguments))
-            if (toolCancel?.isCancelled() == true) "用户手动取消" else output
+            if (call.name in LIMITED_OUTPUT_TOOLS) {
+                ToolOutputLimit.requireWithinLimit(call.name, output)
+            }
+            if (isCancellationRequested()) "用户手动取消" else output
         } catch (e: Throwable) {
-            if (toolCancel?.isCancelled() == true) {
+            if (isCancellationRequested()) {
                 "用户手动取消"
             } else {
                 "工具调用失败: ${describeThrowable(e)}"
@@ -108,7 +126,10 @@ class ToolRuntime(
         }
     }
 
-    private fun emitToolCalls(calls: List<ProviderToolCall>) {
+    private fun isCancellationRequested(): Boolean =
+ toolCancel?.isCancelled() == true || conversationCancel?.isCancelled() == true
+
+ private fun emitToolCalls(calls: List<ProviderToolCall>) {
         val sink = eventSink ?: return
         for (call in calls) {
             sink.onToolCall(call)
@@ -123,7 +144,15 @@ class ToolRuntime(
         }
     }
 
+    private data class PendingTool(
+        val call: ProviderToolCall,
+        val timeoutSeconds: Long,
+        val future: java.util.concurrent.Future<String>,
+    )
+
     companion object {
+        private val LIMITED_OUTPUT_TOOLS = setOf("search_project_text", "find_project_files", "bash")
+
         /** 照抄 tool_results：把 outputs 按 call 顺序包成 ToolResult UserContent。 */
         private fun toolResults(calls: List<ProviderToolCall>, outputs: List<String>): List<UserContent> =
             calls.zip(outputs).map { (call, output) -> toolResult(call, output) }
@@ -161,6 +190,7 @@ class ToolRuntime(
             else -> value.toString()
         }
     }
+
 }
 
 /** 工具调用/结果记录回调，对齐 awake 的 TraceHook.on_tool_call / on_tool_result。 */

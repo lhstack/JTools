@@ -321,6 +321,10 @@ data class ToolDefinition(
 interface ToolDyn {
     fun definition(prompt: String): ToolDefinition
     fun callJsonBlocking(args: JsonElement): JsonElement
+
+    /** Maximum time a single tool call may occupy the shared tool runtime. */
+    val executionTimeoutSeconds: Long
+        get() = 120L
 }
 
 // ---------------- Usage ----------------

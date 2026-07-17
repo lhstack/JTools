@@ -8,6 +8,9 @@ import com.lhstack.tools.agent.model.llm.ToolDefinition
 import com.lhstack.tools.agent.model.llm.ToolDyn
 import java.io.File
 import java.nio.charset.Charset
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 
 /**
@@ -84,12 +87,24 @@ class BashTool(
         builder.environment().putAll(envVars)
 
         val process = builder.start()
+        val outputBudget = ProcessOutputBudget(ToolOutputLimit.MAX_BYTES)
+        val stdoutCapture = ProcessOutputCapture(process.inputStream, outputBudget)
+        val stderrCapture = ProcessOutputCapture(process.errorStream, outputBudget)
+        val stdoutThread = stdoutCapture.start("jtools-bash-stdout")
+        val stderrThread = stderrCapture.start("jtools-bash-stderr")
         var timedOut = false
         var cancelled = false
+        var outputExceeded = false
 
-        // 轮询等待，兼顾超时与取消（对齐 awake 的 50ms 轮询循环）。
+        // 轮询等待，兼顾超时、取消和输出上限。输出超过上限时立即销毁进程树，
+        // 避免命令继续写满管道导致工具线程永久等待。
         val deadline = System.currentTimeMillis() + timeoutSecs * 1000
         while (true) {
+            if (outputBudget.exceeded.get()) {
+                outputExceeded = true
+                destroyTree(process)
+                break
+            }
             if (process.waitFor(50, TimeUnit.MILLISECONDS)) {
                 break
             }
@@ -104,9 +119,21 @@ class BashTool(
                 break
             }
         }
+        if (outputBudget.exceeded.get()) {
+            outputExceeded = true
+            destroyTree(process)
+        }
+        stdoutThread.join(1000)
+        stderrThread.join(1000)
 
-        val stdout = process.inputStream.readBytes().toString(shell.outputCharset)
-        var stderr = process.errorStream.readBytes().toString(shell.outputCharset)
+        if (outputExceeded) {
+            throw ToolException(
+                ToolOutputLimit.message(NAME),
+            )
+        }
+
+        val stdout = stdoutCapture.text(shell.outputCharset)
+        var stderr = stderrCapture.text(shell.outputCharset)
         val exitCode = if (process.isAlive) null else process.exitValue()
 
         if (timedOut) {
@@ -132,6 +159,42 @@ class BashTool(
             process.descendants().forEach { it.destroyForcibly() }
         }
         process.destroyForcibly()
+    }
+
+    private class ProcessOutputBudget(val limit: Int) {
+        val consumed = AtomicInteger(0)
+        val exceeded = AtomicBoolean(false)
+
+        fun accept(size: Int): Boolean {
+            val total = consumed.addAndGet(size)
+            if (total > limit) exceeded.set(true)
+            return !exceeded.get()
+        }
+    }
+
+    private class ProcessOutputCapture(
+        private val input: java.io.InputStream,
+        private val budget: ProcessOutputBudget,
+    ) {
+        private val output = ByteArrayOutputStream()
+
+        fun start(name: String): Thread = Thread {
+            val buffer = ByteArray(1024)
+            input.use { stream ->
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    if (!budget.accept(count)) break
+                    output.write(buffer, 0, count)
+                }
+            }
+        }.apply {
+            this.name = name
+            isDaemon = true
+            start()
+        }
+
+        fun text(charset: Charset): String = output.toByteArray().toString(charset)
     }
 
     companion object {

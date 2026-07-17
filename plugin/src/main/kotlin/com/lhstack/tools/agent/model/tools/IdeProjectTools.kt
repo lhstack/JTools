@@ -166,6 +166,7 @@ internal class BuildProjectTool(
     private val support: IdeProjectSupport,
     private val cancel: com.lhstack.tools.agent.model.http.ModelCancel?,
 ) : ToolDyn {
+    override val executionTimeoutSeconds: Long = 660L
     override fun definition(prompt: String) = definition(
         NAME,
         "Save all open documents, then build the complete current project through JetBrains ProjectTaskManager and the task runner supplied by the active IDE. This tool does not choose or invoke a language-specific command. Returns completed, failed, or aborted status plus bounded diagnostics and output only when the active runner publishes them.",

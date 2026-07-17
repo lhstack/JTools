@@ -1067,22 +1067,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val result = try {
             AgentRuntime.execute(buildQueueRequest(item, agent, record, history))
         } catch (e: Throwable) {
+            val requestError = e as? ModelRequestException
             if (!isQueueItemActive(item)) {
-                (e as? ModelRequestException)?.logId?.let { ModelLogService.deleteModelLog(it) }
+                finishInactiveQueueItem(item, requestError)
             } else if (item.token.isCancelled()) {
-                finishQueueItemCancelled(item, (e as? ModelRequestException)?.logId)
+                finishQueueItemCancelled(item, requestError?.logId, requestError?.partialResponse)
+            } else if (requestError?.partialResponse != null) {
+                finishQueueItemPartialFailure(item, requestError)
             } else {
-                val requestError = e as? ModelRequestException
-                if (requestError?.partialResponse != null) {
-                    finishQueueItemPartialFailure(item, requestError)
-                } else {
-                    finishQueueItemError(item, e.message ?: "调用失败", requestError?.logId)
-                }
+                finishQueueItemError(item, e.message ?: "调用失败", requestError?.logId)
             }
             return
         }
         if (!isQueueItemActive(item)) {
-            ModelLogService.deleteModelLog(result.logId)
+            if (hasAssistantOutput(item, result.value)) {
+                item.persistedLogId = result.logId
+                onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
+            } else {
+                ModelLogService.deleteModelLog(result.logId)
+            }
             return
         }
         finishQueueItemSuccess(item, result)
@@ -1273,23 +1276,59 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         scheduleSessionDistillation(item.sessionId, item.agentId)
     }
 
-    private fun finishQueueItemCancelled(item: ChatQueueItem, logId: Long?) = onUi {
-        if (!isQueueItemActive(item)) return@onUi
-        item.status = ChatQueueStatus.CANCELLED
-        item.persistedLogId = logId
-        if (item.hasAssistantOutput) {
-            val assistantMessageAt = logId?.let {
-                ModelLogService.finishModelLogCancelled(it, cancelledResponseData(item))
-            }
-            ensureQueueAssistantCard(item).finish(assistantMessageAt, null)
-            completeQueueItem(item, refreshHistory = logId != null, remove = logId != null)
+    private fun finishQueueItemCancelled(
+        item: ChatQueueItem,
+        logId: Long?,
+        partialResponse: JsonObject?,
+    ) {
+        val response = partialResponse ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
+        val assistantMessageAt = if (logId != null && response != null) {
+            ModelLogService.finishModelLogCancelled(logId, response)
         } else {
-            logId?.let { ModelLogService.deleteModelLog(it) }
-            if (currentSessionId == item.sessionId) {
-                inputArea.text = item.prompt
-            }
-            completeQueueItem(item, refreshHistory = true)
+            logId?.let(ModelLogService::deleteModelLog)
+            null
         }
+        if (response != null) item.persistedLogId = logId
+        onUi {
+            if (response != null) {
+                item.status = ChatQueueStatus.CANCELLED
+                item.persistedLogId = logId
+                ensureQueueAssistantCard(item).finish(assistantMessageAt, null)
+                completeQueueItem(item, refreshHistory = logId != null, remove = logId != null)
+            } else {
+                item.status = ChatQueueStatus.CANCELLED
+                if (currentSessionId == item.sessionId) restoreFailedInput(item)
+                completeQueueItem(item, refreshHistory = true)
+            }
+        }
+    }
+
+    private fun finishInactiveQueueItem(item: ChatQueueItem, error: ModelRequestException?) {
+        val partial = error?.partialResponse
+        val response = partial ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
+        val logId = error?.logId
+        if (response != null && logId != null) {
+            ModelLogService.finishModelLogCancelled(logId, response)
+            item.persistedLogId = logId
+            onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
+        } else {
+            logId?.let(ModelLogService::deleteModelLog)
+            if (response == null) {
+                onUi {
+                    if (currentSessionId == item.sessionId) restoreFailedInput(item)
+                    refreshCurrentSessionHistoryIfVisible(item.sessionId)
+                }
+            }
+        }
+    }
+
+    private fun hasAssistantOutput(item: ChatQueueItem, response: JsonObject? = null): Boolean {
+        if (item.hasAssistantOutput || item.responseText.isNotBlank() || item.reasoningText.isNotBlank()) return true
+        if (item.toolCalls.isNotEmpty()) return true
+        val value = response ?: return false
+        if (jsonString(value.get("response")).isNotBlank()) return true
+        if (reasoningText(value).isNotBlank()) return true
+        return value.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.isEmpty == false
     }
 
     private fun finishQueueItemPartialFailure(item: ChatQueueItem, error: ModelRequestException) = onUi {
@@ -1311,10 +1350,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun finishQueueItemError(item: ChatQueueItem, error: String, logId: Long? = null) = onUi {
         if (!isQueueItemActive(item)) return@onUi
         item.status = ChatQueueStatus.FAILED
-        item.persistedLogId = logId
-        discardQueueCards(item)
-        restoreFailedInput(item)
-        completeQueueItem(item, refreshHistory = true)
+        if (hasAssistantOutput(item)) {
+            item.persistedLogId = logId
+            ensureQueueAssistantCard(item).finish(null, null)
+            completeQueueItem(item, refreshHistory = logId != null)
+        } else {
+            logId?.let(ModelLogService::deleteModelLog)
+            discardQueueCards(item)
+            restoreFailedInput(item)
+            completeQueueItem(item, refreshHistory = true)
+        }
         project.errorNotify("模型请求失败", error)
     }
 
@@ -1393,24 +1438,36 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        if (item.runningToolCount > 0) {
-            stopRunningTools(item)
-            return
-        }
-        cancelQueueItem(item)
+
+        // Stop always cancels the complete model request. A retry is a model HTTP
+        // operation, not a tool operation; cancelling only toolToken leaves that
+        // retry alive and the queue remains PROCESSING until the HTTP timeout.
+        item.conversationCancelRequested = true
+        item.toolCancelRequested = true
+        item.token.cancel()
+        item.toolToken.cancel()
+        finishQueueItemCancelledImmediately(item)
     }
 
-    private fun stopRunningTools(item: ChatQueueItem) {
-        if (item.toolCancelRequested) return
-        item.toolCancelRequested = true
-        item.toolToken.cancel()
+    private fun finishQueueItemCancelledImmediately(item: ChatQueueItem) {
         val runningIds = item.runningToolIds.toList()
         item.canceledToolIds.addAll(runningIds)
+        item.runningToolIds.clear()
+        item.runningToolCount = 0
         runningIds.forEach { toolId ->
             item.assistantCard?.updateToolResult(toolId, "用户手动取消")
         }
+        item.status = ChatQueueStatus.CANCELLED
+        synchronized(queueLock) { chatQueue.remove(item) }
+        if (item.hasAssistantOutput) {
+            item.assistantCard?.finish(null, null)
+        } else {
+            discardQueueCards(item)
+            if (currentSessionId == item.sessionId) restoreFailedInput(item)
+        }
         refreshQueuePanel()
         updateActiveStopButton()
+        processQueue()
     }
 
     private fun updateActiveStopButton() = Unit
