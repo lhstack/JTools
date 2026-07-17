@@ -87,7 +87,22 @@ object ModelRuntime {
             val partialResponse = partialOutput.structuredValue(hook)
             ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
             if (cancel?.isCancelled() == true) {
-                throw ModelRequestException(modelLogId, message, partialResponse, cause = e)
+                // Cancellation is a terminal model-log state when any model output
+                // already exists. Do this at the model boundary, before control is
+                // returned to the queue/UI, so a stop cannot race history refresh.
+                val assistantMessageAt = partialResponse?.let {
+                    ModelLogService.finishModelLogCancelled(
+                        modelLogId,
+                        httpTrace.responseData(it),
+                    )
+                }
+                throw ModelRequestException(
+                    modelLogId,
+                    message,
+                    partialResponse,
+                    assistantMessageAt,
+                    e,
+                )
             }
             val assistantMessageAt = ModelLogService.finishModelLogError(
                 modelLogId,

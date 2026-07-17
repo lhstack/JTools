@@ -1446,10 +1446,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         item.toolCancelRequested = true
         item.token.cancel()
         item.toolToken.cancel()
-        finishQueueItemCancelledImmediately(item)
+        // Do not remove the queue item here. ModelRuntime must finish the
+        // cancelled log first; otherwise the later exception is treated as an
+        // inactive task and the assistant history can be discarded.
+        markQueueItemCancellationRequested(item)
     }
 
-    private fun finishQueueItemCancelledImmediately(item: ChatQueueItem) {
+    private fun markQueueItemCancellationRequested(item: ChatQueueItem) {
         val runningIds = item.runningToolIds.toList()
         item.canceledToolIds.addAll(runningIds)
         item.runningToolIds.clear()
@@ -1457,17 +1460,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         runningIds.forEach { toolId ->
             item.assistantCard?.updateToolResult(toolId, "用户手动取消")
         }
-        item.status = ChatQueueStatus.CANCELLED
-        synchronized(queueLock) { chatQueue.remove(item) }
-        if (item.hasAssistantOutput) {
-            item.assistantCard?.finish(null, null)
-        } else {
-            discardQueueCards(item)
-            if (currentSessionId == item.sessionId) restoreFailedInput(item)
-        }
         refreshQueuePanel()
         updateActiveStopButton()
-        processQueue()
     }
 
     private fun updateActiveStopButton() = Unit
