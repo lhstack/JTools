@@ -95,7 +95,8 @@ object AgentRuntime {
 
         val runtimeModel = ModelResolver.resolveFromStore(provider, model)
         val enabledTools = effectiveTools(agent.extConfig)
-        val enabledSkills = effectiveSkills(agent.extConfig)
+        val availableSkills = ResourceConfigService.listSkills()
+        val enabledSkills = effectiveSkills(agent.extConfig, availableSkills)
         val tools = RuntimeTools.create(
             workspace = request.workspace,
             enabledTools = enabledTools,
@@ -110,7 +111,7 @@ object AgentRuntime {
             runtimeModel.params.contextWindow,
             ModelParams.runtimeOutputTokens(runtimeModel),
         )
-        val preamble = buildPreamble(agent, request, enabledSkills, request.skillsRootDir)
+        val preamble = buildPreamble(agent, request, enabledSkills, availableSkills)
         val promptMessage = buildPromptMessage(request.prompt, request.attachments)
         val logContext = ModelLogContext(
             sourceType = request.logSourceType ?: sourceType(request.triggerType),
@@ -245,8 +246,11 @@ object AgentRuntime {
         disabled = config.tools.disabled,
     )
 
-    private fun effectiveSkills(config: AgentCapabilityConfig): Set<String> = effectiveEnabledItems(
-        current = ResourceConfigService.listSkills().map { it.name }.toSet(),
+    private fun effectiveSkills(
+        config: AgentCapabilityConfig,
+        availableSkills: List<ResourceConfigService.SkillDirectoryRecord>,
+    ): Set<String> = effectiveEnabledItems(
+        current = availableSkills.map { it.name }.toSet(),
         enabled = config.skills.enabled,
         includeNew = config.skills.includeNew,
         disabled = config.skills.disabled,
@@ -278,8 +282,8 @@ object AgentRuntime {
     private fun buildPreamble(
         agent: AgentRecord,
         request: Request,
-        enabledSkills: Set<String>?,
-        skillsRootDir: File?,
+        enabledSkills: Set<String>,
+        availableSkills: List<ResourceConfigService.SkillDirectoryRecord>,
     ): String = buildString {
         append("## 系统环境\n")
         append("- Agent ID：${agent.id ?: request.agentId}\n")
@@ -287,7 +291,7 @@ object AgentRuntime {
         append("- 工作空间 / 默认CWD：${File(request.workspace).canonicalPath}\n")
         request.sessionId?.let { append("- 当前会话 ID：$it\n") }
         append("- CWD规则：工作空间就是默认 cwd；当工具调用或命令没有显式指定 cwd 时，cwd 等于工作空间。\n")
-        append("- 技能目录：${skillsRootDir?.canonicalPath ?: "未配置"}\n")
+        append("- 技能目录：${request.skillsRootDir?.canonicalPath ?: "未配置"}\n")
         append("- 操作系统：${System.getProperty("os.name")} ${System.getProperty("os.version")}（${System.getProperty("os.arch")}）\n")
         append("- bash 工具系统编码：${com.lhstack.tools.agent.model.tools.SelectedShell.current().outputCharset.name()}\n")
         append("- 项目环境编码：${projectFileEncodingName(request)}\n")
@@ -303,19 +307,36 @@ object AgentRuntime {
         appendSection("以下是系统提示词", template)
         appendPersonaSections(agent.extConfig)
         appendSection("以下是扩展提示信息。", agent.extraPrompt)
-        if (agent.extConfig.skillPromptEnabled && !enabledSkills.isNullOrEmpty()) {
-            val skills = enabledSkills.joinToString("\n") { "- $it" }
-            appendSection(
-                "以下是工具与技能使用说明。\n\n## 技能\n### 已启用技能\n$skills\n\n### 使用约束",
-                "1. 命中技能后先确认当前上下文是否已有完整 SKILL.md。\n" +
-                    "2. 未加载时调用 skills_view，加载后必须按技能指引执行。",
-            )
+        if (agent.extConfig.skillPromptEnabled) {
+            val skills = enabledSkillSummaries(enabledSkills, availableSkills)
+            if (skills.isNotEmpty()) {
+                appendSection(
+                    "以下是当前 Agent 的工具与技能使用说明。\n\n## 技能\n### 当前可用技能\n${skills.joinToString("\n")}\n\n### 使用约束",
+                    "1. 下方“当前可用技能”是当前 Agent 提供给你的能力清单。判断用户意图时，直接根据这些技能名称和描述匹配。\n" +
+                        "2. 如果用户意图已经命中上方清单中的技能，禁止调用 `skills_list` 再确认技能是否存在。\n" +
+                        "3. 命中技能后，先判断当前对话或系统消息是否已经包含该技能的完整 `SKILL.md` 指令。\n" +
+                        "4. 如果尚未包含完整指令，必须调用 `skills_view` 加载该技能；如果已经包含，禁止重复调用 `skills_view`。\n" +
+                        "5. 加载或确认技能指令后，必须按照指令执行。",
+                )
+            }
         }
         appendSection(
             "以下是你必须严格遵守的边界约束，优先级高于以上所有内容。",
             agent.extConfig.persona.guardrails,
         )
     }
+
+    internal fun enabledSkillSummaries(
+        enabledSkills: Set<String>,
+        availableSkills: List<ResourceConfigService.SkillDirectoryRecord>,
+    ): List<String> = availableSkills
+        .asSequence()
+        .filter { it.name in enabledSkills && it.available }
+        .map { skill ->
+            val description = skill.description?.trim().takeUnless { it.isNullOrEmpty() } ?: "无描述"
+            "- ${skill.name}: $description"
+        }
+        .toList()
 
     private fun StringBuilder.appendPersonaSections(config: AgentCapabilityConfig) {
         appendPersona("以下是当前 Agent 的角色定义。", "角色设定", config.persona.soul, config.persona.soulMaxChars)
