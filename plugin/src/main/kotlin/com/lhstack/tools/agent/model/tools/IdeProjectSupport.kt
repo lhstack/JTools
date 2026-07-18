@@ -282,7 +282,8 @@ internal class IdeProjectSupport(
         contextLines: Int,
         limit: Int,
     ): JsonObject {
-        val model = textSearchModel(query, regex, caseSensitive, filePattern)
+        val model = textSearchModel(query, regex, caseSensitive)
+        val fileFilter = ProjectFileGlob(filePattern)
         val results = JsonArray()
         var truncated = false
         val presentation = FindUsagesProcessPresentation(
@@ -301,6 +302,8 @@ internal class IdeProjectSupport(
                 emptySet(),
                 Processor { usage: UsageInfo ->
                     checkToolThreadCancellation()
+                    val file = usage.virtualFile ?: return@Processor true
+                    if (!fileFilter.matches(displayPathInReadAction(file), file.name)) return@Processor true
                     if (results.size() >= limit) {
                         truncated = true
                         return@Processor false
@@ -322,7 +325,6 @@ internal class IdeProjectSupport(
         query: String,
         regex: Boolean,
         caseSensitive: Boolean,
-        filePattern: String?,
     ): FindModel = FindModel().apply {
         stringToFind = query
         isRegularExpressions = regex
@@ -331,7 +333,6 @@ internal class IdeProjectSupport(
         isMultipleFiles = true
         isProjectScope = true
         isFindAll = true
-        fileFilter = filePattern?.takeIf { it.isNotBlank() }
     }
 
     private fun waitForIndexes() {
@@ -580,6 +581,49 @@ internal class IdeProjectSupport(
     }
 
 
+}
+
+/** Matches either a file name glob or a project-relative path glob. */
+internal class ProjectFileGlob(pattern: String?) {
+    private val normalized = pattern?.trim()?.replace('\\', '/')?.takeIf(String::isNotEmpty)
+    private val regex = normalized?.let(::globRegex)
+    private val matchesPath = normalized?.contains('/') == true
+
+    fun matches(projectPath: String, fileName: String): Boolean {
+        val matcher = regex ?: return true
+        val value = if (matchesPath) projectPath.replace('\\', '/') else fileName
+        return matcher.matches(value)
+    }
+
+    private fun globRegex(glob: String): Regex {
+        val result = StringBuilder("^")
+        var index = 0
+        while (index < glob.length) {
+            val char = glob[index]
+            when {
+                char == '*' && index + 1 < glob.length && glob[index + 1] == '*' -> {
+                    index += 2
+                    if (index < glob.length && glob[index] == '/') {
+                        result.append("(?:.*/)?")
+                        index++
+                    } else {
+                        result.append(".*")
+                    }
+                    continue
+                }
+                char == '*' -> result.append("[^/]*")
+                char == '?' -> result.append("[^/]")
+                char in REGEX_META -> result.append('\\').append(char)
+                else -> result.append(char)
+            }
+            index++
+        }
+        return Regex(result.append('$').toString())
+    }
+
+    private companion object {
+        val REGEX_META = setOf('.', '^', '$', '+', '{', '}', '[', ']', '(', ')', '|', '\\')
+    }
 }
 
 internal data class ReadFileRequest(val path: String, val ranges: List<LineRange>, val maxLines: Int)
