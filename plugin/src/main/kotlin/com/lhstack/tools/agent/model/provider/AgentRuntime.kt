@@ -298,7 +298,7 @@ object AgentRuntime {
 
         append("\n## 项目文件操作工具\n")
         append("- 涉及项目文件相关的操作，你必须使用以下命令，禁止使用 bash，并且项目编译你不可使用 bash 进行 项目编译，你必须使用 build_project进行项目构建\n")
-        append("- 项目文件名查找使用 `find_project_files`；项目文本内容搜索使用 `search_project_text`。\n")
+        append("- 项目文件/路径查找使用 `find_project_files`；类或语言插件支持的等价类型查找使用 `find_project_classes`；项目文本内容搜索使用 `search_project_text`。\n")
         append("- 已知项目文件路径后，读取使用 `read_project_files`；创建或完整覆盖使用 `write_project_files`；精确修改已有文本使用 `replace_project_text`。\n")
         append("- 需要 IDE 格式化时使用 `format_project_files`；需要当前 IDE Inspection Profile 检查文件时使用 `inspect_project_files`；需要当前 IDE 构建项目时使用 `build_project`。\n")
         append("- 这些项目工具只操作当前项目根目录内的文件。多个目标通过工具的数组参数一次提交。\n")

@@ -33,9 +33,7 @@ class BashTool(
         val shell = SelectedShell.current()
         return ToolDefinition(
             name = NAME,
-            description = "Run a command using ${shell.label} and return stdout, stderr, and exit code. " +
-                "If cwd is omitted, the command runs in the system environment's 默认CWD. Only set cwd when the command " +
-                "must run from a different directory. Relative paths inside command are resolved from the actual execution cwd.",
+            description = "使用 ${shell.label} 执行命令并返回 stdout、stderr 和退出码。省略 cwd 时使用系统默认工作目录。最大仅返回 8k的内容，超过 8k整个命令的内容将不返回。",
             parameters = JsonParser.parseString(
                 """
                 {
@@ -43,15 +41,15 @@ class BashTool(
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Shell command to execute. Use paths relative to the actual execution cwd unless an absolute path is explicitly required."
+                            "description": "必填。要执行的 Shell 命令；除非必须，否则使用相对路径。"
                         },
                         "cwd": {
                             "type": "string",
-                            "description": "Optional working directory override. Omit this to run in the system environment's 默认CWD. Set it only when the command must execute from another directory; after cwd is set, relative paths in command are based on that cwd."
+                            "description": "可选。工作目录；省略时使用系统默认工作目录。"
                         },
                         "timeout_secs": {
                             "type": "integer",
-                            "description": "Optional timeout seconds. Default 30, hard limit 300."
+                            "description": "可选。超时秒数，默认30，最大300。"
                         }
                     },
                     "required": ["command"]

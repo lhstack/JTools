@@ -12,6 +12,7 @@ class IdeProjectToolRegistrationTest {
             "write_project_files",
             "replace_project_text",
             "find_project_files",
+            "find_project_classes",
             "search_project_text",
             "format_project_files",
             "build_project",

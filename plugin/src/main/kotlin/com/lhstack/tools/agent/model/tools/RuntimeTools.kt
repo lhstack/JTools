@@ -25,6 +25,7 @@ object RuntimeTools {
         WriteProjectFilesTool.NAME,
         ReplaceProjectTextTool.NAME,
         FindProjectFilesTool.NAME,
+        FindProjectClassesTool.NAME,
         SearchProjectTextTool.NAME,
         FormatProjectFilesTool.NAME,
         BuildProjectTool.NAME,
@@ -70,6 +71,7 @@ object RuntimeTools {
             if (enabled(WriteProjectFilesTool.NAME)) tools.add(WriteProjectFilesTool(ide))
             if (enabled(ReplaceProjectTextTool.NAME)) tools.add(ReplaceProjectTextTool(ide))
             if (enabled(FindProjectFilesTool.NAME)) tools.add(FindProjectFilesTool(ide))
+            if (enabled(FindProjectClassesTool.NAME)) tools.add(FindProjectClassesTool(ide))
             if (enabled(SearchProjectTextTool.NAME)) tools.add(SearchProjectTextTool(ide))
             if (enabled(FormatProjectFilesTool.NAME)) tools.add(FormatProjectFilesTool(ide))
             if (enabled(BuildProjectTool.NAME)) tools.add(BuildProjectTool(ide, cancel))

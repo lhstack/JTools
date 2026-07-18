@@ -1071,7 +1071,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             if (!isQueueItemActive(item)) {
                 finishInactiveQueueItem(item, requestError)
             } else if (item.token.isCancelled()) {
-                finishQueueItemCancelled(item, requestError?.logId, requestError?.partialResponse)
+                finishQueueItemCancelled(
+                    item,
+                    requestError?.logId,
+                    requestError?.partialResponse,
+                    requestError?.assistantMessageAt,
+                )
             } else if (requestError?.partialResponse != null) {
                 finishQueueItemPartialFailure(item, requestError)
             } else {
@@ -1280,25 +1285,36 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         item: ChatQueueItem,
         logId: Long?,
         partialResponse: JsonObject?,
+        persistedAssistantMessageAt: String?,
     ) {
         val response = partialResponse ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
-        val assistantMessageAt = if (logId != null && response != null) {
-            ModelLogService.finishModelLogCancelled(logId, response)
-        } else {
-            logId?.let(ModelLogService::deleteModelLog)
-            null
+        val assistantMessageAt = when {
+            response == null -> {
+                logId?.let(ModelLogService::deleteModelLog)
+                null
+            }
+            partialResponse != null -> {
+                // ModelRuntime has already persisted this exact partial response.
+                // Do not write the unwrapped partial object over the persisted
+                // response envelope a second time.
+                persistedAssistantMessageAt
+            }
+            logId != null -> ModelLogService.finishModelLogCancelled(logId, response)
+            else -> null
         }
-        if (response != null) item.persistedLogId = logId
+        if (response != null && logId != null) item.persistedLogId = logId
         onUi {
             if (response != null) {
                 item.status = ChatQueueStatus.CANCELLED
                 item.persistedLogId = logId
+                applyCancelledAssistantOutput(item, response)
                 ensureQueueAssistantCard(item).finish(assistantMessageAt, null)
-                completeQueueItem(item, refreshHistory = logId != null, remove = logId != null)
+                completeQueueItem(item, refreshHistory = logId != null, remove = true)
             } else {
                 item.status = ChatQueueStatus.CANCELLED
                 if (currentSessionId == item.sessionId) restoreFailedInput(item)
-                completeQueueItem(item, refreshHistory = true)
+                discardQueueCards(item)
+                completeQueueItem(item, refreshHistory = true, remove = true)
             }
         }
     }
@@ -1308,7 +1324,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val response = partial ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
         val logId = error?.logId
         if (response != null && logId != null) {
-            ModelLogService.finishModelLogCancelled(logId, response)
+            if (partial == null) {
+                ModelLogService.finishModelLogCancelled(logId, response)
+            }
             item.persistedLogId = logId
             onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
         } else {
@@ -1322,13 +1340,33 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private fun applyCancelledAssistantOutput(item: ChatQueueItem, response: JsonObject) {
+        val structured = response.get("structured_response")
+            ?.takeIf { it.isJsonObject }
+            ?.asJsonObject
+            ?: response
+        val responseText = jsonString(structured.get("response"))
+        val reasoning = reasoningText(structured)
+        if (responseText.isNotBlank()) item.responseText = responseText
+        if (reasoning.isNotBlank()) item.reasoningText = reasoning
+        item.hasAssistantOutput = true
+        val card = ensureQueueAssistantCard(item)
+        if (item.responseText.isNotBlank()) card.setResponse(item.responseText)
+        if (item.reasoningText.isNotBlank()) card.setReasoning(item.reasoningText, expanded = true)
+        syncToolCalls(structured, card)
+    }
+
     private fun hasAssistantOutput(item: ChatQueueItem, response: JsonObject? = null): Boolean {
         if (item.hasAssistantOutput || item.responseText.isNotBlank() || item.reasoningText.isNotBlank()) return true
-        if (item.toolCalls.isNotEmpty()) return true
+        if (item.toolCalls.isNotEmpty() || item.toolResults.isNotEmpty()) return true
         val value = response ?: return false
-        if (jsonString(value.get("response")).isNotBlank()) return true
-        if (reasoningText(value).isNotBlank()) return true
-        return value.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.isEmpty == false
+        val structured = value.get("structured_response")
+            ?.takeIf { it.isJsonObject }
+            ?.asJsonObject
+            ?: value
+        if (jsonString(structured.get("response")).isNotBlank()) return true
+        if (reasoningText(structured).isNotBlank()) return true
+        return structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.isEmpty == false
     }
 
     private fun finishQueueItemPartialFailure(item: ChatQueueItem, error: ModelRequestException) = onUi {

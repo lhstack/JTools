@@ -3,7 +3,10 @@ package com.lhstack.tools.agent.model.tools
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.codeInsight.actions.ReformatCodeProcessor
-import com.intellij.find.FindManager
+import com.intellij.ide.util.gotoByName.ChooseByNameModel
+import com.intellij.ide.util.gotoByName.ChooseByNameViewModel
+import com.intellij.ide.util.gotoByName.GotoClassModel2
+import com.intellij.ide.util.gotoByName.GotoFileModel
 import com.intellij.find.FindModel
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
@@ -19,15 +22,23 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.navigation.NavigationItem
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFileSystemItem
 import com.intellij.psi.PsiManager
-import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.find.impl.FindInProjectUtil
+import com.intellij.usageView.UsageInfo
+import com.intellij.usages.FindUsagesProcessPresentation
+import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.util.Processor
 import java.io.File
-import java.nio.file.FileSystems
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.WeakHashMap
+import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal class IdeProjectSupport(
     private val workspace: WorkspaceTools,
@@ -160,39 +171,88 @@ internal class IdeProjectSupport(
         )
     }
 
-    fun findFiles(name: String, match: NameMatch, limit: Int): JsonObject {
-        require(name.isNotBlank()) { "name must not be blank" }
-        return smartRead {
-            val scope = GlobalSearchScope.projectScope(project)
-            val results = linkedMapOf<String, VirtualFile>()
-            var truncated = false
-            fun collectFiles(candidate: String): Boolean {
-                var keepGoing = true
-                FilenameIndex.processFilesByName(candidate, false, scope, Processor { file ->
-                    if (isProjectFileInReadAction(file)) {
-                        results.putIfAbsent(file.url, file)
-                        if (results.size >= limit) {
-                            truncated = true
-                            keepGoing = false
-                            return@Processor false
-                        }
-                    }
-                    true
-                })
-                return keepGoing
+    fun findFiles(pattern: String, limit: Int, includeGlobal: Boolean = false): JsonObject {
+        require(pattern.isNotBlank()) { "pattern must not be blank" }
+        return serializedIndexedSearch {
+            smartRead {
+                val model = GotoFileModel(project)
+                val elements = searchChooseByName(model, pattern, limit, includeGlobal)
+                val files = linkedMapOf<String, VirtualFile>()
+                elements.forEach { element ->
+                val file = when (element) {
+                    is PsiFileSystemItem -> element.virtualFile
+                    is PsiElement -> element.containingFile?.virtualFile
+                    is VirtualFile -> element
+                    else -> null
+                } ?: return@forEach
+                if (file.isValid && !file.isDirectory) files.putIfAbsent(file.url, file)
             }
-            if (match == NameMatch.EXACT) {
-                collectFiles(name)
-            } else {
-                val matcher = nameMatcher(name, match)
-                FilenameIndex.processAllFileNames(Processor { candidate ->
-                    com.intellij.openapi.progress.ProgressManager.checkCanceled()
-                    if (!matcher(candidate)) return@Processor true
-                    collectFiles(candidate)
-                }, scope, null)
+                filesResultInReadAction(files.values, elements.truncated, if (includeGlobal) "global" else "project")
             }
-            filesResultInReadAction(results.values, truncated)
         }
+    }
+
+    fun findClasses(pattern: String, limit: Int, includeGlobal: Boolean = false): JsonObject {
+        require(pattern.isNotBlank()) { "pattern must not be blank" }
+        return serializedIndexedSearch {
+            smartRead {
+                val model = GotoClassModel2(project)
+                val elements = searchChooseByName(model, pattern, limit, includeGlobal)
+                val classes = JsonArray()
+                elements.forEach { element ->
+                val item = element as? NavigationItem ?: return@forEach
+                val psi = element as? PsiElement
+                val file = psi?.containingFile?.virtualFile
+                classes.add(JsonObject().apply {
+                    addProperty("name", item.name.orEmpty())
+                    addProperty("qualified_name", model.getFullName(element).orEmpty())
+                    if (file != null) addProperty("path", displayPathInReadAction(file))
+                    psi?.textOffset?.takeIf { it >= 0 }?.let { offset ->
+                        val document = file?.let { FileDocumentManager.getInstance().getDocument(it) }
+                        if (document != null) addProperty("line", document.getLineNumber(offset) + 1)
+                    }
+                    addProperty("scope", if (includeGlobal) "global" else "project")
+                })
+            }
+                JsonObject().apply {
+                    addProperty("count", classes.size())
+                    addProperty("truncated", elements.truncated)
+                    add("classes", classes)
+                }
+            }
+        }
+    }
+
+    private fun searchChooseByName(
+        model: ChooseByNameModel,
+        pattern: String,
+        limit: Int,
+        includeGlobal: Boolean,
+    ): ChooseByNameResults {
+        val provider = com.intellij.ide.util.gotoByName.ChooseByNameModelEx.getItemProvider(model, null)
+        val results = ArrayList<Any>(limit)
+        var truncated = false
+        val viewModel = object : ChooseByNameViewModel {
+            override fun getProject(): Project = project
+            override fun getModel(): ChooseByNameModel = model
+            override fun isSearchInAnyPlace(): Boolean = includeGlobal
+            override fun transformPattern(value: String): String = value
+            override fun canShowListForEmptyPattern(): Boolean = false
+            override fun getMaximumListSizeLimit(): Int = limit + 1
+        }
+        withInterruptAwareIndicator { indicator ->
+            provider.filterElements(viewModel, pattern, includeGlobal, indicator, Processor { element ->
+                checkToolThreadCancellation()
+                ProgressManager.checkCanceled()
+                if (results.size >= limit) {
+                    truncated = true
+                    return@Processor false
+                }
+                results.add(element)
+                true
+            })
+        }
+        return ChooseByNameResults(results, truncated)
     }
 
     fun searchText(
@@ -204,50 +264,70 @@ internal class IdeProjectSupport(
         limit: Int,
     ): JsonObject {
         require(query.isNotEmpty()) { "query must not be empty" }
-        return smartRead {
-            val matcher = IdeFindMatcher(project, query, regex, caseSensitive)
-            val fileMatcher = filePattern?.takeIf { it.isNotBlank() }?.let(::globMatcher)
+        return serializedIndexedSearch {
+            smartRead {
+                val model = FindModel().apply {
+                stringToFind = query
+                isRegularExpressions = regex
+                isCaseSensitive = caseSensitive
+                isWholeWordsOnly = false
+                isMultipleFiles = true
+                isProjectScope = true
+                isFindAll = true
+                fileFilter = filePattern?.takeIf { it.isNotBlank() }
+            }
             val results = JsonArray()
             var truncated = false
-            for (file in projectFilesInReadAction()) {
-                checkToolThreadCancellation()
-                if (results.size() >= limit) {
-                    truncated = true
-                    break
-                }
-                if (fileMatcher != null && !fileMatcher(file.name)) continue
-                val text = runCatching { readTextInReadAction(file) }.getOrNull() ?: continue
-                val lines = text.split('\n')
-                for ((index, rawLine) in lines.withIndex()) {
-                    checkToolThreadCancellation()
-                    if (!matcher.matches(rawLine)) continue
-                    val from = maxOf(0, index - contextLines)
-                    val to = minOf(lines.lastIndex, index + contextLines)
-                    val context = JsonArray()
-                    for (lineIndex in from..to) {
-                        context.add(JsonObject().apply {
-                            addProperty("line", lineIndex + 1)
-                            addProperty("text", lines[lineIndex].trimEnd('\r'))
-                        })
-                    }
-                    results.add(JsonObject().apply {
-                        addProperty("path", displayPathInReadAction(file))
-                        addProperty("line", index + 1)
-                        addProperty("content", rawLine.trimEnd('\r'))
-                        add("lines", context)
-                    })
-                    if (results.size() >= limit) {
-                        truncated = true
-                        break
-                    }
-                }
+            val presentation = FindInProjectUtil.setupProcessPresentation(project, true, FindInProjectUtil.setupViewPresentation(model))
+            withInterruptAwareIndicator { indicator ->
+                FindInProjectUtil.findUsages(
+                    model,
+                    project,
+                    indicator,
+                    presentation,
+                    emptySet(),
+                    Processor { usage: UsageInfo ->
+                        checkToolThreadCancellation()
+                        if (results.size() >= limit) {
+                            truncated = true
+                            return@Processor false
+                        }
+                        appendIndexedUsage(usage, contextLines, results)
+                        true
+                    },
+                )
             }
-            JsonObject().apply {
-                addProperty("count", results.size())
-                addProperty("truncated", truncated)
-                add("matches", results)
+                JsonObject().apply {
+                    addProperty("count", results.size())
+                    addProperty("truncated", truncated)
+                    addProperty("indexed", true)
+                    add("matches", results)
+                }
             }
         }
+    }
+
+    private fun appendIndexedUsage(usage: UsageInfo, contextLines: Int, results: JsonArray) {
+        val file = usage.virtualFile ?: return
+        val document = FileDocumentManager.getInstance().getDocument(file) ?: return
+        val segment = usage.segment ?: return
+        val startLine = document.getLineNumber(segment.startOffset)
+        val endLine = document.getLineNumber(segment.endOffset.coerceAtMost(document.textLength))
+        val from = maxOf(0, startLine - contextLines)
+        val to = minOf(document.lineCount - 1, endLine + contextLines)
+        val context = JsonArray()
+        for (line in from..to) {
+            context.add(JsonObject().apply {
+                addProperty("line", line + 1)
+                addProperty("text", document.getText(com.intellij.openapi.util.TextRange(document.getLineStartOffset(line), document.getLineEndOffset(line))))
+            })
+        }
+        results.add(JsonObject().apply {
+            addProperty("path", displayPathInReadAction(file))
+            addProperty("line", startLine + 1)
+            addProperty("content", document.getText(com.intellij.openapi.util.TextRange(document.getLineStartOffset(startLine), document.getLineEndOffset(startLine))))
+            add("lines", context)
+        })
     }
 
     /**
@@ -328,14 +408,18 @@ internal class IdeProjectSupport(
         }
     }
 
-    private fun filesResultInReadAction(files: Collection<VirtualFile>, truncated: Boolean): JsonObject =
+    private fun filesResultInReadAction(
+        files: Collection<VirtualFile>,
+        truncated: Boolean,
+        scope: String = "project",
+    ): JsonObject =
         JsonObject().apply {
             val array = JsonArray()
             files.forEach { file ->
                 array.add(JsonObject().apply {
                     addProperty("path", displayPathInReadAction(file))
                     addProperty("name", file.name)
-                    addProperty("scope", "project")
+                    addProperty("scope", scope)
                 })
             }
             addProperty("count", array.size())
@@ -381,15 +465,56 @@ internal class IdeProjectSupport(
 
     private fun isProjectFileInReadAction(file: VirtualFile): Boolean {
         val basePath = project.basePath ?: return false
-        val projectRoot = WorkspaceTools.canonicalize(File(basePath))
         if (file.fileSystem.protocol != LocalFileSystem.PROTOCOL) return false
+        val projectRoot = WorkspaceTools.canonicalize(File(basePath))
         val candidate = WorkspaceTools.canonicalize(File(file.path))
         return candidate.toPath().startsWith(projectRoot.toPath())
+    }
+
+    private fun <T> withInterruptAwareIndicator(action: (EmptyProgressIndicator) -> T): T {
+        val owner = Thread.currentThread()
+        val finished = AtomicBoolean(false)
+        val indicator = EmptyProgressIndicator()
+        val watcher = Thread({
+            while (!finished.get() && !owner.isInterrupted) {
+                try {
+                    Thread.sleep(25)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+            }
+            if (owner.isInterrupted) indicator.cancel()
+        }, "jtools-index-search-cancel").apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            return action(indicator)
+        } finally {
+            finished.set(true)
+            watcher.interrupt()
+        }
     }
 
     private fun checkToolThreadCancellation() {
         if (Thread.currentThread().isInterrupted) {
             throw java.util.concurrent.CancellationException("tool execution interrupted")
+        }
+    }
+
+    /** JetBrains search indexes are thread-safe, but concurrent broad queries
+     * from one model turn compete for the same project index/read resources.
+     * Serialize only indexed searches per Project; cancellation while waiting
+     * remains interruptible and different projects can still search in parallel.
+     */
+    private fun <T> serializedIndexedSearch(action: () -> T): T {
+        val semaphore = searchSemaphore(project)
+        semaphore.acquire()
+        try {
+            checkToolThreadCancellation()
+            return action()
+        } finally {
+            semaphore.release()
         }
     }
 
@@ -421,20 +546,7 @@ internal class IdeProjectSupport(
         return results
     }
 
-    private fun nameMatcher(pattern: String, match: NameMatch): (String) -> Boolean = when (match) {
-        NameMatch.EXACT -> { candidate -> candidate.equals(pattern, ignoreCase = true) }
-        NameMatch.CONTAINS -> { candidate -> candidate.contains(pattern, ignoreCase = true) }
-        NameMatch.GLOB -> globMatcher(pattern)
-    }
 
-    private fun globMatcher(pattern: String): (String) -> Boolean {
-        val matcher = try {
-            FileSystems.getDefault().getPathMatcher("glob:$pattern")
-        } catch (e: Throwable) {
-            throw ToolException("invalid glob `$pattern`: ${e.message}")
-        }
-        return { name -> matcher.matches(FileSystems.getDefault().getPath(name)) }
-    }
 }
 
 internal data class ReadFileRequest(val path: String, val ranges: List<LineRange>, val maxLines: Int)
@@ -455,18 +567,13 @@ private data class PreparedReplacement(
     val ranges: List<IntRange>,
 )
 
+private val PROJECT_SEARCH_SEMAPHORES = WeakHashMap<Project, Semaphore>()
+private val PROJECT_SEARCH_SEMAPHORES_LOCK = Any()
+
+private fun searchSemaphore(project: Project): Semaphore = synchronized(PROJECT_SEARCH_SEMAPHORES_LOCK) {
+    PROJECT_SEARCH_SEMAPHORES.getOrPut(project) { Semaphore(1, true) }
+}
+
+private data class ChooseByNameResults(val items: List<Any>, val truncated: Boolean) : Iterable<Any> by items
 private data class FileMetadata(val path: String, val charset: String)
 internal data class LineRange(val start: Int, val end: Int)
-internal enum class NameMatch { EXACT, CONTAINS, GLOB }
-
-private class IdeFindMatcher(project: Project, query: String, regex: Boolean, caseSensitive: Boolean) {
-    private val manager = FindManager.getInstance(project)
-    private val model = FindModel().apply {
-        stringToFind = query
-        isRegularExpressions = regex
-        isCaseSensitive = caseSensitive
-        isWholeWordsOnly = false
-    }
-
-    fun matches(text: String): Boolean = manager.findString(text, 0, model).isStringFound
-}

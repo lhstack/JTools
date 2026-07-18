@@ -16,16 +16,16 @@ class CliTool(
 ) : ToolDyn {
     override fun definition(prompt: String): ToolDefinition = ToolDefinition(
         name = NAME,
-        description = "Execute structured JTools CLI commands for MCP, providers, models, and Agents.\n" +
-            "Available commands cover server list/get/create/update/delete, connection test, tools, resources, resource reads, and tool calls.\n" +
-            "If you do not remember a command\u0027s exact arguments, call command=\u0027doc\u0027 once to get the full parameter reference for every MCP command.",
+        description = "执行 JTools CLI 结构化命令，管理 MCP、供应商、模型和 Agent。\n" +
+            "支持查询、创建、更新、删除、测试和调用。\n" +
+            "参数不明确时，先调用 command=\u0027doc\u0027 查看命令说明。",
         parameters = JsonParser.parseString(
             """
             {
               "type":"object",
               "properties":{
-                "command":{"type":"string","description":"Command name, for example doc, mcp.list, provider.list, provider.remote_models, model.create, agent.run, or agent.run.get. Call doc first to see every command and its arguments."},
-                "arguments":{"type":"object","description":"Structured command arguments. Omit for doc and list commands."}
+                "command":{"type":"string","description":"必填。命令名；不确定时先调用 doc。"},
+                "arguments":{"type":"object","description":"可选。结构化命令参数；doc 和列表命令可省略。"}
               },
               "required":["command"]
             }

@@ -20,7 +20,7 @@ class GetTimeTool : ToolDyn {
 
     override fun definition(prompt: String): ToolDefinition = ToolDefinition(
         name = NAME,
-        description = "Get the current time for an IANA timezone. If timezone is omitted, returns the current system local time.",
+        description = "获取指定 IANA 时区的当前时间；省略时区时返回系统本地时间。",
         parameters = JsonParser.parseString(
             """
             {
@@ -28,7 +28,7 @@ class GetTimeTool : ToolDyn {
                 "properties": {
                     "timezone": {
                         "type": "string",
-                        "description": "Optional IANA timezone, for example Asia/Shanghai, America/New_York, UTC."
+                        "description": "可选。IANA 时区，例如 Asia/Shanghai、America/New_York 或 UTC。"
                     }
                 },
                 "required": []

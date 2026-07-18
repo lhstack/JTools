@@ -151,7 +151,7 @@ class ToolRuntime(
     )
 
     companion object {
-        private val LIMITED_OUTPUT_TOOLS = setOf("search_project_text", "find_project_files", "bash")
+        private val LIMITED_OUTPUT_TOOLS = setOf("search_project_text", "find_project_files", "find_project_classes", "bash")
 
         /** 照抄 tool_results：把 outputs 按 call 顺序包成 ToolResult UserContent。 */
         private fun toolResults(calls: List<ProviderToolCall>, outputs: List<String>): List<UserContent> =

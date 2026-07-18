@@ -28,8 +28,8 @@ import org.jetbrains.concurrency.CancellablePromise
 internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Read one or more existing text files under the current project root through the IDE. Paths must be project-root-relative. Reads unsaved editor text when available and returns numbered lines, charset, total line count, and truncation state. Use line_ranges to limit large files; if omitted, reading starts at line 1 and is bounded by max_lines.",
-        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"Required. One to 20 existing project files to read. Duplicate paths are rejected.","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"Required. Path relative to the current project root. Absolute paths and paths outside the project root are rejected."},"line_ranges":{"type":"array","minItems":1,"description":"Optional. One or more 1-based inclusive line ranges to return, processed in the supplied order. Each range must satisfy end_line >= start_line. When omitted, lines are read from the beginning of the file." ,"items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"Required. First line in this range, using 1-based numbering."},"end_line":{"type":"integer","minimum":1,"description":"Required. Last line in this range, inclusive and not less than start_line."}},"required":["start_line","end_line"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"Optional. Maximum total number of lines returned for this file across all requested ranges. Default 1000; allowed range 1-5000."}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
+        "读取项目文本文件，支持指定行范围和未保存内容。",
+        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个待读取文件，路径不能重复。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。" ,"items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -49,8 +49,8 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
 internal class WriteProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Create new text files or completely replace existing text files under the current project root through one IDE write command. All paths and overwrite permissions are validated before any file is changed. Parent directories are created when needed. Use replace_project_text instead when only a focused part of an existing file should change.",
-        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"Required. One to 20 complete file writes. Duplicate paths are rejected and the batch is validated before writing.","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"Required. Destination path relative to the current project root. Absolute paths and paths outside the project root are rejected."},"content":{"type":"string","description":"Required. Complete text content for the destination file. May be an empty string to create or replace with an empty file."},"overwrite":{"type":"boolean","default":false,"description":"Optional. Set true to replace an existing file. Default false; when false, an existing destination causes the entire call to fail before writing."}},"required":["path","content"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
+        "创建或完整覆盖项目文本文件。局部修改请使用 replace_project_text。",
+        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个完整文件写入，路径不能重复。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对目标路径。"},"content":{"type":"string","description":"必填。 文件完整内容，可为空字符串。"},"overwrite":{"type":"boolean","default":false,"description":"可选。 是否覆盖已有文件，默认false。"}},"required":["path","content"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -70,8 +70,8 @@ internal class WriteProjectFilesTool(private val support: IdeProjectSupport) : T
 internal class ReplaceProjectTextTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Apply exact text replacements to existing text files under the current project root. The complete batch is validated before one IDE write command changes any file. By default old_text must occur exactly once; provide more surrounding text for a unique match or set replace_all=true. At most one edit per file is accepted in a call.",
-        """{"type":"object","properties":{"edits":{"type":"array","minItems":1,"maxItems":20,"description":"Required. One to 20 exact text edits. Each path may appear only once, and all edits are validated before writing.","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"Required. Existing text-file path relative to the current project root."},"old_text":{"type":"string","minLength":1,"description":"Required. Non-empty exact text to locate. When case_sensitive is false, matching ignores letter case."},"new_text":{"type":"string","description":"Required. Text that replaces old_text. May be an empty string to delete the matched text."},"replace_all":{"type":"boolean","default":false,"description":"Optional. Default false requires exactly one match. Set true to replace every match in the file."},"case_sensitive":{"type":"boolean","default":true,"description":"Optional. Whether old_text matching is case-sensitive. Default true."}},"required":["path","old_text","new_text"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}""",
+        "精确替换项目文件中的文本；默认要求旧文本仅出现一次。",
+        """{"type":"object","properties":{"edits":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个精确文本修改，每个路径只能出现一次。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 Existing text-file path relative to the current project root."},"old_text":{"type":"string","minLength":1,"description":"必填。 Non-empty exact text to locate. When case_sensitive is false, matching ignores letter case."},"new_text":{"type":"string","description":"必填。 Text that replaces old_text. May be an empty string to delete the matched text."},"replace_all":{"type":"boolean","default":false,"description":"可选。 Default false requires exactly one match. Set true to replace every match in the file."},"case_sensitive":{"type":"boolean","default":true,"description":"可选。 Whether old_text matching is case-sensitive. Default true."}},"required":["path","old_text","new_text"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -93,22 +93,17 @@ internal class ReplaceProjectTextTool(private val support: IdeProjectSupport) : 
 internal class FindProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Find files under the current project root by file name, not by file contents or full path. Runs one result set per query using a shared match mode and returns project-relative paths, result counts, and truncation flags. Use search_project_text when the target is text inside files.",
-        """{"type":"object","properties":{"queries":{"type":"array","minItems":1,"maxItems":20,"description":"Required. One to 20 unique, non-blank file-name values or patterns. Queries match file names only, not directory paths.","items":{"type":"string","minLength":1,"description":"Required. A file name, file-name fragment, or glob pattern interpreted according to match_mode."}},"match_mode":{"type":"string","enum":["exact","contains","glob"],"default":"contains","description":"Optional. How every query is matched: exact requires the complete file name, contains searches for the query inside the file name, and glob uses file-name glob syntax such as *.json. Default contains."},"max_results_per_query":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Optional. Maximum files returned independently for each query. Default 100; allowed range 1-1000. A truncated flag reports when this bound is reached."}},"required":["queries"],"additionalProperties":false}""",
+        "按文件名或路径模糊查找文件。默认只查当前项目；include_global=true 时包含依赖、SDK 和外部文件。",
+        """{"type":"object","properties":{"queries":{"type":"array","minItems":1,"maxItems":20,"description":"必填。1到20个文件名或相对路径模糊查询。","items":{"type":"string","minLength":1,"description":"必填。文件名或路径查询。"}},"max_results_per_query":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。每个查询最多返回数量，默认100，范围1到1000。"},"include_global":{"type":"boolean","default":false,"description":"可选。是否包含依赖、SDK和外部文件，默认false。"}},"required":["queries"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
         val queries = input.stringArray("queries")
-        val match = when (input.stringOr("match_mode", "contains").lowercase()) {
-            "exact" -> NameMatch.EXACT
-            "contains" -> NameMatch.CONTAINS
-            "glob" -> NameMatch.GLOB
-            else -> throw ToolException("match_mode must be exact, contains, or glob")
-        }
         val limit = input.intOr("max_results_per_query", 100).coerceIn(1, 1000)
+        val includeGlobal = input.booleanOr("include_global", false)
         val results = queries.map { query ->
-            support.findFiles(query, match, limit).apply { addProperty("query", query) }
+            support.findFiles(query, limit, includeGlobal).apply { addProperty("query", query) }
         }
         return batchResult("results", results)
     }
@@ -116,11 +111,32 @@ internal class FindProjectFilesTool(private val support: IdeProjectSupport) : To
     companion object { const val NAME = "find_project_files" }
 }
 
+internal class FindProjectClassesTool(private val support: IdeProjectSupport) : ToolDyn {
+    override fun definition(prompt: String) = definition(
+        NAME,
+        "按名称模糊查找类或当前语言插件支持的类型。默认只查当前项目；include_global=true 时包含依赖和 SDK。",
+        """{"type":"object","properties":{"queries":{"type":"array","minItems":1,"maxItems":20,"description":"必填。1到20个类名或类型名模糊查询。","items":{"type":"string","minLength":1,"description":"必填。类名、类型名或限定名。"}},"max_results_per_query":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。每个查询最多返回数量，默认100，范围1到1000。"},"include_global":{"type":"boolean","default":false,"description":"可选。是否包含依赖和SDK中的类型，默认false。"}},"required":["queries"],"additionalProperties":false}""",
+    )
+
+    override fun callJsonBlocking(args: JsonElement): JsonElement {
+        val input = args.obj()
+        val queries = input.stringArray("queries")
+        val limit = input.intOr("max_results_per_query", 100).coerceIn(1, 1000)
+        val includeGlobal = input.booleanOr("include_global", false)
+        val results = queries.map { query ->
+            support.findClasses(query, limit, includeGlobal).apply { addProperty("query", query) }
+        }
+        return batchResult("results", results)
+    }
+
+    companion object { const val NAME = "find_project_classes" }
+}
+
 internal class SearchProjectTextTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Search text contents of readable files under the current project root. Supports literal or regular-expression matching, optional case-insensitive matching, optional filtering by file-name glob, bounded surrounding lines, and a global result limit. Returns project-relative file paths and 1-based line numbers. Use find_project_files when searching by file name only.",
-        """{"type":"object","properties":{"text":{"type":"string","minLength":1,"description":"Required. Non-empty literal text to find, or a regular expression when use_regex is true."},"use_regex":{"type":"boolean","default":false,"description":"Optional. Interpret text as a regular expression when true; otherwise search it literally. Default false. Invalid regular expressions cause the call to fail."},"case_sensitive":{"type":"boolean","default":true,"description":"Optional. Whether matching distinguishes letter case. Default true."},"file_name_glob":{"type":"string","minLength":1,"description":"Optional. File-name-only glob such as *.md used to restrict scanned files. It does not match the project-relative directory path."},"context_lines":{"type":"integer","minimum":0,"maximum":20,"default":2,"description":"Optional. Number of surrounding lines included before and after each matching line. Default 2; allowed range 0-20."},"max_results":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Optional. Maximum matching lines returned across the complete project search. Default 100; allowed range 1-1000. A truncated flag reports when this bound is reached."}},"required":["text"],"additionalProperties":false}""",
+        "搜索项目文件内容，支持正则、大小写、文件名过滤和上下文行。只查文件名请使用 find_project_files。",
+        """{"type":"object","properties":{"text":{"type":"string","minLength":1,"description":"必填。搜索文本；use_regex=true时为正则。"},"use_regex":{"type":"boolean","default":false,"description":"可选。是否使用正则，默认false。"},"case_sensitive":{"type":"boolean","default":true,"description":"可选。是否区分大小写，默认true。"},"file_name_glob":{"type":"string","minLength":1,"description":"可选。文件名过滤，如*.md。"},"context_lines":{"type":"integer","minimum":0,"maximum":20,"default":2,"description":"可选。匹配行前后上下文行数，默认2，范围0到20。"},"max_results":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。最多返回数量，默认100，范围1到1000。"}},"required":["text"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -141,8 +157,8 @@ internal class SearchProjectTextTool(private val support: IdeProjectSupport) : T
 internal class FormatProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Format only explicit line ranges in one or more files under the current project root, using the formatter supplied by the active IDE and installed file-type support. Files must be recognized as text files with formatter support. Ranges use 1-based inclusive line numbers, must be ordered and non-overlapping, and the formatted document is saved.",
-        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"Required. One to 20 project files with explicit ranges to format.","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"Required. Existing file path relative to the current project root. The active IDE must provide file-type and formatter support."},"line_ranges":{"type":"array","minItems":1,"description":"Required. Ordered, non-overlapping 1-based inclusive ranges. Every end_line must be greater than or equal to start_line and must not exceed the file line count.","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"Required. First line to format, using 1-based numbering."},"end_line":{"type":"integer","minimum":1,"description":"Required. Last line to format, inclusive and not less than start_line."}},"required":["start_line","end_line"],"additionalProperties":false}},"timeout_secs":{"type":"integer","minimum":1,"maximum":120,"default":30,"description":"Optional. Maximum seconds to wait for formatting this file. Default 30; allowed range 1-120."}},"required":["path","line_ranges"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
+        "使用 IDE 格式化项目文件的指定行范围并保存。",
+        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个需要格式化的项目文件。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对文件路径。"},"line_ranges":{"type":"array","minItems":1,"description":"必填。 有序且不重叠的闭区间，行号从1开始。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 格式化起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 格式化结束行，包含该行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"timeout_secs":{"type":"integer","minimum":1,"maximum":120,"default":30,"description":"可选。 格式化超时秒数，默认30，范围1到120。"}},"required":["path","line_ranges"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -169,8 +185,8 @@ internal class BuildProjectTool(
     override val executionTimeoutSeconds: Long = 660L
     override fun definition(prompt: String) = definition(
         NAME,
-        "Save all open documents, then build the complete current project through JetBrains ProjectTaskManager and the task runner supplied by the active IDE. This tool does not choose or invoke a language-specific command. Returns completed, failed, or aborted status plus bounded diagnostics and output only when the active runner publishes them.",
-        """{"type":"object","properties":{"mode":{"type":"string","enum":["build","rebuild"],"default":"build","description":"Optional. build requests the IDE runner's normal project build; rebuild requests its full rebuild behavior. Default build."},"timeout_secs":{"type":"integer","minimum":1,"maximum":3600,"default":600,"description":"Optional. Maximum seconds to wait for the project task result. Default 600; allowed range 1-3600. Timeout cancels the task and fails the tool call."}},"required":[],"additionalProperties":false}""",
+        "使用 IDE 构建或重新构建当前项目，并返回状态和诊断。",
+        """{"type":"object","properties":{"mode":{"type":"string","enum":["build","rebuild"],"default":"build","description":"可选。 构建模式，默认build；rebuild表示重新构建。"},"timeout_secs":{"type":"integer","minimum":1,"maximum":3600,"default":600,"description":"可选。 构建超时秒数，默认600，范围1到3600。"}},"required":[],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -271,8 +287,8 @@ internal class BuildProjectTool(
 internal class InspectProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "Run enabled local inspections from the current IDE inspection profile for one or more files under the current project root. Each file must be recognized by installed file-type support. Returns inspection descriptions, severity, 1-based line and column, and absolute text offsets. Results cover local inspections published by the active IDE; they are not a replacement for every editor highlighter or external build diagnostic.",
-        """{"type":"object","properties":{"paths":{"type":"array","minItems":1,"maxItems":20,"description":"Required. One to 20 unique existing file paths relative to the current project root.","items":{"type":"string","minLength":1,"description":"Required. Project-root-relative path to a text file recognized by an installed IDE file-type plugin."}},"errors_only":{"type":"boolean","default":false,"description":"Optional. When true, return only findings whose IDE highlight type is error-level. Default false returns every finding produced by enabled local inspections."}},"required":["paths"],"additionalProperties":false}""",
+        "使用当前 IDE 检查配置检查指定项目文件，并返回问题位置和级别。",
+        """{"type":"object","properties":{"paths":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个不重复的项目文件路径。","items":{"type":"string","minLength":1,"description":"必填。 项目根目录相对文件路径。"}},"errors_only":{"type":"boolean","default":false,"description":"可选。 是否只返回错误级问题，默认false。"}},"required":["paths"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {

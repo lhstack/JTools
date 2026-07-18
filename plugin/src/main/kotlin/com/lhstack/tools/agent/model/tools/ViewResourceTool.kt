@@ -117,10 +117,10 @@ class ViewResourceTool(
         kind == ResourceKind.FILE || kind.asStr in modalities
 
     private fun description(): String = when (kind) {
-        ResourceKind.IMAGE -> "Analyze one or more workspace images using the configured image resource agent."
-        ResourceKind.AUDIO -> "Analyze one or more workspace audio files using the configured audio resource agent."
-        ResourceKind.VIDEO -> "Analyze one or more workspace videos using the configured video resource agent."
-        ResourceKind.FILE -> "Analyze one or more workspace files using the configured file resource agent."
+        ResourceKind.IMAGE -> "使用资源 Agent 分析图片。"
+        ResourceKind.AUDIO -> "使用资源 Agent 分析音频。"
+        ResourceKind.VIDEO -> "使用资源 Agent 分析视频。"
+        ResourceKind.FILE -> "使用资源 Agent 分析文件。"
     }
 
     companion object {
@@ -128,13 +128,13 @@ class ViewResourceTool(
             {
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "Single workspace-relative resource path." },
+                "path": { "type": "string", "description": "可选。单个工作区相对路径。" },
                 "paths": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "One or more resource paths. Each path supports absolute path or workspace-relative path."
+                  "description": "可选。一个或多个绝对路径或工作区相对路径。"
                 },
-                "prompt": { "type": "string", "minLength": 1, "description": "Required analysis instruction describing exactly what content the resource agent must inspect." }
+                "prompt": { "type": "string", "minLength": 1, "description": "必填。明确说明需要分析的内容。" }
               },
               "required": ["prompt"]
             }

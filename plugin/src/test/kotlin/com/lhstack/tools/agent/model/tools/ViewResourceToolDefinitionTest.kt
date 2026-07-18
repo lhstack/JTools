@@ -15,6 +15,6 @@ class ViewResourceToolDefinitionTest {
 
         assertEquals(listOf("prompt"), json.getAsJsonArray("required").map { it.asString })
         assertEquals(1, json.getAsJsonObject("properties").getAsJsonObject("prompt").get("minLength").asInt)
-        assertTrue(json.getAsJsonObject("properties").getAsJsonObject("prompt").get("description").asString.contains("Required"))
+        assertTrue(json.getAsJsonObject("properties").getAsJsonObject("prompt").get("description").asString.contains("必填"))
     }
 }

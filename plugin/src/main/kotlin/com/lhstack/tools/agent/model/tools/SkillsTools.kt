@@ -26,8 +26,7 @@ class SkillsListTool(
 
     override fun definition(prompt: String) = com.lhstack.tools.agent.model.llm.ToolDefinition(
         name = NAME,
-        description = "List available skills from the configured skills directory. Each entry includes a `files` " +
-            "field listing readable files under that skill. Use skills_view with `path` to read any listed file.",
+        description = "列出可用技能及其可读文件；读取内容请使用 skills_view。",
         parameters = JsonParser.parseString(
             """
             {
@@ -35,7 +34,7 @@ class SkillsListTool(
                 "properties": {
                     "max_results": {
                         "type": "integer",
-                        "description": "Optional max skills to list. Default 50, hard limit 200."
+                        "description": "可选。最多返回技能数，默认50，最大200。"
                     }
                 },
                 "required": []
@@ -77,10 +76,7 @@ class SkillsViewTool(
 
     override fun definition(prompt: String) = com.lhstack.tools.agent.model.llm.ToolDefinition(
         name = NAME,
-        description = "Read skill resource files. This is the ONLY tool for loading any content under a skill " +
-            "directory. Always call skills_list first to discover available skills and their `files` array, then " +
-            "call this tool with `name` and optional `path` to read a specific file. If path is omitted, reads the " +
-            "skill's SKILL.md.",
+        description = "读取技能文件。必须先调用 skills_list；省略 path 时读取 SKILL.md。",
         parameters = JsonParser.parseString(
             """
             {
@@ -88,15 +84,15 @@ class SkillsViewTool(
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Skill name from skills_list."
+                        "description": "必填。skills_list 返回的技能名称。"
                     },
                     "path": {
                         "type": "string",
-                        "description": "File path from the skill's `files` array (from skills_list). Omit to read SKILL.md."
+                        "description": "可选。skills_list 返回的文件路径；省略时读取 SKILL.md。"
                     },
                     "max_bytes": {
                         "type": "integer",
-                        "description": "Optional max bytes to read. Default 200000, hard limit 1000000."
+                        "description": "可选。最多读取字节数，默认200000，最大1000000。"
                     }
                 },
                 "required": ["name"]

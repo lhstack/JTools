@@ -37,7 +37,7 @@ class WebFetchTool(
 
     override fun definition(prompt: String): ToolDefinition = ToolDefinition(
         name = NAME,
-        description = "Send an HTTP request. Supports GET, POST, PUT, DELETE, headers, proxy, and various body types.",
+        description = "发送 HTTP 请求，支持请求方法、请求头、代理和多种请求体。",
         parameters = JsonParser.parseString(DEFINITION_JSON),
     )
 
@@ -230,41 +230,41 @@ class WebFetchTool(
                 "method": {
                     "type": "string",
                     "enum": ["GET", "POST", "PUT", "DELETE"],
-                    "description": "Optional HTTP method. Defaults to GET when omitted or empty."
+                    "description": "可选。请求方法，省略时为 GET。"
                 },
-                "url": { "type": "string", "description": "Absolute http or https URL." },
+                "url": { "type": "string", "description": "必填。HTTP 或 HTTPS 绝对地址。" },
                 "headers": {
                     "type": "object",
                     "additionalProperties": { "type": "string" },
-                    "description": "Optional request headers."
+                    "description": "可选。请求头。"
                 },
                 "proxy": {
                     "type": "string",
-                    "description": "Optional proxy URL, for example http://127.0.0.1:7890. Overrides configured proxy."
+                    "description": "可选。代理地址，覆盖默认代理。"
                 },
-                "timeout_secs": { "type": "integer", "description": "Optional request timeout seconds." },
-                "max_response_bytes": { "type": "integer", "description": "Optional max response bytes. Default from config." },
+                "timeout_secs": { "type": "integer", "description": "可选。请求超时秒数。" },
+                "max_response_bytes": { "type": "integer", "description": "可选。最大响应字节数，默认使用配置值。" },
                 "body_type": {
                     "type": "string",
                     "enum": ["none", "text", "json", "form", "multipart", "file"],
-                    "description": "Request body type."
+                    "description": "可选。请求体类型。"
                 },
-                "body": { "type": "string", "description": "Plain text request body." },
-                "json_body": { "type": "string", "description": "JSON body as a string." },
+                "body": { "type": "string", "description": "可选。纯文本请求体。" },
+                "json_body": { "type": "string", "description": "可选。JSON 字符串请求体。" },
                 "form": {
                     "type": "object",
                     "additionalProperties": { "type": "string" },
-                    "description": "application/x-www-form-urlencoded fields."
+                    "description": "可选。表单字段。"
                 },
                 "form_data": {
                     "type": "array",
-                    "description": "Multipart form-data parts.",
+                    "description": "可选。Multipart 表单项。",
                     "items": {
                         "type": "object",
                         "properties": {
                             "name": { "type": "string" },
                             "value": { "type": "string" },
-                            "file_path": { "type": "string", "description": "Workspace-relative file path for file part." },
+                            "file_path": { "type": "string", "description": "可选。文件项的工作区相对路径。" },
                             "file_name": { "type": "string" },
                             "mime": { "type": "string" }
                         },
@@ -273,9 +273,9 @@ class WebFetchTool(
                 },
                 "file": {
                     "type": "object",
-                    "description": "Raw file upload body.",
+                    "description": "可选。原始文件上传请求体。",
                     "properties": {
-                        "path": { "type": "string", "description": "Workspace-relative file path." },
+                        "path": { "type": "string", "description": "必填。工作区相对路径。" },
                         "mime": { "type": "string" }
                     },
                     "required": ["path"]
