@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, Close, Delete, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Close, Delete, EditPen, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, invoke } from '../bridge/jcefBridge'
 import ChatMessage from '../components/chat/ChatMessage.vue'
 
@@ -14,6 +14,10 @@ const sessionDialogVisible = ref(false)
 const sessionName = ref('')
 const sessionType = ref('project')
 const creatingSession = ref(false)
+const queueEditVisible = ref(false)
+const queueEditItem = ref(null)
+const queueEditPrompt = ref('')
+const queueEditSaving = ref(false)
 const MESSAGE_CARD_POOL_SIZE = 10
 const MESSAGE_CACHE_PREFIX = 'jtools:chat-messages:v1:'
 const SELECTED_SESSION_CACHE_KEY = 'jtools:selected-session:v1'
@@ -191,6 +195,30 @@ function stopQueueItem(item) {
   invoke('queue.stop', { id: item.id })
 }
 
+function queuePreview(value) {
+  const characters = [...String(value || '')]
+  return characters.length > 5 ? `${characters.slice(0, 5).join('')}…` : characters.join('')
+}
+
+function openQueueEdit(item) {
+  if (!item.editable) return
+  queueEditItem.value = item
+  queueEditPrompt.value = item.prompt || ''
+  queueEditVisible.value = true
+}
+
+async function saveQueueEdit() {
+  const text = queueEditPrompt.value.trim()
+  if (!text || !queueEditItem.value || queueEditSaving.value) return
+  queueEditSaving.value = true
+  try {
+    await invoke('queue.edit', { id: queueEditItem.value.id, text })
+    queueEditVisible.value = false
+  } finally {
+    queueEditSaving.value = false
+  }
+}
+
 
 function openSessionDialog() {
  sessionName.value = ''
@@ -270,11 +298,7 @@ function drop(event) {
     </section>
 
     <footer class="composer">
-      <section v-if="queue.length" class="queue-panel">
-        <div class="queue-panel-head">
-          <strong>消息队列</strong>
-          <span>{{ queue.filter(item => item.processing).length }} 条进行中，{{ queue.filter(item => !item.processing).length }} 条排队中</span>
-        </div>
+      <section v-if="queue.length" class="queue-panel" aria-label="消息队列">
         <div class="queue-strip">
           <article
             v-for="item in queue"
@@ -284,18 +308,31 @@ function drop(event) {
           >
             <span class="queue-state">{{ item.processing ? '进行中' : '排队中' }}</span>
             <div class="queue-copy">
-              <strong>{{ item.title }}</strong>
-              <small>{{ item.prompt || '附件消息' }}</small>
+              <strong :title="item.title">{{ queuePreview(item.title) }}</strong>
+              <small :title="item.prompt || '附件消息'">{{ queuePreview(item.prompt || '附件消息') }}</small>
             </div>
-            <el-button
-              :icon="item.processing ? VideoPause : Close"
-              :type="item.processing ? 'danger' : 'default'"
-              size="small"
-              plain
-              @click="stopQueueItem(item)"
-            >
-              {{ item.processing ? '停止' : '取消' }}
-            </el-button>
+            <div class="queue-actions">
+              <el-button
+                v-if="item.editable"
+                :icon="EditPen"
+                text
+                circle
+                size="small"
+                title="编辑排队消息"
+                aria-label="编辑排队消息"
+                @click="openQueueEdit(item)"
+              />
+              <el-button
+                :icon="item.processing ? VideoPause : Close"
+                :type="item.processing ? 'danger' : 'default'"
+                text
+                circle
+                size="small"
+                :title="item.processing ? '停止消息' : '取消排队消息'"
+                :aria-label="item.processing ? '停止消息' : '取消排队消息'"
+                @click="stopQueueItem(item)"
+              />
+            </div>
           </article>
         </div>
       </section>
@@ -349,6 +386,23 @@ function drop(event) {
     <div v-if="dragging" class="drop-overlay"><div>释放文件以添加附件</div></div>
 
     <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
+  <el-dialog v-model="queueEditVisible" title="编辑排队消息" width="560px" append-to-body>
+    <el-input
+      v-model="queueEditPrompt"
+      type="textarea"
+      :rows="8"
+      resize="vertical"
+      maxlength="200000"
+      show-word-limit
+      autofocus
+      @keydown.meta.enter.prevent="saveQueueEdit"
+      @keydown.ctrl.enter.prevent="saveQueueEdit"
+    />
+    <template #footer>
+      <el-button @click="queueEditVisible=false">取消</el-button>
+      <el-button type="primary" :disabled="!queueEditPrompt.trim()" :loading="queueEditSaving" @click="saveQueueEdit">保存</el-button>
+    </template>
+  </el-dialog>
   <el-dialog v-model="sessionDialogVisible" title="新建会话" width="440px" append-to-body>
   <el-form label-position="top" @submit.prevent="createSession">
    <el-form-item label="会话名称" required>

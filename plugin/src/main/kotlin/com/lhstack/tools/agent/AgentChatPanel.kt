@@ -1433,17 +1433,43 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         processQueue()
     }
 
+    private fun editPendingQueueItem(messageId: String, prompt: String) {
+        val normalizedPrompt = prompt.trim()
+        require(normalizedPrompt.isNotEmpty()) { "队列消息内容不能为空" }
+        val item = synchronized(queueLock) {
+            val queued = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) {
+                "队列消息不存在"
+            }
+            require(queued.status == ChatQueueStatus.PENDING) { "只有排队中的消息可以编辑" }
+            queued.prompt = normalizedPrompt
+            queued
+        }
+        refreshQueuePanel()
+    }
+
     private fun isQueueItemActive(item: ChatQueueItem): Boolean = synchronized(queueLock) {
         item.status != ChatQueueStatus.CANCELLED && chatQueue.contains(item)
     }
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        item.conversationCancelRequested = true
+        if (item.runningToolIds.isNotEmpty()) {
+            cancelActiveTool(item)
+        } else {
+            cancelModelResponse(item)
+        }
+    }
+
+    private fun cancelActiveTool(item: ChatQueueItem) {
         item.toolCancelRequested = true
-        item.token.cancel()
         item.toolToken.cancel()
         markQueueItemCancellationRequested(item)
+        // Keep the conversation alive so the model can receive the cancelled tool result.
+    }
+
+    private fun cancelModelResponse(item: ChatQueueItem) {
+        item.conversationCancelRequested = true
+        item.token.cancel()
         if (!hasAssistantOutput(item)) {
             val logId = item.persistedLogId
             synchronized(queueLock) {
@@ -2532,6 +2558,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
             "attachment.open" -> text?.let(::openAttachmentPath)
             "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
+            "queue.edit" -> editPendingQueueItem(
+                requireNotNull(id) { "缺少队列消息 ID" },
+                requireNotNull(text) { "缺少队列消息内容" },
+            )
             "message.delete" -> id?.let { messageId ->
                 messageCards.firstOrNull { it.id == messageId }?.delete()
                     ?: refreshBrowserMessageCache()
@@ -2592,7 +2622,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val currentAgentId = currentSessionId?.let(ChatSessionService::sessionById)?.agentId
         val queue = synchronized(queueLock) {
             chatQueue.filter { it.status == ChatQueueStatus.PENDING || it.status == ChatQueueStatus.PROCESSING }.map { item ->
-                AgentBrowserQueueItem(item.messageId, item.sessionId, ChatSessionService.sessionById(item.sessionId)?.title ?: "会话 ${item.sessionId}", item.prompt.take(40), item.status.label, item.status == ChatQueueStatus.PROCESSING)
+                AgentBrowserQueueItem(
+                    item.messageId,
+                    item.sessionId,
+                    ChatSessionService.sessionById(item.sessionId)?.title ?: "会话 ${item.sessionId}",
+                    item.prompt,
+                    item.status.label,
+                    item.status == ChatQueueStatus.PROCESSING,
+                    item.status == ChatQueueStatus.PENDING,
+                )
             }
         }
         val background = UIUtil.getPanelBackground()
@@ -2666,6 +2704,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("prompt") val prompt: String,
         @SerializedName("status") val status: String,
         @SerializedName("processing") val processing: Boolean,
+        @SerializedName("editable") val editable: Boolean,
     )
 
     private fun messageTimeNow(): String = LocalDateTime.now().toString().replace('T', ' ')
@@ -2682,7 +2721,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val messageId: String,
         val sessionId: Long,
         val agentId: Long,
-        val prompt: String,
+        var prompt: String,
         val order: Long,
         val attachments: List<AgentAttachmentState> = emptyList(),
         val sourceAgentRunId: String? = null,
