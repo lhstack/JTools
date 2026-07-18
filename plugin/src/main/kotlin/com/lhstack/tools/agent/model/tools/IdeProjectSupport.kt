@@ -14,6 +14,7 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.TextRange
@@ -232,14 +233,7 @@ internal class IdeProjectSupport(
         val provider = com.intellij.ide.util.gotoByName.ChooseByNameModelEx.getItemProvider(model, null)
         val results = ArrayList<Any>(limit)
         var truncated = false
-        val viewModel = object : ChooseByNameViewModel {
-            override fun getProject(): Project = project
-            override fun getModel(): ChooseByNameModel = model
-            override fun isSearchInAnyPlace(): Boolean = includeGlobal
-            override fun transformPattern(value: String): String = value
-            override fun canShowListForEmptyPattern(): Boolean = false
-            override fun getMaximumListSizeLimit(): Int = limit + 1
-        }
+        val viewModel = IndexedSearchViewModel(project, model, includeGlobal, limit + 1)
         withInterruptAwareIndicator { indicator ->
             provider.filterElements(viewModel, pattern, includeGlobal, indicator, Processor { element ->
                 checkToolThreadCancellation()
@@ -265,46 +259,77 @@ internal class IdeProjectSupport(
     ): JsonObject {
         require(query.isNotEmpty()) { "query must not be empty" }
         return serializedIndexedSearch {
-            smartRead {
-                val model = FindModel().apply {
-                stringToFind = query
-                isRegularExpressions = regex
-                isCaseSensitive = caseSensitive
-                isWholeWordsOnly = false
-                isMultipleFiles = true
-                isProjectScope = true
-                isFindAll = true
-                fileFilter = filePattern?.takeIf { it.isNotBlank() }
-            }
-            val results = JsonArray()
-            var truncated = false
-            val presentation = FindInProjectUtil.setupProcessPresentation(project, true, FindInProjectUtil.setupViewPresentation(model))
-            withInterruptAwareIndicator { indicator ->
-                FindInProjectUtil.findUsages(
-                    model,
-                    project,
-                    indicator,
-                    presentation,
-                    emptySet(),
-                    Processor { usage: UsageInfo ->
-                        checkToolThreadCancellation()
-                        if (results.size() >= limit) {
-                            truncated = true
-                            return@Processor false
-                        }
-                        appendIndexedUsage(usage, contextLines, results)
-                        true
-                    },
-                )
-            }
-                JsonObject().apply {
-                    addProperty("count", results.size())
-                    addProperty("truncated", truncated)
-                    addProperty("indexed", true)
-                    add("matches", results)
-                }
-            }
+            waitForIndexes()
+            searchTextWithIndex(query, regex, caseSensitive, filePattern, contextLines, limit)
         }
+    }
+
+    /**
+     * FindInProjectUtil owns its read actions and explicitly forbids callers
+     * from invoking findUsages inside an existing read action.
+     */
+    private fun searchTextWithIndex(
+        query: String,
+        regex: Boolean,
+        caseSensitive: Boolean,
+        filePattern: String?,
+        contextLines: Int,
+        limit: Int,
+    ): JsonObject {
+        val model = textSearchModel(query, regex, caseSensitive, filePattern)
+        val results = JsonArray()
+        var truncated = false
+        val presentation = FindInProjectUtil.setupProcessPresentation(
+            project,
+            true,
+            FindInProjectUtil.setupViewPresentation(model),
+        )
+        withInterruptAwareIndicator { indicator ->
+            FindInProjectUtil.findUsages(
+                model,
+                project,
+                indicator,
+                presentation,
+                emptySet(),
+                Processor { usage: UsageInfo ->
+                    checkToolThreadCancellation()
+                    if (results.size() >= limit) {
+                        truncated = true
+                        return@Processor false
+                    }
+                    appendIndexedUsage(usage, contextLines, results)
+                    true
+                },
+            )
+        }
+        return JsonObject().apply {
+            addProperty("count", results.size())
+            addProperty("truncated", truncated)
+            addProperty("indexed", true)
+            add("matches", results)
+        }
+    }
+
+    private fun textSearchModel(
+        query: String,
+        regex: Boolean,
+        caseSensitive: Boolean,
+        filePattern: String?,
+    ): FindModel = FindModel().apply {
+        stringToFind = query
+        isRegularExpressions = regex
+        isCaseSensitive = caseSensitive
+        isWholeWordsOnly = false
+        isMultipleFiles = true
+        isProjectScope = true
+        isFindAll = true
+        fileFilter = filePattern?.takeIf { it.isNotBlank() }
+    }
+
+    private fun waitForIndexes() {
+        checkToolThreadCancellation()
+        DumbService.getInstance(project).waitForSmartMode()
+        checkToolThreadCancellation()
     }
 
     private fun appendIndexedUsage(usage: UsageInfo, contextLines: Int, results: JsonArray) {
@@ -572,6 +597,20 @@ private val PROJECT_SEARCH_SEMAPHORES_LOCK = Any()
 
 private fun searchSemaphore(project: Project): Semaphore = synchronized(PROJECT_SEARCH_SEMAPHORES_LOCK) {
     PROJECT_SEARCH_SEMAPHORES.getOrPut(project) { Semaphore(1, true) }
+}
+
+internal class IndexedSearchViewModel(
+    private val searchProject: Project,
+    private val searchModel: ChooseByNameModel,
+    private val includeGlobal: Boolean,
+    private val resultLimit: Int,
+) : ChooseByNameViewModel {
+    override fun getProject(): Project = searchProject
+    override fun getModel(): ChooseByNameModel = searchModel
+    override fun isSearchInAnyPlace(): Boolean = includeGlobal
+    override fun transformPattern(pattern: String): String = pattern
+    override fun canShowListForEmptyPattern(): Boolean = false
+    override fun getMaximumListSizeLimit(): Int = resultLimit
 }
 
 private data class ChooseByNameResults(val items: List<Any>, val truncated: Boolean) : Iterable<Any> by items
