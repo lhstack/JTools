@@ -54,8 +54,9 @@ internal class IdeProjectSupport(
                 checkToolThreadCancellation()
                 resolveProjectFileInReadAction(request.path)
             }
-            require(files.map { it.url }.distinct().size == files.size) { "read paths must not contain duplicates" }
-            requests.zip(files).map { (request, file) -> readFileInReadAction(file, request.ranges, request.maxLines) }
+            requests.zip(files).map { (request, file) ->
+                readFileInReadAction(file, request.ranges, request.maxLines)
+            }
         }
     }
 
@@ -127,18 +128,23 @@ internal class IdeProjectSupport(
     fun replaceFiles(requests: List<ReplaceTextRequest>): List<JsonObject> {
         require(requests.isNotEmpty()) { "replace requests must not be empty" }
         val prepared = requests.map { request -> prepareReplacement(request) }
-        require(prepared.map { it.file.url }.distinct().size == prepared.size) {
-            "replace batch supports at most one edit per file"
-        }
+        val replacementsByDocument = prepared.groupBy(PreparedReplacement::document)
+            .mapValues { (_, edits) -> ProjectReplacementBatch.operations(
+                edits.map { edit -> ReplacementTarget(edit.request, edit.ranges) },
+            ) }
 
         runOnEdt {
             WriteCommandAction.runWriteCommandAction(project, "JTools Replace Text In Files", null, {
-                prepared.forEach { item ->
-                    item.ranges.asReversed().forEach { range ->
-                        item.document.replaceString(range.first, range.last + 1, item.request.newText)
+                replacementsByDocument.forEach { (document, operations) ->
+                    operations.forEach { operation ->
+                        document.replaceString(
+                            operation.range.first,
+                            operation.endOffset,
+                            operation.newText,
+                        )
                     }
+                    FileDocumentManager.getInstance().saveDocument(document)
                 }
-                prepared.forEach { FileDocumentManager.getInstance().saveDocument(it.document) }
             })
         }
         return prepared.map { item ->
@@ -593,6 +599,29 @@ private data class PreparedReplacement(
     val document: Document,
     val ranges: List<IntRange>,
 )
+internal data class ReplacementOperation(val range: IntRange, val newText: String) {
+    val endOffset: Int get() = range.last + 1
+}
+
+internal data class ReplacementTarget(
+    val request: ReplaceTextRequest,
+    val ranges: List<IntRange>,
+)
+
+internal object ProjectReplacementBatch {
+    fun operations(edits: List<ReplacementTarget>): List<ReplacementOperation> {
+        require(edits.isNotEmpty()) { "replace edits must not be empty" }
+        val operations = edits.flatMap { edit ->
+            edit.ranges.map { range -> ReplacementOperation(range, edit.request.newText) }
+        }.sortedByDescending { it.range.first }
+        operations.zipWithNext().forEach { (later, earlier) ->
+            require(earlier.range.last < later.range.first) {
+                "replace edits for `${edits.first().request.path}` overlap; each edit must target distinct original text"
+            }
+        }
+        return operations
+    }
+}
 
 private val PROJECT_SEARCH_SEMAPHORES = WeakHashMap<Project, Semaphore>()
 private val PROJECT_SEARCH_SEMAPHORES_LOCK = Any()
