@@ -279,11 +279,13 @@ internal class IdeProjectSupport(
         val model = textSearchModel(query, regex, caseSensitive, filePattern)
         val results = JsonArray()
         var truncated = false
-        val presentation = FindInProjectUtil.setupProcessPresentation(
-            project,
-            true,
+        val presentation = FindUsagesProcessPresentation(
             FindInProjectUtil.setupViewPresentation(model),
-        )
+        ).apply {
+            isShowNotFoundMessage = false
+            isShowPanelIfOnlyOneUsage = true
+            isShowFindOptionsPrompt = false
+        }
         withInterruptAwareIndicator { indicator ->
             FindInProjectUtil.findUsages(
                 model,

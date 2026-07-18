@@ -271,7 +271,7 @@ internal class BuildProjectTool(
         addProperty("stderr", diagnostics.stderr)
         if (!diagnostics.buildEventsAvailable && !diagnostics.structuredDiagnosticsAvailable) {
             addProperty("output_note", "当前 IDE 构建执行器只返回了构建状态，没有发布诊断或输出。")
-        } else if ((result.hasErrors() || result.isAborted) && diagnostics.errorCount == 0 && diagnostics.stderr.isBlank()) {
+        } else if ((result.hasErrors() || result.isAborted) && diagnostics.errorCount == 0 && diagnostics.stdout.isBlank() && diagnostics.stderr.isBlank()) {
             addProperty("output_note", "当前 IDE 构建执行器报告构建失败，但没有发布错误诊断或 stderr。")
         }
     }

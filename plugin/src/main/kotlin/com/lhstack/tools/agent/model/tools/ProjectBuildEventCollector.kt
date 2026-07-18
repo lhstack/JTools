@@ -2,49 +2,34 @@ package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.intellij.build.BuildProgressListener
-import com.intellij.build.BuildViewManager
-import com.intellij.build.events.BuildEvent
-import com.intellij.build.events.BuildIssueEvent
-import com.intellij.build.events.Failure
-import com.intellij.build.events.FailureResult
-import com.intellij.build.events.FileMessageEvent
-import com.intellij.build.events.FinishEvent
-import com.intellij.build.events.MessageEvent
-import com.intellij.build.events.OutputBuildEvent
-import com.intellij.build.events.StartBuildEvent
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType
+import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
 import com.intellij.openapi.project.Project
+import java.lang.reflect.Proxy
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
-/** Collects the platform BuildEvent stream for one ProjectTaskManager execution. */
+/** Collects build output for one ProjectTaskManager execution without Build View experimental APIs. */
 internal class ProjectBuildEventCollector(
     private val project: Project,
     private val sessionId: Any,
-) : BuildProgressListener, Disposable {
+) : Disposable {
     private val errors = CopyOnWriteArrayList<Diagnostic>()
     private val warnings = CopyOnWriteArrayList<Diagnostic>()
     private val stdout = BoundedOutput()
     private val stderr = BoundedOutput()
     private val observedBuild = AtomicBoolean(false)
     private val structuredDiagnosticsAvailable = AtomicBoolean(false)
-    private val eventScope = BuildEventScope(sessionId)
+    private val activeExternalTask = AtomicReference<ExternalSystemTaskId?>()
+    private val externalListener = externalSystemListener()
 
     fun subscribe() {
-        project.getService(BuildViewManager::class.java).addListener(this, this)
-    }
-
-    override fun onEvent(buildId: Any, event: BuildEvent) {
-        if (!belongsToExecution(buildId, event)) return
-        observedBuild.set(true)
-        when (event) {
-            is FileMessageEvent -> collectFileMessage(event)
-            is BuildIssueEvent -> collectBuildIssue(event)
-            is MessageEvent -> collectMessage(event)
-            is OutputBuildEvent -> collectOutput(event)
-            is FinishEvent -> collectFailures(event)
-        }
+        ExternalSystemProgressNotificationManager.getInstance()
+            .addNotificationListener(externalListener, this)
     }
 
     fun structuredDiagnosticsStarted() {
@@ -74,58 +59,59 @@ internal class ProjectBuildEventCollector(
         ACTIVE_BY_PROJECT.remove(project, this)
     }
 
-    private fun belongsToExecution(buildId: Any, event: BuildEvent): Boolean = eventScope.accept(
-        buildId = buildId,
-        eventId = event.id,
-        parentId = event.parentId,
-        startDescriptorId = (event as? StartBuildEvent)?.buildDescriptor?.id,
-    )
-
-    private fun collectFileMessage(event: FileMessageEvent) {
-        val position = event.filePosition
-        collectMessage(
-            event.kind,
-            Diagnostic(
-                message = event.message,
-                description = event.description,
-                file = position.file?.path,
-                line = position.startLine.takeIf { it >= 0 }?.plus(1),
-                column = position.startColumn.takeIf { it >= 0 }?.plus(1),
-            ),
-        )
-    }
-
-    private fun collectBuildIssue(event: BuildIssueEvent) {
-        collectMessage(
-            event.kind,
-            Diagnostic(event.issue.title, event.issue.description),
-        )
-    }
-
-    private fun collectMessage(event: MessageEvent) {
-        collectMessage(event.kind, Diagnostic(event.message, event.description))
-    }
-
-    private fun collectMessage(kind: MessageEvent.Kind, diagnostic: Diagnostic) {
-        when (kind) {
-            MessageEvent.Kind.ERROR -> errors.add(diagnostic)
-            MessageEvent.Kind.WARNING -> warnings.add(diagnostic)
-            else -> Unit
+    private fun externalSystemListener(): ExternalSystemTaskNotificationListener {
+        val handler = java.lang.reflect.InvocationHandler { _, method, args ->
+            val values = args.orEmpty()
+            when (method.name) {
+                "onStart" -> values.filterIsInstance<ExternalSystemTaskId>().firstOrNull()?.let(::startExternalTask)
+                "onTaskOutput" -> collectExternalOutput(values)
+                "onFailure" -> collectExternalFailure(values)
+            }
+            defaultInvocationResult(method.returnType)
         }
+        return Proxy.newProxyInstance(
+            ExternalSystemTaskNotificationListener::class.java.classLoader,
+            arrayOf(ExternalSystemTaskNotificationListener::class.java),
+            handler,
+        ) as ExternalSystemTaskNotificationListener
     }
 
-    private fun collectOutput(event: OutputBuildEvent) {
-        if (event.isStdOut) stdout.append(event.message) else stderr.append(event.message)
+    private fun startExternalTask(taskId: ExternalSystemTaskId) {
+        if (taskId.type != ExternalSystemTaskType.EXECUTE_TASK) return
+        if (taskId.ideProjectId != ExternalSystemTaskId.getProjectId(project)) return
+        if (activeExternalTask.compareAndSet(null, taskId)) observedBuild.set(true)
     }
 
-    private fun collectFailures(event: FinishEvent) {
-        val result = event.result as? FailureResult ?: return
-        result.failures.forEach(::collectFailure)
+    private fun collectExternalOutput(values: Array<out Any?>) {
+        val taskId = values.filterIsInstance<ExternalSystemTaskId>().firstOrNull() ?: return
+        if (taskId != activeExternalTask.get()) return
+        val text = values.filterIsInstance<String>().firstOrNull() ?: return
+        if (externalOutputIsStdout(values)) stdout.append(text) else stderr.append(text)
     }
 
-    private fun collectFailure(failure: Failure) {
-        errors.add(Diagnostic(failure.message, failure.description))
-        failure.causes.forEach(::collectFailure)
+    private fun collectExternalFailure(values: Array<out Any?>) {
+        val taskId = values.filterIsInstance<ExternalSystemTaskId>().firstOrNull() ?: return
+        if (taskId != activeExternalTask.get()) return
+        val failure = values.filterIsInstance<Throwable>().firstOrNull() ?: return
+        errors.add(Diagnostic(failure.message ?: failure.toString()))
+    }
+
+    private fun externalOutputIsStdout(values: Array<out Any?>): Boolean {
+        values.filterIsInstance<Boolean>().firstOrNull()?.let { return it }
+        val outputType = requireNotNull(values.firstOrNull { value ->
+            value?.javaClass?.name == "com.intellij.execution.process.ProcessOutputType"
+        }) { "External-system build output did not provide an output channel" }
+        val isStdout = requireNotNull(outputType.javaClass.methods.firstOrNull {
+            it.name == "isStdout" && it.parameterCount == 0
+        }) { "Unsupported external-system output channel type: ${outputType.javaClass.name}" }
+        return isStdout.invoke(outputType) as Boolean
+    }
+
+    private fun defaultInvocationResult(type: Class<*>): Any? = when (type) {
+        java.lang.Boolean.TYPE -> false
+        java.lang.Integer.TYPE -> 0
+        java.lang.Long.TYPE -> 0L
+        else -> null
     }
 
     data class Diagnostic(
@@ -202,32 +188,6 @@ internal class ProjectBuildEventCollector(
     }
 }
 
-/**
- * ProjectTaskContext.sessionId is not propagated by every task runner. Gradle, for example,
- * creates its own root BuildDescriptor id. Bind the first root build event emitted after the
- * collector subscribes, then accept only that event tree.
- */
-internal class BuildEventScope(sessionId: Any) {
-    private val acceptedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Any>().apply { add(sessionId) }
-    private val rootBound = AtomicBoolean(false)
-
-    fun accept(
-        buildId: Any,
-        eventId: Any,
-        parentId: Any?,
-        startDescriptorId: Any?,
-    ): Boolean {
-        val linked = buildId in acceptedIds || eventId in acceptedIds ||
-            parentId?.let(acceptedIds::contains) == true ||
-            startDescriptorId?.let(acceptedIds::contains) == true
-        val rootStart = startDescriptorId != null && parentId == null && rootBound.compareAndSet(false, true)
-        if (!linked && !rootStart) return false
-        acceptedIds.add(buildId)
-        acceptedIds.add(eventId)
-        startDescriptorId?.let(acceptedIds::add)
-        return true
-    }
-}
 
 private fun List<ProjectBuildEventCollector.Diagnostic>.toJson() = JsonArray().apply {
     for (diagnostic in this@toJson) {
