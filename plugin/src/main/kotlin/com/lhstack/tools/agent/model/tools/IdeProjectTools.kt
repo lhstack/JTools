@@ -270,9 +270,9 @@ internal class BuildProjectTool(
         addProperty("stdout", diagnostics.stdout)
         addProperty("stderr", diagnostics.stderr)
         if (!diagnostics.buildEventsAvailable && !diagnostics.structuredDiagnosticsAvailable) {
-            addProperty("output_note", "The active IDE task runner reported only the build status; detailed diagnostics and output were not published for this execution.")
-        } else if (result.hasErrors() && diagnostics.errorCount == 0 && diagnostics.stderr.isBlank()) {
-            addProperty("output_note", "The active IDE task runner reported errors without publishing detailed error diagnostics or stderr for this execution.")
+            addProperty("output_note", "当前 IDE 构建执行器只返回了构建状态，没有发布诊断或输出。")
+        } else if ((result.hasErrors() || result.isAborted) && diagnostics.errorCount == 0 && diagnostics.stderr.isBlank()) {
+            addProperty("output_note", "当前 IDE 构建执行器报告构建失败，但没有发布错误诊断或 stderr。")
         }
     }
 

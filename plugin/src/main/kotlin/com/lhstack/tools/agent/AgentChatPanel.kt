@@ -7,8 +7,6 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import com.google.gson.JsonPrimitive
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.ui.LafManagerListener
@@ -39,18 +37,15 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.AssistantContent
 import com.lhstack.tools.agent.model.llm.Message
 import com.lhstack.tools.agent.model.llm.ProviderToolCall
-import com.lhstack.tools.agent.model.llm.ToolCall
-import com.lhstack.tools.agent.model.llm.ToolFunction
 import com.lhstack.tools.agent.model.llm.ToolResult
 import com.lhstack.tools.agent.model.llm.ToolResultContent
-import com.lhstack.tools.agent.model.llm.UserContent
 import com.lhstack.tools.agent.model.log.ModelLogService
 import com.lhstack.tools.agent.model.tools.UpdateAgentDistillationTool
 import com.lhstack.tools.agent.model.log.ModelRequestException
 import com.lhstack.tools.agent.model.provider.AgentRuntime
+import com.lhstack.tools.agent.model.provider.AssistantOutputPolicy
 import com.lhstack.tools.agent.model.provider.ModelStreamSink
 import com.lhstack.tools.agent.model.provider.ToolEventSink
 import com.lhstack.tools.const.Icons
@@ -507,8 +502,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val history = ModelLogService.listChatTurnsForSession(sessionId)
             .asSequence()
             .filter { it.messageType != "agent_run" }
-            .filter { it.status != "running" }
-            .filter { it.status != "failed" || hasPersistedAssistantContent(it.responseData) }
+            .filter(ChatTurnHistoryPolicy::shouldInclude)
             .filterNot { chatTurnClientOrder(it) in queuedClientOrders }
             .map { SessionRenderEntry.History(it, it.logId) }
             .toList()
@@ -611,13 +605,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun reasoningText(structured: JsonObject): String {
         val reasoning = structured.get("reasoning")?.takeIf { it.isJsonArray }?.asJsonArray ?: return ""
         return reasoning.mapNotNull { jsonString(it).takeIf { s -> s.isNotBlank() } }.joinToString("\n\n").trim()
-    }
-
-    private fun hasPersistedAssistantContent(responseData: JsonObject): Boolean {
-        val structured = jsonObject(responseData, "structured_response") ?: return false
-        return jsonString(structured.get("response")).isNotBlank() ||
-            reasoningText(structured).isNotBlank() ||
-            hasToolCalls(structured)
     }
 
     private fun hasToolCalls(structured: JsonObject): Boolean =
@@ -1069,7 +1056,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         } catch (e: Throwable) {
             val requestError = e as? ModelRequestException
             if (!isQueueItemActive(item)) {
-                finishInactiveQueueItem(item, requestError)
+                // Stop/delete already removed the queue item and its persisted
+                // log. A late cancellation exception must not recreate history.
+                requestError?.logId?.let(ModelLogService::deleteChatTurn)
             } else if (item.token.isCancelled()) {
                 finishQueueItemCancelled(
                     item,
@@ -1089,7 +1078,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 item.persistedLogId = result.logId
                 onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
             } else {
-                ModelLogService.deleteModelLog(result.logId)
+                ModelLogService.deleteChatTurn(result.logId)
             }
             return
         }
@@ -1130,6 +1119,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             toolCancel = item.toolToken,
             clientMessageOrder = item.order,
             userMessageAt = item.userMessageAt,
+            onLogCreated = { logId -> item.persistedLogId = logId },
             project = project,
             requestMetadata = item.sourceAgentRunId?.let { runId ->
                 JsonObject().apply {
@@ -1290,7 +1280,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val response = partialResponse ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
         val assistantMessageAt = when {
             response == null -> {
-                logId?.let(ModelLogService::deleteModelLog)
+                logId?.let(ModelLogService::deleteChatTurn)
                 null
             }
             partialResponse != null -> {
@@ -1319,26 +1309,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun finishInactiveQueueItem(item: ChatQueueItem, error: ModelRequestException?) {
-        val partial = error?.partialResponse
-        val response = partial ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
-        val logId = error?.logId
-        if (response != null && logId != null) {
-            if (partial == null) {
-                ModelLogService.finishModelLogCancelled(logId, response)
-            }
-            item.persistedLogId = logId
-            onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
-        } else {
-            logId?.let(ModelLogService::deleteModelLog)
-            if (response == null) {
-                onUi {
-                    if (currentSessionId == item.sessionId) restoreFailedInput(item)
-                    refreshCurrentSessionHistoryIfVisible(item.sessionId)
-                }
-            }
-        }
-    }
 
     private fun applyCancelledAssistantOutput(item: ChatQueueItem, response: JsonObject) {
         val structured = response.get("structured_response")
@@ -1349,7 +1319,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val reasoning = reasoningText(structured)
         if (responseText.isNotBlank()) item.responseText = responseText
         if (reasoning.isNotBlank()) item.reasoningText = reasoning
-        item.hasAssistantOutput = true
+        item.hasAssistantOutput = hasAssistantOutput(item, response)
         val card = ensureQueueAssistantCard(item)
         if (item.responseText.isNotBlank()) card.setResponse(item.responseText)
         if (item.reasoningText.isNotBlank()) card.setReasoning(item.reasoningText, expanded = true)
@@ -1357,16 +1327,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun hasAssistantOutput(item: ChatQueueItem, response: JsonObject? = null): Boolean {
-        if (item.hasAssistantOutput || item.responseText.isNotBlank() || item.reasoningText.isNotBlank()) return true
-        if (item.toolCalls.isNotEmpty() || item.toolResults.isNotEmpty()) return true
-        val value = response ?: return false
-        val structured = value.get("structured_response")
-            ?.takeIf { it.isJsonObject }
-            ?.asJsonObject
-            ?: value
-        if (jsonString(structured.get("response")).isNotBlank()) return true
-        if (reasoningText(structured).isNotBlank()) return true
-        return structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.isEmpty == false
+        if (item.responseText.isNotBlank() || item.reasoningText.isNotBlank()) return true
+        if (item.toolCalls.keys.any(item.toolResults::containsKey)) return true
+        return response?.let(AssistantOutputPolicy::hasOutput) == true
     }
 
     private fun finishQueueItemPartialFailure(item: ChatQueueItem, error: ModelRequestException) = onUi {
@@ -1393,7 +1356,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ensureQueueAssistantCard(item).finish(null, null)
             completeQueueItem(item, refreshHistory = logId != null)
         } else {
-            logId?.let(ModelLogService::deleteModelLog)
+            logId?.let(ModelLogService::deleteChatTurn)
             discardQueueCards(item)
             restoreFailedInput(item)
             completeQueueItem(item, refreshHistory = true)
@@ -1476,18 +1439,24 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-
-        // Stop always cancels the complete model request. A retry is a model HTTP
-        // operation, not a tool operation; cancelling only toolToken leaves that
-        // retry alive and the queue remains PROCESSING until the HTTP timeout.
         item.conversationCancelRequested = true
         item.toolCancelRequested = true
         item.token.cancel()
         item.toolToken.cancel()
-        // Do not remove the queue item here. ModelRuntime must finish the
-        // cancelled log first; otherwise the later exception is treated as an
-        // inactive task and the assistant history can be discarded.
         markQueueItemCancellationRequested(item)
+        if (!hasAssistantOutput(item)) {
+            val logId = item.persistedLogId
+            synchronized(queueLock) {
+                item.status = ChatQueueStatus.CANCELLED
+                chatQueue.remove(item)
+            }
+            logId?.let(ModelLogService::deleteChatTurn)
+            discardQueueCards(item)
+            refreshQueuePanel()
+            updateActiveStopButton()
+            refreshCurrentSessionHistoryIfVisible(item.sessionId)
+            processQueue()
+        }
     }
 
     private fun markQueueItemCancellationRequested(item: ChatQueueItem) {
@@ -1535,7 +1504,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun buildHistory(record: ChatSessionRecord): List<Message> {
         val turns = ModelLogService.listChatTurnsForSession(record.id)
         val messages = mutableListOf<Message>()
-        turns.filter { it.status != "running" && it.status != "failed" }.forEach { turn ->
+        turns.filter(ChatTurnHistoryPolicy::shouldInclude).forEach { turn ->
             val snapshot = jsonObject(turn.requestData, "request_snapshot")
             val structured = jsonObject(turn.responseData, "structured_response")
             if (turn.messageType == "agent_run") {
@@ -1552,52 +1521,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return messages
     }
 
-    /** 从对话日志还原 provider 的工具调用/工具结果消息，供下一轮上下文截断按工具轮次工作。 */
     private fun appendProviderHistory(messages: MutableList<Message>, structured: JsonObject?) {
-        if (structured == null) return
-        val calls: List<JsonElement> = structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList()
-        val results: List<JsonElement> = structured.get("tool_results")?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList()
-        val assistantContent = calls.mapNotNull { element ->
-            val call = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-            val internalId = jsonString(call.get("internal_call_id")).ifBlank { jsonString(call.get("tool_call_id")) }
-            if (internalId.isBlank()) return@mapNotNull null
-            AssistantContent.ToolCall(
-                ToolCall(
-                    id = internalId,
-                    callId = jsonString(call.get("tool_call_id")).takeIf { it.isNotBlank() },
-                    function = ToolFunction(
-                        name = jsonString(call.get("tool_name")),
-                        arguments = jsonArgument(call.get("args")),
-                    ),
-                    signature = null,
-                    additionalParams = null,
-                ),
-            )
-        }
-        if (assistantContent.isNotEmpty()) {
-            messages.add(Message.Assistant(id = null, content = assistantContent))
-        }
-        val toolResults = results.mapNotNull { element ->
-            val result = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-            val internalId = jsonString(result.get("internal_call_id")).ifBlank { jsonString(result.get("tool_call_id")) }
-            if (internalId.isBlank()) return@mapNotNull null
-            UserContent.ToolResult(
-                ToolResult(
-                    id = internalId,
-                    callId = jsonString(result.get("tool_call_id")).takeIf { it.isNotBlank() },
-                    content = listOf(ToolResultContent.Text(jsonString(result.get("result")))),
-                ),
-            )
-        }
-        if (toolResults.isNotEmpty()) messages.add(Message.User(toolResults))
-        val response = jsonString(structured.get("response"))
-        if (response.isNotBlank()) messages.add(Message.assistant(response))
-    }
-
-    private fun jsonArgument(element: JsonElement?): JsonElement {
-        if (element == null || element.isJsonNull) return JsonObject()
-        if (!element.isJsonPrimitive || !element.asJsonPrimitive.isString) return element.deepCopy()
-        return runCatching { JsonParser.parseString(element.asString) }.getOrElse { JsonPrimitive(element.asString) }
+        ChatTurnHistoryMessages.append(messages, structured)
     }
 
     private fun maybeAutoRenameSession(record: ChatSessionRecord, source: String) {
@@ -1634,7 +1559,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun renderToolCallEvent(item: ChatQueueItem, call: ProviderToolCall) {
-        item.hasAssistantOutput = true
         item.runningToolIds.add(call.id)
         item.runningToolCount = item.runningToolIds.size
         item.toolCalls[call.id] = QueuedToolSnapshot(call.id, call.name, call.argsString())
@@ -1716,7 +1640,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun applyFinalAssistantResult(item: ChatQueueItem, result: AgentRuntime.ExecutionResult) {
-        item.hasAssistantOutput = true
         val card = ensureQueueAssistantCard(item)
         val response = result.output.ifBlank { jsonString(result.value.get("response")) }
         item.responseText = response
@@ -2773,7 +2696,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         var toolCancelRequested: Boolean = false,
         var conversationCancelRequested: Boolean = false,
         var hasAssistantOutput: Boolean = false,
-        var persistedLogId: Long? = null,
+        @Volatile var persistedLogId: Long? = null,
         var responseText: String = "",
         var reasoningText: String = "",
         val toolCalls: MutableMap<String, QueuedToolSnapshot> = linkedMapOf(),

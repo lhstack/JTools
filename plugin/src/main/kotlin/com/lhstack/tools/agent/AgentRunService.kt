@@ -382,7 +382,7 @@ internal object AgentRunService {
 
     private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> =
         ModelLogService.listChatTurnsForSession(session.id)
-            .filter { it.status == "completed" || it.status == "cancelled" }
+            .filter(ChatTurnHistoryPolicy::shouldInclude)
             .flatMap { turn -> sessionHistoryMessages(turn) }
 
     private fun sessionHistoryMessages(turn: ModelLogService.ChatTurn): List<Message> {
@@ -399,7 +399,7 @@ internal object AgentRunService {
         val prompt = request?.get("prompt_message")?.asString.orEmpty()
         return buildList {
             if (prompt.isNotBlank()) add(Message.user(prompt))
-            if (response.isNotBlank()) add(Message.assistant(response))
+            ChatTurnHistoryMessages.append(this, structured)
         }
     }
 

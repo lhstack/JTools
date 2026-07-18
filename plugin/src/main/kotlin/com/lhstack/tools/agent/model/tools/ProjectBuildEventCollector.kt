@@ -29,7 +29,7 @@ internal class ProjectBuildEventCollector(
     private val stderr = BoundedOutput()
     private val observedBuild = AtomicBoolean(false)
     private val structuredDiagnosticsAvailable = AtomicBoolean(false)
-    private val acceptedBuildIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Any>().apply { add(sessionId) }
+    private val eventScope = BuildEventScope(sessionId)
 
     fun subscribe() {
         project.getService(BuildViewManager::class.java).addListener(this, this)
@@ -74,18 +74,12 @@ internal class ProjectBuildEventCollector(
         ACTIVE_BY_PROJECT.remove(project, this)
     }
 
-    private fun belongsToExecution(buildId: Any, event: BuildEvent): Boolean {
-        val belongs = buildId in acceptedBuildIds ||
-            event.id in acceptedBuildIds ||
-            event.parentId in acceptedBuildIds ||
-            (event is StartBuildEvent && event.buildDescriptor.id in acceptedBuildIds)
-        if (belongs) {
-            acceptedBuildIds.add(buildId)
-            acceptedBuildIds.add(event.id)
-            if (event is StartBuildEvent) acceptedBuildIds.add(event.buildDescriptor.id)
-        }
-        return belongs
-    }
+    private fun belongsToExecution(buildId: Any, event: BuildEvent): Boolean = eventScope.accept(
+        buildId = buildId,
+        eventId = event.id,
+        parentId = event.parentId,
+        startDescriptorId = (event as? StartBuildEvent)?.buildDescriptor?.id,
+    )
 
     private fun collectFileMessage(event: FileMessageEvent) {
         val position = event.filePosition
@@ -205,6 +199,33 @@ internal class ProjectBuildEventCollector(
         }
 
         fun active(project: Project): ProjectBuildEventCollector? = ACTIVE_BY_PROJECT[project]
+    }
+}
+
+/**
+ * ProjectTaskContext.sessionId is not propagated by every task runner. Gradle, for example,
+ * creates its own root BuildDescriptor id. Bind the first root build event emitted after the
+ * collector subscribes, then accept only that event tree.
+ */
+internal class BuildEventScope(sessionId: Any) {
+    private val acceptedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Any>().apply { add(sessionId) }
+    private val rootBound = AtomicBoolean(false)
+
+    fun accept(
+        buildId: Any,
+        eventId: Any,
+        parentId: Any?,
+        startDescriptorId: Any?,
+    ): Boolean {
+        val linked = buildId in acceptedIds || eventId in acceptedIds ||
+            parentId?.let(acceptedIds::contains) == true ||
+            startDescriptorId?.let(acceptedIds::contains) == true
+        val rootStart = startDescriptorId != null && parentId == null && rootBound.compareAndSet(false, true)
+        if (!linked && !rootStart) return false
+        acceptedIds.add(buildId)
+        acceptedIds.add(eventId)
+        startDescriptorId?.let(acceptedIds::add)
+        return true
     }
 }
 

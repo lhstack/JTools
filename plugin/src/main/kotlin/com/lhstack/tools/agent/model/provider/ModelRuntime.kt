@@ -50,6 +50,7 @@ object ModelRuntime {
         eventSink: ToolEventSink? = null,
         cancel: ModelCancel? = null,
         toolCancel: ModelCancel? = null,
+        onLogCreated: ((Long) -> Unit)? = null,
     ): Result {
         val toolDefinitions = modelLogToolDefinitions(tools)
         val additionalParams = ModelParams.additionalParams(model, environmentId)
@@ -57,6 +58,7 @@ object ModelRuntime {
         val maxRetries = resolveMaxRetries(model)
         val httpTrace = ModelHttpTrace(UUID.randomUUID().toString())
         val modelLogId = ModelLogService.createModelLog(model, logContext, httpTrace.requestData())
+        onLogCreated?.invoke(modelLogId)
         val hook = TraceHook()
         val partialOutput = PartialOutputRecorder(streamSink)
         val executor = ModelHttpClientFactory.executorFor(model.baseUrl, model.proxyUrl)
@@ -174,7 +176,7 @@ object ModelRuntime {
                 messages = emptyList(),
                 roundMessages = emptyList(),
                 reasoning = listOfNotNull(reasoningText.takeIf { it.isNotBlank() }),
-            ).structuredValue(events)
+            ).structuredValue(events).takeIf(AssistantOutputPolicy::hasOutput)
         }
     }
 

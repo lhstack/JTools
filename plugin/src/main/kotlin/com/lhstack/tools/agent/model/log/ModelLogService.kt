@@ -281,10 +281,7 @@ object ModelLogService {
 
     fun deleteModelLogs(ids: Collection<Long>) = AgentDatabase.execute { session ->
         if (ids.isEmpty()) return@execute Unit
-        val mapper = session.getMapper(ModelRequestLogMapper::class.java)
-        val logs = mapper.selectBatchIds(ids)
-        require(logs.none { it.messageType == "chat_turn" }) { "聊天对话日志属于会话记录，不能在模型日志中删除" }
-        mapper.deleteBatchIds(ids)
+        session.getMapper(ModelRequestLogMapper::class.java).deleteBatchIds(ids)
         Unit
     }
 
@@ -386,10 +383,7 @@ object ModelLogService {
     }
 
     fun deleteModelLog(id: Long) = AgentDatabase.execute { session ->
-        val mapper = session.getMapper(ModelRequestLogMapper::class.java)
-        val log = mapper.selectById(id) ?: return@execute Unit
-        require(log.messageType != "chat_turn") { "聊天对话日志属于会话记录，不能在模型日志中删除" }
-        mapper.deleteById(id)
+        session.getMapper(ModelRequestLogMapper::class.java).deleteById(id)
         Unit
     }
 

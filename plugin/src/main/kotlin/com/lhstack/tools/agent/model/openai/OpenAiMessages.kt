@@ -8,6 +8,7 @@ import com.lhstack.tools.agent.model.llm.AssistantContent
 import com.lhstack.tools.agent.model.llm.ImageDetail
 import com.lhstack.tools.agent.model.llm.Message
 import com.lhstack.tools.agent.model.llm.ToolDefinition
+import com.lhstack.tools.agent.model.llm.ToolCall
 import com.lhstack.tools.agent.model.llm.UserContent
 
 /**
@@ -76,9 +77,10 @@ internal object OpenAiMessages {
                     calls.add(JsonObject().apply {
                         addProperty("id", call.callId ?: call.id)
                         addProperty("type", "function")
+                        val arguments = requireObjectArguments(call)
                         add("function", JsonObject().apply {
                             addProperty("name", call.function.name)
-                            addProperty("arguments", call.function.arguments.toString())
+                            addProperty("arguments", arguments.toString())
                         })
                     })
                 }
@@ -202,11 +204,12 @@ internal object OpenAiMessages {
 
                 is AssistantContent.ToolCall -> {
                     val call = item.toolCall
+                    val arguments = requireObjectArguments(call)
                     items.add(JsonObject().apply {
                         addProperty("type", "function_call")
                         addProperty("call_id", call.callId ?: call.id)
                         addProperty("name", call.function.name)
-                        addProperty("arguments", call.function.arguments.toString())
+                        addProperty("arguments", arguments.toString())
                     })
                 }
 
@@ -300,4 +303,13 @@ internal object OpenAiMessages {
         val filename = obj.get("filename") ?: return null
         return if (filename.isJsonPrimitive && (filename as JsonPrimitive).isString) filename.asString else null
     }
+
+    private fun requireObjectArguments(call: ToolCall): JsonObject {
+        require(call.function.name.isNotBlank()) { "历史工具调用缺少工具名称: ${call.id}" }
+        require(call.function.arguments.isJsonObject) {
+            "历史工具调用 `${call.function.name}` 的 arguments 必须是 JSON 对象: ${call.id}"
+        }
+        return call.function.arguments.asJsonObject
+    }
+
 }
