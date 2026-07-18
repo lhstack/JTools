@@ -128,6 +128,10 @@ internal class OpenAiResponsesRequest(
                     "OpenAI responses reasoning.generate_summary 已废弃，请使用 reasoning.summary"
                 )
             }
+            if(reasoning?.get("effort")?.asString != "none"){
+                reasoning?.addProperty("context","auto")
+                reasoning?.addProperty("summary","auto")
+            }
             val optionsMaxRetries = takeInt(options, "max_retries")
             val requestTools = if (tools.isEmpty()) {
                 options.remove("tools")?.takeIf { !it.isJsonNull }?.asJsonArray
