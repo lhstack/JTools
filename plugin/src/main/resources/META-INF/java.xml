@@ -1,5 +1,9 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
+    <projectListeners>
+        <listener class="com.lhstack.tools.agent.model.tools.java.JpsCompilationDiagnosticsListener"
+                  topic="com.intellij.openapi.compiler.CompilationStatusListener"/>
+    </projectListeners>
     <applicationListeners>
         <listener class="com.lhstack.tools.listener.JavaPluginAppLifecycleListener"
                   topic="com.intellij.ide.AppLifecycleListener"/>

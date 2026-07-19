@@ -46,6 +46,7 @@ import com.intellij.psi.xml.XmlFile
 import com.intellij.ui.awt.RelativePoint
 import com.lhstack.tools.const.Const
 import com.lhstack.tools.const.Icons
+import com.lhstack.tools.dev.DevPluginRegistry
 import com.lhstack.tools.exception.PluginException
 import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.CefCacheManager
@@ -445,6 +446,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                             unInstall()
                         }
                         pluginInstance.set(null)
+                        DevPluginRegistry.clear()
                         contentPanel.removeAll()
                         contentPanel.validate()
                         contentPanel.repaint()
@@ -697,6 +699,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                         this
                     }?.catch {
                         pluginInstance.set(plugin)
+                        info?.let { DevPluginRegistry.set(plugin, it) }
                         comboBoxAction.update()
                     }
                 }
@@ -829,6 +832,7 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                                 this
                             }?.catch {
                                 pluginInstance.set(plugin)
+                                pluginInfo?.let { DevPluginRegistry.set(plugin, it) }
                                 comboBoxAction.update()
                             }
                         }

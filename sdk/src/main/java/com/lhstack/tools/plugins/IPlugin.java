@@ -168,6 +168,17 @@ public interface IPlugin {
         return Support.SUPPORT;
     }
 
+    /**
+     * Expose LLM agent function calling definitions.
+     */
+    default List<FunctionCalling> functionCallings(Project project) {
+        return functionCallings(project.getLocationHash());
+    }
+
+    default List<FunctionCalling> functionCallings(String locationHash) {
+        return Collections.emptyList();
+    }
+
     default List<AnAction> tabPanelActions(Project project,JComponent pluginPanel) {
         return this.swingTabPanelActions(project.getLocationHash(),pluginPanel).stream().map(item -> {
             AnAction action = new AnAction(item::title) {

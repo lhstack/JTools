@@ -373,7 +373,7 @@ class PluginManager {
     /**
      * 插件移除逻辑
      */
-    fun remove(projectId: @NonNls String, function: () -> Unit) {
+    fun remove(projectId: String, function: () -> Unit) {
         if (projectStatus.contains(projectId)) {
             function.invoke()
             projectStatus.remove(projectId)

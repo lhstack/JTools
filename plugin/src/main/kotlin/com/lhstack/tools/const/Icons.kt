@@ -34,6 +34,26 @@ class Icons {
 
         fun jsIcon() = findIcon("icons/js.svg")
 
+        fun agentSessionNewIcon() = findIcon("icons/agent_session_new.svg")
+
+        fun agentSessionClearIcon() = findIcon("icons/agent_session_clear.svg")
+
+        fun agentSessionManageIcon() = findIcon("icons/agent_session_manage.svg")
+
+        fun agentModelIcon() = findIcon("icons/agent_model.svg")
+
+        fun agentModelLogIcon() = findIcon("icons/agent_model_log.svg")
+
+        fun agentPromptIcon() = findIcon("icons/agent_prompt.svg")
+
+        fun agentManageIcon() = findIcon("icons/agent_manage.svg")
+
+        fun agentSkillsIcon() = findIcon("icons/agent_skills.svg")
+
+        fun agentGlobalConfigIcon() = findIcon("icons/agent_global_config.svg")
+
+        fun agentAttachmentIcon() = findIcon("icons/agent_attachment.svg")
+
         fun closeAllIcon() = findIcon("icons/close_all.svg")
 
         fun newTabIcon() = findIcon("icons/new_tab.svg")

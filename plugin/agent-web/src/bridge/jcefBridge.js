@@ -1,0 +1,15 @@
+import { reactive } from 'vue'
+const INITIAL_SESSION_KEY='jtools:selected-session:v1'
+const MESSAGE_CACHE_PREFIX='jtools:chat-messages:v1:'
+function initialChatCache(){try{const sessionId=Number(localStorage.getItem(INITIAL_SESSION_KEY));if(!Number.isFinite(sessionId)||sessionId<=0)return{sessionId:null,messages:[]};const messages=JSON.parse(localStorage.getItem(`${MESSAGE_CACHE_PREFIX}${sessionId}`)||'[]');return{sessionId,messages:Array.isArray(messages)?messages.filter(item=>item?.id&&item.persisted===true):[]}}catch{return{sessionId:null,messages:[]}}}
+const initialChat=initialChatCache()
+export const hostState=reactive({dark:false,theme:{},sessions:[],agents:[],messages:initialChat.messages,historyRevision:0,queue:[],drafts:[],inputRestore:null,currentSessionId:initialChat.sessionId,currentAgentId:null})
+let bridgeReady
+const ready=new Promise(resolve=>bridgeReady=resolve)
+window.addEventListener('jtools-ready',()=>bridgeReady())
+if(window.jtoolsInvoke) bridgeReady()
+export async function invoke(type,payload={}){await ready;return window.jtoolsInvoke(JSON.stringify({type,payload}))}
+export async function api(type,payload={}){const raw=await invoke(type,payload);const result=raw?JSON.parse(raw):null;if(!result?.ok)throw new Error(result?.error||'操作失败');return result.data}
+export function installHostState(){window.jtoolsAgent={replace(next){Object.assign(hostState,next);applyTheme(next)}};installPopupStateBridge();invoke('ui.ready')}
+function installPopupStateBridge(){let reported=null,scheduled=false;const isVisible=element=>{const style=getComputedStyle(element);return element.getClientRects().length>0&&style.display!=='none'&&style.visibility!=='hidden'};const hasOpenPopup=()=>[...document.querySelectorAll('.el-overlay')].some(overlay=>isVisible(overlay)&&overlay.querySelector('.el-dialog,.el-drawer,.el-message-box'))||[...document.querySelectorAll('.el-popper')].some(isVisible);const report=()=>{scheduled=false;const open=hasOpenPopup();if(open===reported)return;reported=open;invoke('ui.popupState',{open}).catch(()=>{})};const schedule=()=>{if(scheduled)return;scheduled=true;queueMicrotask(report)};new MutationObserver(schedule).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style']});report()}
+export function applyTheme(state){const t=state?.theme||{};document.documentElement.classList.toggle('dark',!!state?.dark);const style=document.documentElement.style;const vars={'--jb-bg':t.background,'--jb-panel':t.panel,'--jb-input':t.input,'--jb-text':t.text,'--jb-muted':t.muted,'--jb-border':t.border,'--jb-accent':t.accent,'--jb-font':t.fontFamily,'--el-bg-color':t.panel,'--el-bg-color-page':t.background,'--el-bg-color-overlay':t.panel,'--el-fill-color-blank':t.panel,'--el-fill-color-light':t.input,'--el-text-color-primary':t.text,'--el-text-color-regular':t.text,'--el-text-color-secondary':t.muted,'--el-border-color':t.border,'--el-border-color-light':t.border,'--el-color-primary':t.accent};Object.entries(vars).forEach(([k,v])=>v&&style.setProperty(k,v))}
