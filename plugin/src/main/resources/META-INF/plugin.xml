@@ -114,6 +114,17 @@
                 <li>插件保存目录默认会根据jetbrains产品+版本进行隔离</li>
                 <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
             </ul>
+
+            <h2>Version v1.1.0.2</h2>
+            <ul>
+                <li>新增内置智能体对话，支持会话管理、流式输出、推理内容、附件和工具调用日志</li>
+                <li>新增供应商、模型、提示词、智能体、Skills、MCP 服务、全局设置和模型日志管理</li>
+                <li>支持 OpenAI、OpenAI 兼容接口和 Anthropic 模型供应商</li>
+                <li>新增 Bash、Web Fetch、Skills、MCP、IDE 项目操作和 JTools CLI 等智能体工具</li>
+                <li>SDK 新增 Function Calling 扩展，支持已安装插件和开发中的插件向智能体暴露工具</li>
+                <li>智能体配置、会话和运行数据通过 SQLite 在本地持久化</li>
+                <li>适配 IntelliJ IDEA 2022.3 下 JCEF 管理弹窗的调度、页面加载和边框样式</li>
+            </ul>
         ]]>
     </change-notes>
 
