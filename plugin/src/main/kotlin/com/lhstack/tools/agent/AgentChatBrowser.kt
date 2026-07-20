@@ -18,6 +18,8 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefDragHandler
 import org.cef.handler.CefKeyboardHandler
 import org.cef.handler.CefKeyboardHandlerAdapter
+import org.cef.misc.BoolRef
+import org.cef.misc.EventFlags
 import org.cef.callback.CefDragData
 import java.awt.event.KeyEvent
 import java.nio.charset.StandardCharsets
@@ -73,18 +75,26 @@ internal class AgentChatBrowser(
                 }.getOrElse { JBCefJSQuery.Response("", 500, it.message ?: "Command failed") }
             }
             Disposer.register(this, query)
-            if (onEscapeKey != null) {
-                client.addKeyboardHandler(object : CefKeyboardHandlerAdapter() {
-                    override fun onKeyEvent(browser: CefBrowser, event: CefKeyboardHandler.CefKeyEvent): Boolean {
-                        if (event.type == CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN &&
-                            event.windows_key_code == KeyEvent.VK_ESCAPE && !event.is_system_key
-                        ) {
-                            return onEscapeKey.invoke()
-                        }
-                        return false
+            client.addKeyboardHandler(object : CefKeyboardHandlerAdapter() {
+                override fun onPreKeyEvent(
+                    browser: CefBrowser,
+                    event: CefKeyboardHandler.CefKeyEvent,
+                    isKeyboardShortcut: BoolRef,
+                ): Boolean {
+                    if (page != "chat" || !AgentBrowserShortcutSupport.isSendShortcut(event)) return false
+                    dispatchSendShortcut(browser, event.modifiers)
+                    return true
+                }
+
+                override fun onKeyEvent(browser: CefBrowser, event: CefKeyboardHandler.CefKeyEvent): Boolean {
+                    if (event.type == CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN &&
+                        event.windows_key_code == KeyEvent.VK_ESCAPE && !event.is_system_key
+                    ) {
+                        return onEscapeKey?.invoke() == true
                     }
-                }, created.cefBrowser)
-            }
+                    return false
+                }
+            }, created.cefBrowser)
             if (onDropFiles != null) {
                 client.addDragHandler(object : CefDragHandler {
                     override fun onDragEnter(browser: CefBrowser, dragData: CefDragData, mask: Int): Boolean {
@@ -117,6 +127,26 @@ internal class AgentChatBrowser(
             component = created.component
             created.loadHTML(loadPage(), "http://jtools.agent/index.html")
         }
+    }
+
+    private fun dispatchSendShortcut(browser: CefBrowser, modifiers: Int) {
+        val controlDown = modifiers and EventFlags.EVENTFLAG_CONTROL_DOWN != 0
+        val commandDown = modifiers and EventFlags.EVENTFLAG_COMMAND_DOWN != 0
+        browser.executeJavaScript(
+            """
+                (function() {
+                    var target = document.activeElement;
+                    if (!target) return;
+                    target.dispatchEvent(new KeyboardEvent('keydown', {
+                        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+                        ctrlKey: $controlDown, metaKey: $commandDown,
+                        bubbles: true, cancelable: true
+                    }));
+                })();
+            """.trimIndent(),
+            "http://jtools.agent/index.html",
+            0,
+        )
     }
 
     fun replaceState(state: Any) {
@@ -162,6 +192,14 @@ internal class AgentChatBrowser(
     private fun resourceText(path: String): String =
         requireNotNull(AgentChatBrowser::class.java.getResourceAsStream(path)) { "Missing Agent UI resource: $path" }
             .use { String(it.readAllBytes(), StandardCharsets.UTF_8) }
+}
+
+internal object AgentBrowserShortcutSupport {
+    fun isSendShortcut(event: CefKeyboardHandler.CefKeyEvent): Boolean {
+        if (event.type != CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN) return false
+        if (event.windows_key_code != KeyEvent.VK_ENTER || !event.focus_on_editable_field) return false
+        return event.modifiers and (EventFlags.EVENTFLAG_CONTROL_DOWN or EventFlags.EVENTFLAG_COMMAND_DOWN) != 0
+    }
 }
 
 internal data class AgentBrowserCommand(
