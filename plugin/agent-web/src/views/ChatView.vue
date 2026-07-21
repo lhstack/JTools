@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, Close, Delete, EditPen, Paperclip, Plus, Refresh, VideoPause, Promotion } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Close, Delete, EditPen, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, invoke } from '../bridge/jcefBridge'
 import ChatMessage from '../components/chat/ChatMessage.vue'
 
@@ -383,13 +383,11 @@ function drop(event) {
         <el-button
           class="composer-send"
           type="primary"
-          :icon="Promotion"
+          size="small"
           :loading="sending"
           :disabled="sending || (!prompt.trim() && !drafts.length)"
-          title="发送"
-          aria-label="发送"
           @click="send"
-        />
+        >发送</el-button>
       </div>
     </footer>
 
