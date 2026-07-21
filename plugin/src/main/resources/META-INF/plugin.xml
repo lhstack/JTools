@@ -149,8 +149,24 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>📦 Version v1.1.4.5</h2>
+            <h2>🚀 Version v1.1.4.6</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>💬 <b>Composer Send Button:</b> Added a theme-aware primary "发送" text button at the bottom-right of the chat input, with loading/disabled states and retained Cmd/Ctrl+Enter shortcuts</li>
+                <li>🎨 <b>Theme-Matched Send Style:</b> Send button colors now follow the IDE accent token (<code>--jb-accent</code>) across hover, active, and disabled states in light/dark themes</li>
+                <li>✍️ <b>Textarea Resize Cleanup:</b> Disabled native vertical resize handles on chat input, agent description/extra prompt, persona fields, and related dialogs to keep layouts stable</li>
+                <li>📐 <b>Maximize Editor Fixes:</b> Fixed collapsed height and double scrollbars in the shared maximize editor used by Extra Prompt and Persona fields; only the editor body scrolls</li>
+                <li>🧭 <b>Counter/Maximize Layout:</b> Moved the maximize action for Extra Prompt to the field label so it no longer overlaps the character counter</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.6</code> and aligned SDK helper version metadata to <code>1146</code></li>
+                <li>💬 <b>对话发送按钮：</b>在输入框右下角增加主题色“发送”文字按钮，支持 loading/禁用状态，并保留 Cmd/Ctrl+Enter 快捷发送</li>
+                <li>🎨 <b>发送按钮主题适配：</b>按钮颜色跟随 IDE 主题强调色（<code>--jb-accent</code>），悬停/按下/禁用态同步适配浅色与深色主题</li>
+                <li>✍️ <b>输入区交互优化：</b>去掉对话输入框、Agent 描述/扩展提示、角色与人格等文本框右下角拖拽拉高，减少布局抖动</li>
+                <li>📐 <b>最大化编辑弹窗修复：</b>修复扩展提示、角色与人格最大化编辑时高度塌陷与双滚动条问题，仅保留编辑区内一条滚动条</li>
+                <li>🧭 <b>字数统计与最大化按钮布局：</b>扩展提示的最大化入口移到标签行，避免与右下角字数统计重叠</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.6</code>，并同步 SDK Helper 版本元数据到 <code>1146</code></li>
+            </ul>
+
+            <h2>📦 Version v1.1.4.5</h2>
             <ul>
                 <li>🧠 <b>LLM Runtime Rewrite:</b> Reworked model calls onto a direct OkHttp/Okio HTTP client with a spec-compliant SSE parser (WHATWG/EventSource line handling) and a unified <code>ModelCancel</code> token that interrupts streaming reads, tool calls, and MCP connections together</li>
                 <li>🔌 <b>Structured MCP CLI Tool:</b> Consolidated MCP management into a single built-in <code>cli</code> tool, exposing <code>mcp.list</code>, <code>mcp.get</code>, <code>mcp.create</code>, <code>mcp.update</code>, <code>mcp.delete</code>, <code>mcp.test</code>, <code>mcp.tools</code>, <code>mcp.resources</code>, <code>mcp.read_resource</code>, and <code>mcp.call</code> on the official MCP Java SDK with stdio/SSE/streamable HTTP transports and persisted server configs</li>

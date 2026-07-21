@@ -17,6 +17,13 @@
   --el-font-size-base:13px;--el-font-size-small:12px;--el-font-size-extra-small:11px;
   --el-component-size:30px;--el-component-size-small:26px;
   --el-border-radius-base:6px;--el-border-radius-small:5px;
+  --el-color-primary:var(--jb-accent);
+  --el-color-primary-light-3:color-mix(in srgb,var(--jb-accent) 70%,#fff 30%);
+  --el-color-primary-light-5:color-mix(in srgb,var(--jb-accent) 50%,#fff 50%);
+  --el-color-primary-light-7:color-mix(in srgb,var(--jb-accent) 30%,#fff 70%);
+  --el-color-primary-light-8:color-mix(in srgb,var(--jb-accent) 20%,#fff 80%);
+  --el-color-primary-light-9:color-mix(in srgb,var(--jb-accent) 10%,#fff 90%);
+  --el-color-primary-dark-2:color-mix(in srgb,var(--jb-accent) 80%,#000 20%);
 }
 *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) var(--scrollbar-track)}
 *::-webkit-scrollbar{width:10px;height:10px}
@@ -83,7 +90,7 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:85%;max-width:85%}
 .composer-input{position:relative}
 .composer-input>.el-textarea{display:block}
-.composer-input .el-textarea__inner{padding-right:44px;transition:min-height .18s ease}
+.composer-input .el-textarea__inner{padding-right:76px;padding-bottom:44px;resize:none;transition:min-height .18s ease}
 .composer-expand{position:absolute;z-index:2;top:7px;right:8px;width:27px!important;height:27px!important;padding:0!important;background:color-mix(in srgb,var(--jb-panel) 90%,transparent)!important}
 .composer-input.expanded .el-textarea__inner{min-height:min(250px,32vh)!important}
 
@@ -92,12 +99,29 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .expandable-field-label .el-button{width:24px;height:24px;padding:0}
 .persona-actions{display:flex;align-items:center;gap:4px}
 .persona-actions>.el-button{width:25px;height:25px;padding:0}
-.max-text-dialog .el-dialog__body{display:flex;min-height:0}
-.max-text-dialog .el-textarea,.max-text-dialog .el-textarea__inner{width:100%;min-height:min(56vh,560px)}
-
 @media(max-width:780px){.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:85%;max-width:85%}}
 @media(max-width:560px){.message.assistant .bubble,.message.agent_run .bubble,.message.user .bubble{width:85%;max-width:85%}}
 .expandable-text-field{position:relative;width:100%}
 .expandable-text-field>.el-textarea{display:block}
-.expandable-text-field .el-textarea__inner{padding-right:42px;padding-bottom:34px}
-.field-maximize{position:absolute;z-index:2;right:7px;bottom:7px;width:26px!important;height:26px!important;padding:0!important;background:color-mix(in srgb,var(--jb-panel) 90%,transparent)!important}
+.expandable-text-field .el-textarea__inner{padding-bottom:28px;resize:none}
+.field-maximize{width:24px!important;height:24px!important;padding:0!important}
+.composer-send{position:absolute;z-index:3;right:8px;bottom:8px;min-width:56px;height:28px;padding:0 12px!important;border-radius:6px!important;border:none!important;background:var(--jb-accent)!important;color:#fff!important;box-shadow:none!important}
+.composer-send:hover,.composer-send:focus{background:color-mix(in srgb,var(--jb-accent) 88%,#000 12%)!important;color:#fff!important;border:none!important}
+.composer-send:active{background:color-mix(in srgb,var(--jb-accent) 76%,#000 24%)!important}
+.composer-send.is-disabled,.composer-send.is-disabled:hover{background:color-mix(in srgb,var(--jb-accent) 35%,var(--jb-panel))!important;color:color-mix(in srgb,#fff 70%,var(--jb-muted))!important;opacity:1!important}
+.composer-send .el-icon,.composer-send span{color:inherit!important}
+.no-textarea-resize .el-textarea__inner,.el-textarea.no-textarea-resize .el-textarea__inner{resize:none!important}
+.persona-card .el-textarea__inner{overflow-y:auto;resize:none}
+
+/* Maximized text editor: single scrollbar, fixed editor height */
+.max-text-dialog .el-dialog__body{overflow:hidden;padding-top:8px;padding-bottom:4px}
+.max-text-dialog .max-text-body{display:block;width:100%}
+.max-text-dialog .max-text-input{display:block;width:100%}
+.max-text-dialog .max-text-input .el-textarea__inner{
+  height:min(56vh,560px)!important;
+  min-height:min(56vh,560px)!important;
+  max-height:min(56vh,560px)!important;
+  overflow-y:auto!important;
+  resize:none!important;
+  box-sizing:border-box;
+}

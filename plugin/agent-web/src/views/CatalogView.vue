@@ -153,9 +153,9 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
                     <el-form-item v-if="!isCompatible&&!isAnthropic" label="结构化输出格式"><el-select v-model="params.outputFormat" clearable><el-option label="JSON Schema" value="json_schema"/></el-select></el-form-item>
                     <el-form-item label="流式输出"><el-switch v-model="params.stream"/></el-form-item>
                   </div>
-                  <el-form-item v-if="params.outputFormat==='json_schema'" label="输出结构 JSON Schema"><el-input v-model="params.outputSchema" type="textarea" :rows="4"/></el-form-item><div class="section-caption"><strong>工具执行</strong><span>工具调用类型固定为自动</span></div>
+                  <el-form-item v-if="params.outputFormat==='json_schema'" label="输出结构 JSON Schema"><el-input v-model="params.outputSchema" type="textarea" :rows="4" resize="none"/></el-form-item><div class="section-caption"><strong>工具执行</strong><span>工具调用类型固定为自动</span></div>
                   <div class="form-four"><el-form-item label="并发工具调用"><el-switch v-model="params.parallelTools"/></el-form-item><el-form-item label="工具调用类型"><el-input model-value="auto" disabled/></el-form-item><el-form-item label="最大工具调用轮次"><el-input-number v-model="params.maxToolRounds" :min="1"/></el-form-item><el-form-item label="失败重试次数"><el-input-number v-model="params.maxRetries" :min="0"/></el-form-item></div>
-                  <div class="section-caption"><strong>附加参数</strong><span>仅填写未被表单覆盖的 JSON 参数</span></div><el-form-item><el-input v-model="model.additionalParams" type="textarea" :rows="4" placeholder="{}"/></el-form-item>
+                  <div class="section-caption"><strong>附加参数</strong><span>仅填写未被表单覆盖的 JSON 参数</span></div><el-form-item><el-input v-model="model.additionalParams" type="textarea" :rows="4" resize="none" placeholder="{}"/></el-form-item>
                   <div class="save-row"><div class="switch-label"><el-switch v-model="model.enabled" :active-value="1" :inactive-value="0"/><span>启用模型</span></div><el-button type="primary" @click="saveModel">保存模型</el-button></div>
                 </el-form>
               </el-scrollbar>

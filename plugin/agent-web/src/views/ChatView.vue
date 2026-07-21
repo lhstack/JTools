@@ -374,12 +374,21 @@ function drop(event) {
         <el-input
           v-model="prompt"
           type="textarea"
+          resize="none"
           :rows="composerExpanded ? 10 : 4"
           placeholder="输入消息…"
           @paste="paste"
           @keydown.meta.enter.prevent="send"
           @keydown.ctrl.enter.prevent="send"
         />
+        <el-button
+          class="composer-send"
+          type="primary"
+          size="small"
+          :loading="sending"
+          :disabled="sending || (!prompt.trim() && !drafts.length)"
+          @click="send"
+        >发送</el-button>
       </div>
     </footer>
 
@@ -391,7 +400,7 @@ function drop(event) {
       v-model="queueEditPrompt"
       type="textarea"
       :rows="8"
-      resize="vertical"
+      resize="none"
       maxlength="200000"
       show-word-limit
       autofocus
