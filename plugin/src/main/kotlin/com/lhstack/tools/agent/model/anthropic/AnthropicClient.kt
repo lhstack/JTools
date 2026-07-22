@@ -37,11 +37,12 @@ class AnthropicClientParams(
     val apiKey: String,
     val baseUrl: String,
     val anthropicVersion: String?,
+    val customHeaders: Map<String, String> = emptyMap(),
     val httpTrace: ModelHttpTrace?,
     val streamSink: ModelStreamSink = ModelStreamSink.NOOP,
 )
 
-class AnthropicClient(params: AnthropicClientParams) {
+class AnthropicClient(private val params: AnthropicClientParams) {
 
     private val executor = params.executor
     private val apiKey = params.apiKey
@@ -302,17 +303,19 @@ class AnthropicClient(params: AnthropicClientParams) {
 
     // -------- helpers --------
 
-    private fun messageHeaders(anthropicBeta: String?): Map<String, String> {
-        val headers = linkedMapOf(
-            "x-api-key" to apiKey,
-            "Authorization" to "Bearer $apiKey",
-            "anthropic-version" to anthropicVersion,
-        )
+        private fun messageHeaders(anthropicBeta: String?): Map<String, String> {
+        val headers = linkedMapOf<String, String>()
+        headers.putAll(params.customHeaders)
+        // 系统鉴权与版本头优先，避免被自定义头覆盖。
+        headers["x-api-key"] = apiKey
+        headers["Authorization"] = "Bearer $apiKey"
+        headers["anthropic-version"] = anthropicVersion
         if (anthropicBeta != null) {
             headers["anthropic-beta"] = anthropicBeta
         }
         return headers
     }
+
 
     private fun messagesUrl(): String = ModelHttpSupport.joinUrl(baseUrl, "/v1/messages")
 

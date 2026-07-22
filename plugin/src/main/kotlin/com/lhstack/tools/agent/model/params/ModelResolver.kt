@@ -27,6 +27,7 @@ object ModelResolver {
         val providerConfig = parseJson(provider.providerConfig)
         val openaiProviderType = ModelParams.openaiProviderType(providerConfig)
         val proxyUrl = providerProxyUrl(providerConfig)
+        val customHeaders = ModelParams.customHeaders(providerConfig)
         val apiKey = resolveApiKey(provider.apiKey, provider.name)
         val baseUrl = provider.baseUrl?.takeIf { it.isNotBlank() }
             ?: ModelParams.defaultBaseUrlForProvider(kind)
@@ -49,6 +50,7 @@ object ModelResolver {
             apiKey = apiKey,
             baseUrl = baseUrl,
             proxyUrl = proxyUrl,
+            customHeaders = customHeaders,
             modelId = model.modelId,
             api = api,
             openaiProviderType = openaiProviderType,
@@ -72,6 +74,7 @@ object ModelResolver {
         val providerConfig = parseJson(provider.providerConfig)
         val openaiProviderType = ModelParams.openaiProviderType(providerConfig)
         val providerProxyUrl = providerProxyUrl(providerConfig)
+        val customHeaders = ModelParams.customHeaders(providerConfig)
         val apiKey = resolveApiKey(provider.apiKey, provider.name)
         val baseUrl = provider.baseUrl?.takeIf { it.isNotBlank() }
             ?: ModelParams.defaultBaseUrlForProvider(kind)
@@ -97,6 +100,7 @@ object ModelResolver {
             apiKey = apiKey,
             baseUrl = baseUrl,
             proxyUrl = snapshotString(snap, "proxy_url") ?: providerProxyUrl,
+            customHeaders = customHeaders,
             modelId = snapshotString(snap, "model_id")
                 ?: throw IllegalArgumentException("会话模型快照缺少 model_id"),
             api = api,

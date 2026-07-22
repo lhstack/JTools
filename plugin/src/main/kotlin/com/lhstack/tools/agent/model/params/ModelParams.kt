@@ -86,6 +86,7 @@ data class ResolvedModelConfig(
     val apiKey: String,
     val baseUrl: String,
     val proxyUrl: String?,
+    val customHeaders: Map<String, String> = emptyMap(),
     val modelId: String,
     val api: OpenAiApi,
     val openaiProviderType: OpenAiProviderType,
@@ -112,6 +113,28 @@ object ModelParams {
         val type = providerConfig?.asJsonObjectOrNull()
             ?.get("openai_provider_type")?.asStringOrNull()
         return if (type == "compatible") OpenAiProviderType.COMPATIBLE else OpenAiProviderType.OFFICIAL
+    }
+
+    /**
+     * 读取 provider_config.custom_headers。
+     * 支持 [{name,value}, ...]；忽略空 name；同名后者覆盖前者。
+     * Authorization 不在此强制剔除，由请求层与系统鉴权头合并时决定优先级。
+     */
+    fun customHeaders(providerConfig: JsonElement?): Map<String, String> {
+        val array = providerConfig?.asJsonObjectOrNull()
+            ?.get("custom_headers")
+            ?.takeIf { it.isJsonArray }
+            ?.asJsonArray
+            ?: return emptyMap()
+        val headers = linkedMapOf<String, String>()
+        for (item in array) {
+            val obj = item.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+            val name = obj.get("name")?.asStringOrNull()?.trim().orEmpty()
+            if (name.isEmpty()) continue
+            val value = obj.get("value")?.asStringOrNull() ?: ""
+            headers[name] = value
+        }
+        return headers
     }
 
     /**

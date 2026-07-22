@@ -5,7 +5,7 @@ import {api} from '../bridge/jcefBridge'
 import PageShell from '../components/common/PageShell.vue'
 const groups=ref([]),selectedId=ref(null),dialog=ref(false),sections=ref(['provider','models']),provider=reactive(emptyProvider()),model=reactive(emptyModel()),params=reactive(defaultParams()),editing=ref(false),remoteModels=ref([]),remoteLoading=ref(false),remoteQuery=ref('')
 const selected=computed(()=>groups.value.find(x=>x.provider.id===selectedId.value));const models=computed(()=>selected.value?.models||[]);const isCompatible=computed(()=>provider.kind==='openai'&&provider.providerConfig?.openai_provider_type==='compatible');const effectiveApi=computed(()=>provider.kind==='anthropic'?'anthropic':(model.api||provider.api||'completions'));const filteredRemoteModels=computed(()=>remoteModels.value.filter(x=>x.id.toLowerCase().includes(remoteQuery.value.toLowerCase())));const isAnthropic=computed(()=>effectiveApi.value==='anthropic');const isResponses=computed(()=>effectiveApi.value==='responses')
-function emptyProvider(){return{id:null,name:'',kind:'openai',apiKey:'',baseUrl:'',api:'completions',anthropicVersion:'',providerConfig:{openai_provider_type:'official',proxy_url:''},enabled:1}}
+function emptyProvider(){return{id:null,name:'',kind:'openai',apiKey:'',baseUrl:'',api:'completions',anthropicVersion:'',providerConfig:{openai_provider_type:'official',proxy_url:'',custom_headers:[]},enabled:1}}
 function emptyModel(){return{id:null,providerId:null,alias:'',modelId:'',displayName:'',api:'',contextWindow:32000,modalities:['text'],additionalParams:'',enabled:1}}
 function defaultParams(){return{maxTokens:4096,reasoning:'',thinkingType:'disabled',thinkingBudget:null,outputEffort:'',outputFormat:'',outputSchema:'{}',parallelTools:true,stream:true,maxToolRounds:30,maxRetries:0}}
 function assign(target,value){Object.keys(target).forEach(k=>delete target[k]);Object.assign(target,value)}
@@ -67,11 +67,33 @@ function modelPayload(){
   return{...model,providerId:provider.id,enabled:!!model.enabled,modelParams:JSON.stringify(mp,null,2),executionParams:JSON.stringify({max_tool_call_rounds:params.maxToolRounds,max_retries:params.maxRetries},null,2),additionalParams:model.additionalParams||'{}'}
 }
 async function load(){const data=await api('catalog.get');groups.value=data.providers||[];if(selectedId.value&&!groups.value.some(x=>x.provider.id===selectedId.value))selectedId.value=null}
-function openGroup(g){remoteModels.value=[];remoteQuery.value='';selectedId.value=g.provider.id;assign(provider,{...emptyProvider(),...g.provider});const first=g.models[0];assign(model,first?hydrate(first):{...emptyModel(),providerId:g.provider.id});editing.value=!!first;if(first)hydrateParams(first);else assign(params,defaultParams());sections.value=['provider','models'];dialog.value=true}
-function newProvider(){remoteModels.value=[];remoteQuery.value='';selectedId.value=null;assign(provider,emptyProvider());assign(model,emptyModel());assign(params,defaultParams());editing.value=false;sections.value=['provider','models'];dialog.value=true}
+function openGroup(g){remoteModels.value=[];remoteQuery.value='';selectedId.value=g.provider.id;assign(provider,{...emptyProvider(),...g.provider});normalizeProviderHeaders(provider);const first=g.models[0];assign(model,first?hydrate(first):{...emptyModel(),providerId:g.provider.id});editing.value=!!first;if(first)hydrateParams(first);else assign(params,defaultParams());sections.value=['provider','models'];dialog.value=true}
+function newProvider(){remoteModels.value=[];remoteQuery.value='';selectedId.value=null;assign(provider,emptyProvider());normalizeProviderHeaders(provider);assign(model,emptyModel());assign(params,defaultParams());editing.value=false;sections.value=['provider','models'];dialog.value=true}
 function hydrate(x){return{...emptyModel(),...x,modalities:parseArray(x.modalities),enabled:x.enabled??1}}
 function parseArray(x){if(Array.isArray(x))return x;try{return JSON.parse(x||'[]')}catch{return['text']}}
-async function saveProvider(){const saved=await api('provider.save',{...provider,enabled:!!provider.enabled});ElMessage.success('供应商已保存');await load();selectedId.value=saved.id;const g=groups.value.find(x=>x.provider.id===saved.id);if(g)assign(provider,{...emptyProvider(),...g.provider})}
+function normalizeProviderHeaders(p){
+  const cfg=p.providerConfig&&typeof p.providerConfig==='object'?p.providerConfig:{}
+  const headers=Array.isArray(cfg.custom_headers)?cfg.custom_headers:[]
+  p.providerConfig={...emptyProvider().providerConfig,...cfg,custom_headers:headers.map(h=>({name:h?.name??'',value:h?.value??''}))}
+}
+function addCustomHeader(){
+  normalizeProviderHeaders(provider)
+  provider.providerConfig.custom_headers.push({name:'',value:''})
+}
+function removeCustomHeader(index){
+  normalizeProviderHeaders(provider)
+  provider.providerConfig.custom_headers.splice(index,1)
+}
+async function saveProvider(){
+  normalizeProviderHeaders(provider)
+  const headers=provider.providerConfig.custom_headers||[]
+  for(let i=0;i<headers.length;i++){
+    const name=String(headers[i]?.name||'').trim()
+    if(!name){ElMessage.warning(`自定义请求头第 ${i+1} 行名称不能为空`);return}
+    if(/^authorization$/i.test(name)){ElMessage.warning('自定义请求头不支持 Authorization，请使用上方 API Key');return}
+  }
+  provider.providerConfig.custom_headers=headers.map(h=>({name:String(h.name||'').trim(),value:String(h.value??'')}))
+  const saved=await api('provider.save',{...provider,enabled:!!provider.enabled});ElMessage.success('供应商已保存');await load();selectedId.value=saved.id;const g=groups.value.find(x=>x.provider.id===saved.id);if(g){assign(provider,{...emptyProvider(),...g.provider});normalizeProviderHeaders(provider)}}
 async function loadRemoteModels(){
   if(!provider.id){ElMessage.warning('请先保存供应商');return}
   remoteLoading.value=true
@@ -126,6 +148,23 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
               <el-form-item label="Base URL"><el-input v-model="provider.baseUrl"/></el-form-item>
               <el-form-item v-if="provider.kind==='openai'" label="OpenAI API"><el-select v-model="provider.api"><el-option label="Chat Completions" value="completions"/><el-option label="Responses" value="responses"/></el-select></el-form-item>
               <el-form-item v-else label="Anthropic Version"><el-input v-model="provider.anthropicVersion" placeholder="2023-06-01"/></el-form-item>
+            </div>
+            <div class="provider-headers">
+              <div class="provider-headers-head">
+                <div>
+                  <strong>自定义请求头</strong>
+                  <span>随供应商请求发送；Authorization 请使用上方 API Key</span>
+                </div>
+                <el-button size="small" @click="addCustomHeader">添加请求头</el-button>
+              </div>
+              <div class="provider-headers-body">
+                <div v-if="!(provider.providerConfig?.custom_headers||[]).length" class="provider-headers-empty">暂无自定义请求头</div>
+                <div v-for="(header,index) in (provider.providerConfig?.custom_headers||[])" :key="index" class="provider-header-row">
+                  <el-input v-model="header.name" placeholder="Header 名，如 X-App-Id"/>
+                  <el-input v-model="header.value" placeholder="Header 值"/>
+                  <el-button link type="danger" @click="removeCustomHeader(index)">删除</el-button>
+                </div>
+              </div>
             </div>
             <div class="save-row"><div class="switch-label"><el-switch v-model="provider.enabled" :active-value="1" :inactive-value="0"/><span>启用供应商</span></div><el-button type="primary" @click="saveProvider">保存供应商</el-button></div>
           </el-form>

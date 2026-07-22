@@ -149,8 +149,24 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.4.6</h2>
+            <h2>🚀 Version v1.1.4.7</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧩 <b>Provider Custom Headers:</b> Supplier settings now support a custom request-header list that is sent with provider HTTP calls</li>
+                <li>💾 <b>provider_config Storage:</b> Headers are persisted under <code>providers.provider_config.custom_headers</code> without a schema migration</li>
+                <li>🔐 <b>Auth Header Guard:</b> Custom headers cannot override <code>Authorization</code>; system API Key / Anthropic auth headers take precedence</li>
+                <li>📜 <b>Fixed-Height Header List:</b> The header editor is capped to about five visible rows with internal scrolling to avoid layout push-down</li>
+                <li>📡 <b>Runtime Coverage:</b> Custom headers are applied to chat requests and remote model listing</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.7</code> and aligned SDK helper version metadata to <code>1147</code></li>
+                <li>🧩 <b>供应商自定义请求头：</b>供应商配置支持维护自定义 Header 列表，并随供应商请求一起发送</li>
+                <li>💾 <b>provider_config 持久化：</b>请求头存储于 <code>providers.provider_config.custom_headers</code>，无需新增数据库字段</li>
+                <li>🔐 <b>鉴权优先级保护：</b>自定义头禁止覆盖 <code>Authorization</code>，系统 API Key / Anthropic 鉴权头优先</li>
+                <li>📜 <b>请求头列表固定高度：</b>列表固定约 5 行可视高度，超出后内部滚动，避免把下方配置整体顶下去</li>
+                <li>📡 <b>运行时全链路生效：</b>对话请求与远程模型列表获取都会带上供应商自定义请求头</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.7</code>，并同步 SDK Helper 版本元数据到 <code>1147</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.4.6</h2>
             <ul>
                 <li>💬 <b>Composer Send Button:</b> Added a theme-aware primary "发送" text button at the bottom-right of the chat input, with loading/disabled states and retained Cmd/Ctrl+Enter shortcuts</li>
                 <li>🎨 <b>Theme-Matched Send Style:</b> Send button colors now follow the IDE accent token (<code>--jb-accent</code>) across hover, active, and disabled states in light/dark themes</li>
