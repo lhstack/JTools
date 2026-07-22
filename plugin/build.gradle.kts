@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.0.3"
+version = "1.1.0.4"
 
 repositories {
     intellijPlatform {

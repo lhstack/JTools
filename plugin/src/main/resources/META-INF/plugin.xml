@@ -115,6 +115,15 @@
                 <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
             </ul>
 
+            <h2>Version v1.1.0.4</h2>
+            <ul>
+                <li>供应商配置支持自定义请求头列表，存入 provider_config.custom_headers，随供应商请求一起发送。</li>
+                <li>对话请求与远程模型列表获取都会携带自定义请求头；Authorization 仍由上方 API Key 优先。</li>
+                <li>自定义请求头列表固定约 5 行可视高度，超出后内部滚动，避免把下方配置整体顶下去。</li>
+                <li>发送按钮样式跟随 IDE 主题强调色（--jb-accent），悬停/禁用态同步适配浅色与深色主题。</li>
+                <li>同步版本号到 v1.1.0.4，SDK Helper 版本元数据更新为 1104。</li>
+            </ul>
+
             <h2>Version v1.1.0.3</h2>
             <ul>
                 <li>对话框上方增加发送按钮，支持点击发送消息。</li>

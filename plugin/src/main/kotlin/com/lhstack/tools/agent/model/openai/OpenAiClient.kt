@@ -36,6 +36,7 @@ class OpenAiClientParams(
     val apiKey: String,
     val baseUrl: String,
     val openaiProviderType: OpenAiProviderType,
+    val customHeaders: Map<String, String> = emptyMap(),
     val httpTrace: ModelHttpTrace?,
     val streamSink: ModelStreamSink = ModelStreamSink.NOOP,
 )
@@ -211,7 +212,13 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         return value
     }
 
-    private fun authHeaders(): Map<String, String> = mapOf("Authorization" to "Bearer $apiKey")
+    private fun authHeaders(): Map<String, String> {
+        val headers = linkedMapOf<String, String>()
+        headers.putAll(params.customHeaders)
+        // 系统鉴权优先，避免自定义头覆盖 Authorization。
+        headers["Authorization"] = "Bearer $apiKey"
+        return headers
+    }
 
     private fun chatUrl(): String = ModelHttpSupport.joinUrl(baseUrl, "/chat/completions")
     private fun responsesUrl(): String = ModelHttpSupport.joinUrl(baseUrl, "/responses")

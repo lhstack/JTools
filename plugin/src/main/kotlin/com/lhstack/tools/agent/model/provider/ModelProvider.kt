@@ -51,6 +51,7 @@ class RemoteModelsRequest(
     val baseUrl: String,
     val anthropicVersion: String?,
     val openaiProviderType: OpenAiProviderType,
+    val customHeaders: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -94,6 +95,7 @@ object ModelProvider {
                     apiKey = request.apiKey,
                     baseUrl = request.baseUrl,
                     openaiProviderType = request.openaiProviderType,
+                    customHeaders = request.customHeaders,
                     httpTrace = null,
                 )
             ).listModels()
@@ -104,6 +106,7 @@ object ModelProvider {
                     apiKey = request.apiKey,
                     baseUrl = request.baseUrl,
                     anthropicVersion = request.anthropicVersion,
+                    customHeaders = request.customHeaders,
                     httpTrace = null,
                 )
             ).listModels()
@@ -135,6 +138,7 @@ object ModelProvider {
                 apiKey = request.model.apiKey,
                 baseUrl = request.model.baseUrl,
                 openaiProviderType = request.model.openaiProviderType,
+                customHeaders = request.model.customHeaders,
                 httpTrace = request.httpTrace,
                 streamSink = request.streamSink,
             )
@@ -191,6 +195,7 @@ object ModelProvider {
                 apiKey = request.model.apiKey,
                 baseUrl = request.model.baseUrl,
                 anthropicVersion = request.model.anthropicVersion,
+                customHeaders = request.model.customHeaders,
                 httpTrace = request.httpTrace,
                 streamSink = request.streamSink,
             )

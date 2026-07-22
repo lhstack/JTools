@@ -33,6 +33,7 @@ object AwakeRemoteModelService {
             baseUrl = baseUrl,
             anthropicVersion = provider.anthropicVersion,
             openaiProviderType = ModelParams.openaiProviderType(providerConfig),
+            customHeaders = ModelParams.customHeaders(providerConfig),
         )
         val values = ModelProvider.fetchRemoteModels(
             executor = ModelHttpClientFactory.executorFor(baseUrl, providerProxyUrl(providerConfig)),
