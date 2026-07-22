@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, EditPen, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, invoke } from '../bridge/jcefBridge'
@@ -27,6 +27,11 @@ const RECYCLE_EDGE_THRESHOLD = 72
 const messageWindowStart = ref(0)
 const recyclerAdjusting = ref(false)
 const drafts = computed(() => s.drafts || [])
+function hasComposerText() {
+  const ta = document.querySelector('.composer-input textarea')
+  const text = (ta && typeof ta.value === 'string') ? ta.value : prompt.value
+  return !!String(text || '').trim() || drafts.value.length > 0
+}
 const queue = computed(() => s.queue || [])
 const messageWindowMaxStart = computed(() => Math.max(0, s.messages.length - MESSAGE_CARD_POOL_SIZE))
 const visibleMessages = computed(() => s.messages.slice(
@@ -50,7 +55,7 @@ watch(
     if (!revision || revision === previous) return
     persistMessages(s.currentSessionId, s.messages)
     messageWindowStart.value = messageWindowMaxStart.value
-    scrollMessagesToBottom()
+    scrollMessagesToBottom(true)
   },
   { flush: 'post' }
 )
@@ -71,7 +76,7 @@ watch(
     persistMessages(sessionId, s.messages)
     if (sessionChanged || appended || messageWindowStart.value > messageWindowMaxStart.value) {
       messageWindowStart.value = messageWindowMaxStart.value
-      scrollMessagesToBottom()
+      scrollMessagesToBottom(true)
     }
   },
   { flush: 'post' }
@@ -88,9 +93,10 @@ watch(
   ]),
   () => {
     persistMessages(s.currentSessionId, s.messages)
-    if (messageWindowStart.value === messageWindowMaxStart.value) scrollMessagesToBottom()
+    // 贴底窗口时才自动滚动；scrollMessagesToBottom 内部会节流并判断是否靠近底部。
+    if (messageWindowStart.value === messageWindowMaxStart.value) scrollMessagesToBottom(false)
   },
-  { deep: true, flush: 'post' }
+  { flush: 'post' }
 )
 
 function persistSelectedSession(sessionId) {
@@ -131,10 +137,19 @@ function persistMessages(sessionId, messages) {
   }
 }
 
-function scrollMessagesToBottom() {
+let scrollBottomScheduled = false
+function scrollMessagesToBottom(force = false) {
+  if (scrollBottomScheduled) return
+  scrollBottomScheduled = true
   nextTick(() => requestAnimationFrame(() => {
+    scrollBottomScheduled = false
     const element = messageList.value
-    if (element) element.scrollTop = element.scrollHeight
+    if (!element) return
+    // 生成中内容高度连续变化时，仅在接近底部时贴底，避免滚动条狂闪。
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight
+    if (force || distance <= 96) {
+      element.scrollTop = element.scrollHeight
+    }
   }))
 }
 
@@ -178,18 +193,70 @@ function handleMessageWheel(event) {
 }
 
 
+let lastSendAt = 0
 async function send() {
   if (sending.value) return
-  const text = prompt.value
-  if (!text.trim() && !drafts.value.length) return
+  const now = Date.now()
+  if (now - lastSendAt < 250) return
+  lastSendAt = now
+  const ta = document.querySelector('.composer-input textarea')
+  const text = (ta && typeof ta.value === 'string') ? ta.value : prompt.value
+  if (!String(text).trim() && !drafts.value.length) return
+  if (ta && ta.value !== prompt.value) prompt.value = ta.value
   sending.value = true
   try {
     await invoke('message.send', { text })
     prompt.value = ''
+    if (ta) {
+      ta.value = ''
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+    }
   } finally {
     sending.value = false
   }
 }
+
+function onComposerKeydown(event) {
+  const isEnter = event.key === 'Enter' || event.code === 'Enter' || event.keyCode === 13 || event.which === 13
+  if (!isEnter) return
+  if (!(event.ctrlKey || event.metaKey || event.altKey)) return
+  event.preventDefault()
+  event.stopPropagation()
+  send()
+}
+
+function syncPromptFromDom() {
+  const ta = document.querySelector('.composer-input textarea')
+  if (!ta) return
+  if (ta.value !== prompt.value) prompt.value = ta.value
+}
+
+let composerObserver = null
+onMounted(() => {
+  const root = document.querySelector('.composer-input')
+  const bind = () => {
+    const ta = document.querySelector('.composer-input textarea')
+    if (!ta || ta.dataset.jtoolsBound === '1') return
+    ta.dataset.jtoolsBound = '1'
+    ta.addEventListener('input', syncPromptFromDom)
+    ta.addEventListener('keyup', syncPromptFromDom)
+    ta.addEventListener('change', syncPromptFromDom)
+    ta.addEventListener('compositionend', syncPromptFromDom)
+  }
+  bind()
+  composerObserver = new MutationObserver(bind)
+  if (root) composerObserver.observe(root, { childList: true, subtree: true })
+})
+onBeforeUnmount(() => {
+  composerObserver?.disconnect()
+  const ta = document.querySelector('.composer-input textarea')
+  if (ta) {
+    ta.removeEventListener('input', syncPromptFromDom)
+    ta.removeEventListener('keyup', syncPromptFromDom)
+    ta.removeEventListener('change', syncPromptFromDom)
+    ta.removeEventListener('compositionend', syncPromptFromDom)
+  }
+})
 
 function stopQueueItem(item) {
   invoke('queue.stop', { id: item.id })
@@ -375,19 +442,18 @@ function drop(event) {
           v-model="prompt"
           type="textarea"
           :rows="composerExpanded ? 10 : 4"
-          placeholder="输入消息…"
+          placeholder="输入消息..."
           @paste="paste"
-          @keydown.meta.enter.prevent="send"
-          @keydown.ctrl.enter.prevent="send"
+          @input="val => prompt = typeof val === 'string' ? val : (val?.target?.value ?? prompt)"
+          @keydown="onComposerKeydown"
         />
-        <el-button
+        <button
+          type="button"
           class="composer-send"
-          type="primary"
-          size="small"
-          :loading="sending"
-          :disabled="sending || (!prompt.trim() && !drafts.length)"
+          :class="{ 'is-busy': sending, 'is-empty': !hasComposerText() && !sending }"
+          :disabled="sending"
           @click="send"
-        >发送</el-button>
+        >{{ sending ? '发送中' : '发送' }}</button>
       </div>
     </footer>
 

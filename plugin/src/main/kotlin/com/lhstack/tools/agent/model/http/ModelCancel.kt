@@ -15,7 +15,17 @@ class ModelCancel {
             cancelled.set(true)
             interruptActions.values.toList().also { interruptActions.clear() }
         }
-        actions.forEach { action -> runCatching(action) }
+        if (actions.isEmpty()) return
+        // OkHttp call.cancel/response.close 可能阻塞；统一丢到后台线程，避免卡 EDT。
+        Thread(
+            {
+                actions.forEach { action -> runCatching(action) }
+            },
+            "jtools-model-cancel",
+        ).apply {
+            isDaemon = true
+            start()
+        }
     }
 
     fun isCancelled(): Boolean = cancelled.get()

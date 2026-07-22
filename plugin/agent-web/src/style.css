@@ -17,13 +17,6 @@
   --el-font-size-base:13px;--el-font-size-small:12px;--el-font-size-extra-small:11px;
   --el-component-size:30px;--el-component-size-small:26px;
   --el-border-radius-base:6px;--el-border-radius-small:5px;
-  --el-color-primary:var(--jb-accent);
-  --el-color-primary-light-3:color-mix(in srgb,var(--jb-accent) 70%,#fff 30%);
-  --el-color-primary-light-5:color-mix(in srgb,var(--jb-accent) 50%,#fff 50%);
-  --el-color-primary-light-7:color-mix(in srgb,var(--jb-accent) 30%,#fff 70%);
-  --el-color-primary-light-8:color-mix(in srgb,var(--jb-accent) 20%,#fff 80%);
-  --el-color-primary-light-9:color-mix(in srgb,var(--jb-accent) 10%,#fff 90%);
-  --el-color-primary-dark-2:color-mix(in srgb,var(--jb-accent) 80%,#000 20%);
 }
 *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) var(--scrollbar-track)}
 *::-webkit-scrollbar{width:10px;height:10px}
@@ -109,12 +102,10 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .expandable-text-field .el-textarea__inner{padding-right:42px;padding-bottom:34px}
 .field-maximize{position:absolute;z-index:2;right:7px;bottom:7px;width:26px!important;height:26px!important;padding:0!important;background:color-mix(in srgb,var(--jb-panel) 90%,transparent)!important}
 
-.composer-send{position:absolute;z-index:3;right:8px;bottom:8px;min-width:56px;height:28px;padding:0 12px!important;border-radius:6px!important;border:none!important;background:var(--jb-accent)!important;color:#fff!important;box-shadow:none!important}
-.composer-send:hover,.composer-send:focus{background:color-mix(in srgb,var(--jb-accent) 88%,#000 12%)!important;color:#fff!important;border:none!important}
-.composer-send:active{background:color-mix(in srgb,var(--jb-accent) 76%,#000 24%)!important}
-.composer-send.is-disabled,.composer-send.is-disabled:hover{background:color-mix(in srgb,var(--jb-accent) 35%,var(--jb-panel))!important;color:color-mix(in srgb,#fff 70%,var(--jb-muted))!important;opacity:1!important}
-.composer-send .el-icon,.composer-send span{color:inherit!important}
+.composer-send{position:absolute;z-index:3;right:8px;bottom:8px;min-width:56px;height:28px;padding:0 12px!important;border-radius:6px!important}
 
+
+/* v1.1.0.4: provider custom headers */
 .provider-headers{margin:4px 0 10px;border:1px solid var(--soft-border);border-radius:8px;background:var(--soft-panel);padding:10px}
 .provider-headers-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
 .provider-headers-head strong{display:block;font-size:12px}
@@ -124,3 +115,33 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .provider-header-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;gap:8px;align-items:center;min-height:38px;margin-top:0}
 .provider-header-row+.provider-header-row{margin-top:8px}
 @media(max-width:560px){.provider-header-row{grid-template-columns:1fr}.provider-headers-head{align-items:flex-start;flex-direction:column}}
+
+/* v1.1.0.4: native send button inside textarea corner */
+.composer-input{position:relative}
+.composer-input .el-textarea__inner{padding-right:76px;padding-bottom:44px;resize:none}
+button.composer-send{
+  position:absolute;
+  z-index:3;
+  right:8px;
+  bottom:8px;
+  min-width:56px;
+  height:28px;
+  margin:0;
+  padding:0 12px;
+  border:0;
+  border-radius:6px;
+  background:var(--jb-accent, #3574f0);
+  color:#fff;
+  font:inherit;
+  font-size:12px;
+  font-weight:600;
+  line-height:1;
+  cursor:pointer;
+  opacity:1;
+}
+button.composer-send:hover,
+button.composer-send:focus{filter:brightness(0.92);outline:none}
+button.composer-send:active{filter:brightness(0.84)}
+button.composer-send.is-empty{opacity:0.75}
+button.composer-send.is-busy,
+button.composer-send:disabled{opacity:0.55;cursor:not-allowed;filter:none}

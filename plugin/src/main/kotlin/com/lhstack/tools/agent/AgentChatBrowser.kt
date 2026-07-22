@@ -61,6 +61,16 @@ internal class AgentChatBrowser(
             query.addHandler { request ->
                 runCatching {
                     val command = parseCommand(request)
+                    // queue.stop/edit 在 2022.3 上若走 invokeAndWait，容易与流式刷新/EDT 形成死锁卡死。
+                    // 这两类命令只要求“尽快触发”，不要求同步返回业务结果。
+                    if (command.type == "queue.stop" || command.type == "queue.edit") {
+                        ApplicationManager.getApplication().invokeLater {
+                            runCatching { onCommand(command) }
+                        }
+                        return@runCatching JBCefJSQuery.Response(
+                            gson.toJson(mapOf("ok" to true, "data" to null)),
+                        )
+                    }
                     val result = java.util.concurrent.atomic.AtomicReference<Any?>()
                     val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
                     val execute = Runnable {
@@ -129,19 +139,26 @@ internal class AgentChatBrowser(
         }
     }
 
-    private fun dispatchSendShortcut(browser: CefBrowser, modifiers: Int) {
-        val controlDown = modifiers and EventFlags.EVENTFLAG_CONTROL_DOWN != 0
-        val commandDown = modifiers and EventFlags.EVENTFLAG_COMMAND_DOWN != 0
+    private fun dispatchSendShortcut(browser: CefBrowser, @Suppress("UNUSED_PARAMETER") modifiers: Int) {
         browser.executeJavaScript(
             """
                 (function() {
-                    var target = document.activeElement;
-                    if (!target) return;
-                    target.dispatchEvent(new KeyboardEvent('keydown', {
-                        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-                        ctrlKey: $controlDown, metaKey: $commandDown,
-                        bubbles: true, cancelable: true
-                    }));
+                    var ta = document.querySelector('.composer-input textarea');
+                    if (!ta) ta = document.activeElement;
+                    var text = (ta && (ta.tagName === 'TEXTAREA' || ta.tagName === 'INPUT')) ? (ta.value || '') : '';
+                    function clearInput() {
+                        if (!ta) return;
+                        ta.value = '';
+                        ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    if (window.jtoolsInvoke) {
+                        window.jtoolsInvoke(JSON.stringify({ type: 'message.send', payload: { text: text } }))
+                            .then(clearInput)
+                            .catch(function() {});
+                        return;
+                    }
+                    var btn = document.querySelector('.composer-send');
+                    if (btn) btn.click();
                 })();
             """.trimIndent(),
             "http://jtools.agent/index.html",
@@ -197,8 +214,11 @@ internal class AgentChatBrowser(
 internal object AgentBrowserShortcutSupport {
     fun isSendShortcut(event: CefKeyboardHandler.CefKeyEvent): Boolean {
         if (event.type != CefKeyboardHandler.CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN) return false
-        if (event.windows_key_code != KeyEvent.VK_ENTER || !event.focus_on_editable_field) return false
-        return event.modifiers and (EventFlags.EVENTFLAG_CONTROL_DOWN or EventFlags.EVENTFLAG_COMMAND_DOWN) != 0
+        if (event.windows_key_code != KeyEvent.VK_ENTER) return false
+        // 旧版 JCEF 对 Element Plus textarea 的 focus_on_editable_field 可能为 false，chat 页不再强依赖该标记。
+        return event.modifiers and (
+            EventFlags.EVENTFLAG_CONTROL_DOWN or EventFlags.EVENTFLAG_COMMAND_DOWN
+        ) != 0
     }
 }
 

@@ -194,6 +194,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var agentRunSubscription: AutoCloseable? = null
     private var agentRunDeliverySubscription: AutoCloseable? = null
     private val browserStateTimer = javax.swing.Timer(40) { syncBrowserStateNow() }.apply { isRepeats = false }
+    // 流式输出单独节流，避免每个 token 都推全量状态导致内容区滚动条狂闪。
+    private val streamUiTimer = javax.swing.Timer(120) { syncBrowserStateNow() }.apply { isRepeats = false }
 
     private val newSessionAction = createAction("新建会话", Icons.agentSessionNewIcon()) { chooseAndCreateSession() }
     private val clearAction = createAction("清空当前会话", Icons.agentSessionClearIcon()) { clearCurrentSession() }
@@ -1076,7 +1078,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (!isQueueItemActive(item)) {
             if (hasAssistantOutput(item, result.value)) {
                 item.persistedLogId = result.logId
-                onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
+                // 停止后 worker 晚到成功结果：只同步浏览器状态，避免全量历史重渲卡死。
+                onUi { syncBrowserState() }
             } else {
                 ModelLogService.deleteChatTurn(result.logId)
             }
@@ -1299,12 +1302,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 item.persistedLogId = logId
                 applyCancelledAssistantOutput(item, response)
                 ensureQueueAssistantCard(item).finish(assistantMessageAt, null)
-                completeQueueItem(item, refreshHistory = logId != null, remove = true)
+                // 有部分输出时不要全量重渲历史：昂贵且易与流式/CEF 刷新打架导致卡死。
+                completeQueueItem(item, refreshHistory = false, remove = true)
+                syncBrowserState()
             } else {
                 item.status = ChatQueueStatus.CANCELLED
                 if (currentSessionId == item.sessionId) restoreFailedInput(item)
                 discardQueueCards(item)
-                completeQueueItem(item, refreshHistory = true, remove = true)
+                completeQueueItem(item, refreshHistory = false, remove = true)
+                syncBrowserState()
             }
         }
     }
@@ -1440,11 +1446,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val queued = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) {
                 "队列消息不存在"
             }
-            require(queued.status == ChatQueueStatus.PENDING) { "只有排队中的消息可以编辑" }
+            require(queued.status == ChatQueueStatus.PENDING) { "只有排队中的消息才可编辑" }
             queued.prompt = normalizedPrompt
             queued
         }
+        // 同步更新已创建的用户卡片，避免界面仍显示旧文本。
+        item.userCard?.setContent(normalizedPrompt)
         refreshQueuePanel()
+        // 强制立刻推一次浏览器状态，避免仅依赖 timer 时前端仍显示旧 prompt。
+        syncBrowserStateNow()
     }
 
     private fun isQueueItemActive(item: ChatQueueItem): Boolean = synchronized(queueLock) {
@@ -1453,21 +1463,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        if (item.runningToolIds.isNotEmpty()) {
-            cancelActiveTool(item)
-        } else {
-            cancelModelResponse(item)
+        // 停止动作本身也放到后台，避免在 EDT 上触发 OkHttp 关闭/日志写回。
+        ApplicationManager.getApplication().executeOnPooledThread {
+            if (item.runningToolIds.isNotEmpty()) {
+                cancelActiveTool(item)
+            } else {
+                cancelModelResponse(item)
+            }
         }
     }
 
     private fun cancelActiveTool(item: ChatQueueItem) {
         item.toolCancelRequested = true
         item.toolToken.cancel()
-        markQueueItemCancellationRequested(item)
+        onUi {
+            markQueueItemCancellationRequested(item)
+        }
         // Keep the conversation alive so the model can receive the cancelled tool result.
     }
 
     private fun cancelModelResponse(item: ChatQueueItem) {
+        // 热路径只打取消标记 + 发 token 取消；真正收尾由 worker 的 catch 完成。
         item.conversationCancelRequested = true
         item.token.cancel()
         if (!hasAssistantOutput(item)) {
@@ -1476,12 +1492,17 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 item.status = ChatQueueStatus.CANCELLED
                 chatQueue.remove(item)
             }
-            logId?.let(ModelLogService::deleteChatTurn)
-            discardQueueCards(item)
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed || Disposer.isDisposed(this)) return@invokeLater
+                logId?.let(ModelLogService::deleteChatTurn)
+                discardQueueCards(item)
+                refreshQueuePanel()
+                updateActiveStopButton()
+                processQueue()
+            }
+        } else {
+            // 已有输出：不要在这里碰历史/卡片；只刷新队列状态，等 worker 走 finishQueueItemCancelled。
             refreshQueuePanel()
-            updateActiveStopButton()
-            refreshCurrentSessionHistoryIfVisible(item.sessionId)
-            processQueue()
         }
     }
 
@@ -1615,7 +1636,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun scrollQueueItemIfVisible(item: ChatQueueItem) {
-        if (renderedSessionId == item.sessionId) syncBrowserState()
+        if (renderedSessionId != item.sessionId) return
+        // 流式增量只做节流刷新，不要每个 delta 都立刻全量 sync。
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            streamUiTimer.restart()
+        } else {
+            ApplicationManager.getApplication().invokeLater { streamUiTimer.restart() }
+        }
     }
 
     private fun deleteQueueTurn(item: ChatQueueItem) {
@@ -2522,6 +2549,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     override fun dispose() {
         browserStateTimer.stop()
+        streamUiTimer.stop()
         agentRunSubscription?.close()
         agentRunDeliverySubscription?.close()
         if (chatBrowser.component.parent != null) Disposer.dispose(chatBrowser)
@@ -2565,11 +2593,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
             "attachment.open" -> text?.let(::openAttachmentPath)
-            "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
-            "queue.edit" -> editPendingQueueItem(
-                requireNotNull(id) { "缺少队列消息 ID" },
-                requireNotNull(text) { "缺少队列消息内容" },
-            )
+            "queue.stop" -> {
+                val messageId = id
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed || Disposer.isDisposed(this) || messageId == null) return@invokeLater
+                    val item = synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } } ?: return@invokeLater
+                    if (item.status == ChatQueueStatus.PROCESSING) stopQueueItem(item) else cancelQueueItem(item)
+                }
+            }
+            "queue.edit" -> {
+                val messageId = requireNotNull(id) { "缺少队列消息 ID" }
+                val nextPrompt = requireNotNull(text) { "缺少队列消息内容" }
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed || Disposer.isDisposed(this)) return@invokeLater
+                    editPendingQueueItem(messageId, nextPrompt)
+                }
+            }
             "message.delete" -> id?.let { messageId ->
                 messageCards.firstOrNull { it.id == messageId }?.delete()
                     ?: refreshBrowserMessageCache()

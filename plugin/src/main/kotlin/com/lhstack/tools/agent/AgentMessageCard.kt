@@ -10,7 +10,7 @@ internal sealed interface AgentChatCard {
 }
 
 internal class AgentUserMessageCard(
-    private val content: String,
+    private var content: String,
     private val attachments: List<AgentAttachmentState> = emptyList(),
     private val onDelete: (() -> Unit)? = null,
     private val createdAt: String? = null,
@@ -18,6 +18,10 @@ internal class AgentUserMessageCard(
     private val actorLabel: String? = null,
     override val id: String = "user-${UUID.randomUUID()}",
 ) : AgentChatCard {
+    fun setContent(text: String) {
+        content = text
+    }
+
     override fun toBrowserMessage() = AgentBrowserMessage(
         id = id,
         role = "user",
