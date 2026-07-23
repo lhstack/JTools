@@ -145,7 +145,15 @@ internal class AgentChatBrowser(
                 (function() {
                     var ta = document.querySelector('.composer-input textarea');
                     if (!ta) ta = document.activeElement;
+                    // 中文 IME 组字中不发送，避免半成品拼音/候选状态被提交。
+                    if (ta && ta.isComposing) return;
+                    if (window.jtoolsImeComposing && ta && !String(ta.value || '').trim()) return;
                     var text = (ta && (ta.tagName === 'TEXTAREA' || ta.tagName === 'INPUT')) ? (ta.value || '') : '';
+                    if (!String(text).trim()) {
+                        var btnEmpty = document.querySelector('.composer-send');
+                        if (btnEmpty) btnEmpty.click();
+                        return;
+                    }
                     function clearInput() {
                         if (!ta) return;
                         ta.value = '';

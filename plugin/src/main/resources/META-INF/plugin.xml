@@ -115,6 +115,16 @@
                 <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
             </ul>
 
+            <h2>Version v1.1.0.5</h2>
+            <ul>
+                <li>修复中文输入法场景下发送按钮高亮与发送失效问题，兼容 IME 组字状态粘滞。</li>
+                <li>修复进行中对话点停止导致 IDE 卡死的问题（取消 IO 异步化、避免全量历史重渲）。</li>
+                <li>优化生成中内容区滚动行为，降低滚动条闪烁。</li>
+                <li>修复队列消息编辑后内容不同步的问题。</li>
+                <li>发送按钮改为输入框右下角原生按钮，避免旧 JCEF 下 Element Plus primary 主题态异常。</li>
+                <li>同步版本号到 v1.1.0.5，SDK Helper 版本元数据更新为 1105。</li>
+            </ul>
+
             <h2>Version v1.1.0.4</h2>
             <ul>
                 <li>供应商配置支持自定义请求头列表，存入 provider_config.custom_headers，随供应商请求一起发送。</li>

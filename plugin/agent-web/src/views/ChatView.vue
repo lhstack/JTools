@@ -27,11 +27,25 @@ const RECYCLE_EDGE_THRESHOLD = 72
 const messageWindowStart = ref(0)
 const recyclerAdjusting = ref(false)
 const drafts = computed(() => s.drafts || [])
-function hasComposerText() {
+const composing = ref(false)
+const composerDomTick = ref(0)
+
+function readComposerText() {
+  // 中文 IME 组字期间，Vue v-model 与 textarea.value 可能短暂不一致；
+  // 发送/高亮都以“两侧较长且非空”的为准，避免中文判定失败。
+  void composerDomTick.value
   const ta = document.querySelector('.composer-input textarea')
-  const text = (ta && typeof ta.value === 'string') ? ta.value : prompt.value
-  return !!String(text || '').trim() || drafts.value.length > 0
+  const fromPrompt = String(prompt.value ?? '')
+  const fromDom = ta && typeof ta.value === 'string' ? String(ta.value) : ''
+  if (fromDom.trim().length >= fromPrompt.trim().length) return fromDom
+  return fromPrompt
 }
+
+function hasComposerText() {
+  return !!readComposerText().trim() || drafts.value.length > 0
+}
+
+const isComposerEmpty = computed(() => !hasComposerText() && !sending.value)
 const queue = computed(() => s.queue || [])
 const messageWindowMaxStart = computed(() => Math.max(0, s.messages.length - MESSAGE_CARD_POOL_SIZE))
 const visibleMessages = computed(() => s.messages.slice(
@@ -194,15 +208,45 @@ function handleMessageWheel(event) {
 
 
 let lastSendAt = 0
+let composeSafetyTimer = null
+
+function setComposing(active) {
+  composing.value = !!active
+  window.jtoolsImeComposing = !!active
+  if (composeSafetyTimer) {
+    clearTimeout(composeSafetyTimer)
+    composeSafetyTimer = null
+  }
+  // 旧 JCEF 偶发丢 compositionend，超时自动解除，避免永久无法发送。
+  if (active) {
+    composeSafetyTimer = setTimeout(() => {
+      composing.value = false
+      window.jtoolsImeComposing = false
+      composeSafetyTimer = null
+      composerDomTick.value++
+    }, 1500)
+  }
+}
+
+function forceEndComposition() {
+  setComposing(false)
+  const ta = document.querySelector('.composer-input textarea')
+  if (ta && typeof ta.value === 'string') prompt.value = ta.value
+  composerDomTick.value++
+}
+
 async function send() {
   if (sending.value) return
+  // 点击发送时强制结束 IME 组字态，不能因 composing 卡住而整段 return。
+  forceEndComposition()
   const now = Date.now()
   if (now - lastSendAt < 250) return
   lastSendAt = now
   const ta = document.querySelector('.composer-input textarea')
-  const text = (ta && typeof ta.value === 'string') ? ta.value : prompt.value
+  // 优先 DOM 真值：中文上屏后 textarea.value 最可靠
+  const text = (ta && typeof ta.value === 'string') ? ta.value : readComposerText()
   if (!String(text).trim() && !drafts.value.length) return
-  if (ta && ta.value !== prompt.value) prompt.value = ta.value
+  prompt.value = text
   sending.value = true
   try {
     await invoke('message.send', { text })
@@ -211,12 +255,17 @@ async function send() {
       ta.value = ''
       ta.dispatchEvent(new Event('input', { bubbles: true }))
     }
+    composerDomTick.value++
+  } catch (error) {
+    console.error('message.send failed', error)
   } finally {
     sending.value = false
   }
 }
 
 function onComposerKeydown(event) {
+  // 仅在“仍在组字”时拦截。中文已上屏后允许 Ctrl/Cmd+Enter。
+  if (event.isComposing || event.keyCode === 229) return
   const isEnter = event.key === 'Enter' || event.code === 'Enter' || event.keyCode === 13 || event.which === 13
   if (!isEnter) return
   if (!(event.ctrlKey || event.metaKey || event.altKey)) return
@@ -225,10 +274,35 @@ function onComposerKeydown(event) {
   send()
 }
 
+function onComposerInput(val) {
+  if (typeof val === 'string') {
+    prompt.value = val
+  } else if (val?.target && typeof val.target.value === 'string') {
+    prompt.value = val.target.value
+  } else {
+    syncPromptFromDom()
+  }
+  if (!composing.value) window.jtoolsImeComposing = false
+  composerDomTick.value++
+}
+
+function onCompositionStart() {
+  setComposing(true)
+}
+
+function onCompositionEnd(event) {
+  setComposing(false)
+  const value = event?.target?.value
+  if (typeof value === 'string') prompt.value = value
+  else syncPromptFromDom()
+  composerDomTick.value++
+}
+
 function syncPromptFromDom() {
   const ta = document.querySelector('.composer-input textarea')
   if (!ta) return
   if (ta.value !== prompt.value) prompt.value = ta.value
+  composerDomTick.value++
 }
 
 let composerObserver = null
@@ -241,7 +315,8 @@ onMounted(() => {
     ta.addEventListener('input', syncPromptFromDom)
     ta.addEventListener('keyup', syncPromptFromDom)
     ta.addEventListener('change', syncPromptFromDom)
-    ta.addEventListener('compositionend', syncPromptFromDom)
+    ta.addEventListener('compositionstart', onCompositionStart)
+    ta.addEventListener('compositionend', onCompositionEnd)
   }
   bind()
   composerObserver = new MutationObserver(bind)
@@ -254,7 +329,8 @@ onBeforeUnmount(() => {
     ta.removeEventListener('input', syncPromptFromDom)
     ta.removeEventListener('keyup', syncPromptFromDom)
     ta.removeEventListener('change', syncPromptFromDom)
-    ta.removeEventListener('compositionend', syncPromptFromDom)
+    ta.removeEventListener('compositionstart', onCompositionStart)
+    ta.removeEventListener('compositionend', onCompositionEnd)
   }
 })
 
@@ -444,13 +520,15 @@ function drop(event) {
           :rows="composerExpanded ? 10 : 4"
           placeholder="输入消息..."
           @paste="paste"
-          @input="val => prompt = typeof val === 'string' ? val : (val?.target?.value ?? prompt)"
+          @input="onComposerInput"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
           @keydown="onComposerKeydown"
         />
         <button
           type="button"
           class="composer-send"
-          :class="{ 'is-busy': sending, 'is-empty': !hasComposerText() && !sending }"
+          :class="{ 'is-busy': sending, 'is-empty': isComposerEmpty }"
           :disabled="sending"
           @click="send"
         >{{ sending ? '发送中' : '发送' }}</button>
