@@ -27,6 +27,38 @@ const RECYCLE_EDGE_THRESHOLD = 72
 const messageWindowStart = ref(0)
 const recyclerAdjusting = ref(false)
 const drafts = computed(() => s.drafts || [])
+const fileContextEnabled = computed(() => !!s.fileContextEnabled)
+const fileContextChip = computed(() => (fileContextEnabled.value ? s.fileContextChip : null) || null)
+const fileContextTitle = computed(() => (
+  fileContextEnabled.value
+    ? '关闭文件上下文（仅传递路径，不传文件内容）'
+    : '开启文件上下文（仅传递路径，不传文件内容）'
+))
+const fileContextChipTitle = computed(() => fileContextChip.value?.tooltip || fileContextChip.value?.label || '')
+async function toggleFileContext() {
+  if (fileContextEnabled.value) {
+    await invoke('fileContext.toggle', { enabled: false })
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '开启后，编辑器中当前打开的文件路径将发送给 AI。注意：仅传递文件路径，不会传递文件内容。',
+      '开启文件上下文？',
+      {
+        confirmButtonText: '开启',
+        cancelButtonText: '取消',
+        type: 'info',
+        distinguishCancelAndClose: true,
+      },
+    )
+    await invoke('fileContext.toggle', { enabled: true })
+  } catch {
+    // 用户取消
+  }
+}
+async function closeFileContextChip() {
+  await invoke('fileContext.toggle', { enabled: false })
+}
 const composing = ref(false)
 const composerDomTick = ref(0)
 
@@ -480,7 +512,22 @@ function drop(event) {
         </div>
       </section>
 
-      <div v-if="drafts.length" class="draft-strip">
+      <div v-if="drafts.length || fileContextChip" class="draft-strip">
+        <div
+          v-if="fileContextChip"
+          class="file-ref-chip"
+          :title="fileContextChipTitle"
+        >
+          <span class="file-ref-icon" aria-hidden="true">📎</span>
+          <b>{{ fileContextChip.label }}</b>
+          <el-button
+            :icon="Close"
+            text
+            title="关闭文件上下文"
+            aria-label="关闭文件上下文"
+            @click.stop="closeFileContextChip"
+          />
+        </div>
         <div v-for="item in drafts" :key="item.id" class="draft-chip">
           <span v-if="item.kind==='image'&&item.previewUrl" class="draft-thumb" @click="openAttachment(item)"><img :src="item.previewUrl" :alt="item.name"/></span>
           <span v-else class="draft-icon" @click="openAttachment(item)">▤</span>
@@ -498,7 +545,27 @@ function drop(event) {
         <el-select :model-value="s.currentAgentId" @change="id => invoke('agent.select', { id })">
           <el-option v-for="item in s.agents" :key="item.id" :value="item.id" :label="item.name" />
         </el-select>
-        <el-button :icon="Paperclip" text @click="invoke('attachment.choose')" />
+        <el-button :icon="Paperclip" text title="添加附件" @click="invoke('attachment.choose')" />
+        <el-button
+          text
+          class="file-context-btn"
+          :class="{ active: fileContextEnabled }"
+          :title="fileContextTitle"
+          aria-label="文件上下文"
+          @click="toggleFileContext"
+        >
+          <span class="file-context-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <g stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4.35 2.25h5.05L11.65 4.5v9.25H4.35c-.75 0-1.35-.6-1.35-1.35V3.6c0-.75.6-1.35 1.35-1.35Z"/>
+                <path d="M9.25 2.35V4.8h2.3"/>
+                <path d="M6.05 7.55 4.95 8.85 6.05 10.15"/>
+                <path d="M9.95 7.55 11.05 8.85 9.95 10.15"/>
+                <path d="M8.55 7.2 7.45 10.5"/>
+              </g>
+            </svg>
+          </span>
+        </el-button>
         <el-button text @click="open('catalog')">模型</el-button>
         <el-button text @click="open('prompts')">提示词</el-button>
         <el-button text @click="open('agents')">Agent</el-button>

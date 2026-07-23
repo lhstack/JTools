@@ -115,6 +115,15 @@
                 <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
             </ul>
 
+            <h2>Version v1.1.0.6</h2>
+            <ul>
+                <li>对话支持文件上下文：按项目开关，发送当前打开文件路径；有选区时附加 startOffset/endOffset。</li>
+                <li>UI 以短 chip 展示文件上下文，悬停显示完整路径；图标按钮开关，兼容旧 JCEF（原生 title，避免 color-mix）。</li>
+                <li>read_project_files 支持 offset_ranges，可按选区 offset 读取内容。</li>
+                <li>按项目记住并恢复激活会话，IDE 重启后不再总是落到最近更新的全局会话。</li>
+                <li>同步版本号到 v1.1.0.6，SDK Helper 版本元数据更新为 1106。</li>
+            </ul>
+
             <h2>Version v1.1.0.5</h2>
             <ul>
                 <li>修复中文输入法场景下发送按钮高亮与发送失效问题，兼容 IME 组字状态粘滞。</li>

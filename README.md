@@ -2,6 +2,16 @@
 
 JTools 是一个面向 JetBrains IDE 的插件管理与开发工具集，支持插件生命周期管理、热插拔、开发调试和日志输出。
 
+## v1.1.0.6
+
+本版本更新：
+
+- 对话支持文件上下文：按项目开关，发送当前打开文件路径；有选区时附加 `startOffset/endOffset`。
+- UI 以短 chip 展示（如 `...Server.java 962,1470`），悬停显示完整路径；图标按钮开关，兼容旧 JCEF（使用原生 title，样式避免 `color-mix`）。
+- `read_project_files` 支持 `offset_ranges`，可按选区 offset 读取内容。
+- 按项目记住并恢复激活会话，IDE 重启后不再总是落到最近更新的全局会话。
+- 同步版本号到 `v1.1.0.6`，SDK Helper 版本元数据更新为 `1106`。
+
 ## v1.1.0.5
 
 本版本更新：
