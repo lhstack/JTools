@@ -104,24 +104,9 @@ object AgentEditorFileContextSupport {
                 append(context.startOffset)
                 append(", endOffset=")
                 append(context.endOffset)
-                if (context.startLine != null) {
-                    append('\n')
-                    append('L')
-                    append(context.startLine)
-                    if (context.endLine != null && context.endLine != context.startLine) {
-                        append('-')
-                        append(context.endLine)
-                    }
-                }
-                append('\n')
-                append("仅传递路径与 offset，不传文件内容")
             }
         } else {
-            buildString {
-                append(context.path)
-                append('\n')
-                append("仅传递文件路径，不传文件内容")
-            }
+            context.path
         }
     }
 

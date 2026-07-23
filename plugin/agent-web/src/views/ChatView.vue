@@ -30,15 +30,11 @@ const drafts = computed(() => s.drafts || [])
 const fileContextEnabled = computed(() => !!s.fileContextEnabled)
 const fileContextLabel = computed(() => s.fileContextLabel || '文件上下文')
 const fileContextChip = computed(() => (fileContextEnabled.value ? s.fileContextChip : null) || null)
-const fileContextTitle = computed(() => {
-  if (!fileContextEnabled.value) {
-    return '开启文件上下文（仅传递路径，不传文件内容）'
-  }
-  const detail = s.fileContextChip?.tooltip || s.fileContextChip?.label
-  return detail
-    ? `关闭文件上下文\n${detail}`
-    : '关闭文件上下文（仅传递路径，不传文件内容）'
-})
+const fileContextTitle = computed(() => (
+  fileContextEnabled.value
+    ? '关闭文件上下文（仅传递路径，不传文件内容）'
+    : '开启文件上下文（仅传递路径，不传文件内容）'
+))
 const fileContextChipTooltip = computed(() => escapeTooltipHtml(fileContextChip.value?.tooltip || fileContextChip.value?.label || ''))
 const fileContextTitleHtml = computed(() => escapeTooltipHtml(fileContextTitle.value))
 function escapeTooltipHtml(value) {

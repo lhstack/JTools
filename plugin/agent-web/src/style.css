@@ -120,7 +120,26 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .file-ref-chip>b{overflow:hidden;max-width:220px;color:var(--jb-text);font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}
 .file-ref-chip .el-button{width:22px;height:22px;margin:0;padding:2px;color:var(--jb-muted)}
 .file-ref-chip .el-button:hover{color:var(--jb-accent)}
-.file-context-tooltip.el-popper{max-width:min(420px,80vw);white-space:normal;line-height:1.45;font-size:12px}
+.file-context-tooltip.el-popper{
+  max-width:min(420px,80vw);
+  white-space:normal;
+  line-height:1.45;
+  font-size:12px;
+  color:var(--jb-text)!important;
+  background:var(--jb-panel)!important;
+  border:1px solid var(--soft-border)!important;
+  box-shadow:0 8px 24px color-mix(in srgb,var(--jb-bg) 55%,#000 45%)!important;
+}
+.file-context-tooltip.el-popper.is-dark,
+.file-context-tooltip.el-popper.is-light{
+  color:var(--jb-text)!important;
+  background:var(--jb-panel)!important;
+  border:1px solid var(--soft-border)!important;
+}
+.file-context-tooltip.el-popper .el-popper__arrow::before{
+  background:var(--jb-panel)!important;
+  border:1px solid var(--soft-border)!important;
+}
 .file-context-tooltip.el-popper .el-popper__arrow{display:block}
 
 
