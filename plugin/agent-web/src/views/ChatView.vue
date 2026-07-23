@@ -59,6 +59,39 @@ async function toggleFileContext() {
 async function closeFileContextChip() {
   await invoke('fileContext.toggle', { enabled: false })
 }
+
+// 旧 JCEF/Chromium 对原生 title 悬停经常不生效，使用自定义浮层提示。
+const hoverTip = ref({ visible: false, text: '', x: 0, y: 0 })
+let hoverTipTimer = null
+function showHoverTip(event, text) {
+  const content = String(text || '').trim()
+  if (!content) return
+  clearTimeout(hoverTipTimer)
+  const x = event.clientX
+  const y = event.clientY
+  hoverTipTimer = setTimeout(() => {
+    hoverTip.value = {
+      visible: true,
+      text: content,
+      x: Math.min(window.innerWidth - 24, x + 12),
+      y: Math.min(window.innerHeight - 24, y + 14),
+    }
+  }, 180)
+}
+function moveHoverTip(event) {
+  if (!hoverTip.value.visible) return
+  hoverTip.value = {
+    ...hoverTip.value,
+    x: Math.min(window.innerWidth - 24, event.clientX + 12),
+    y: Math.min(window.innerHeight - 24, event.clientY + 14),
+  }
+}
+function hideHoverTip() {
+  clearTimeout(hoverTipTimer)
+  hoverTipTimer = null
+  hoverTip.value = { visible: false, text: '', x: 0, y: 0 }
+}
+onBeforeUnmount(() => hideHoverTip())
 const composing = ref(false)
 const composerDomTick = ref(0)
 
@@ -516,16 +549,20 @@ function drop(event) {
         <div
           v-if="fileContextChip"
           class="file-ref-chip"
-          :title="fileContextChipTitle"
+          @mouseenter="e => showHoverTip(e, fileContextChipTitle)"
+          @mousemove="moveHoverTip"
+          @mouseleave="hideHoverTip"
         >
           <span class="file-ref-icon" aria-hidden="true">📎</span>
           <b>{{ fileContextChip.label }}</b>
           <el-button
             :icon="Close"
             text
-            title="关闭文件上下文"
             aria-label="关闭文件上下文"
             @click.stop="closeFileContextChip"
+            @mouseenter.stop="e => showHoverTip(e, '关闭文件上下文')"
+            @mousemove.stop="moveHoverTip"
+            @mouseleave.stop="hideHoverTip"
           />
         </div>
         <div v-for="item in drafts" :key="item.id" class="draft-chip">
@@ -546,26 +583,32 @@ function drop(event) {
           <el-option v-for="item in s.agents" :key="item.id" :value="item.id" :label="item.name" />
         </el-select>
         <el-button :icon="Paperclip" text title="添加附件" @click="invoke('attachment.choose')" />
-        <el-button
-          text
-          class="file-context-btn"
-          :class="{ active: fileContextEnabled }"
-          :title="fileContextTitle"
-          aria-label="文件上下文"
-          @click="toggleFileContext"
+        <span
+          class="file-context-btn-wrap"
+          @mouseenter="e => showHoverTip(e, fileContextTitle)"
+          @mousemove="moveHoverTip"
+          @mouseleave="hideHoverTip"
         >
-          <span class="file-context-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <g stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4.35 2.25h5.05L11.65 4.5v9.25H4.35c-.75 0-1.35-.6-1.35-1.35V3.6c0-.75.6-1.35 1.35-1.35Z"/>
-                <path d="M9.25 2.35V4.8h2.3"/>
-                <path d="M6.05 7.55 4.95 8.85 6.05 10.15"/>
-                <path d="M9.95 7.55 11.05 8.85 9.95 10.15"/>
-                <path d="M8.55 7.2 7.45 10.5"/>
-              </g>
-            </svg>
-          </span>
-        </el-button>
+          <el-button
+            text
+            class="file-context-btn"
+            :class="{ active: fileContextEnabled }"
+            aria-label="文件上下文"
+            @click="toggleFileContext"
+          >
+            <span class="file-context-icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <g stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4.35 2.25h5.05L11.65 4.5v9.25H4.35c-.75 0-1.35-.6-1.35-1.35V3.6c0-.75.6-1.35 1.35-1.35Z"/>
+                  <path d="M9.25 2.35V4.8h2.3"/>
+                  <path d="M6.05 7.55 4.95 8.85 6.05 10.15"/>
+                  <path d="M9.95 7.55 11.05 8.85 9.95 10.15"/>
+                  <path d="M8.55 7.2 7.45 10.5"/>
+                </g>
+              </svg>
+            </span>
+          </el-button>
+        </span>
         <el-button text @click="open('catalog')">模型</el-button>
         <el-button text @click="open('prompts')">提示词</el-button>
         <el-button text @click="open('agents')">Agent</el-button>
@@ -604,6 +647,11 @@ function drop(event) {
 
     <div v-if="dragging" class="drop-overlay"><div>释放文件以添加附件</div></div>
 
+    <div
+      v-if="hoverTip.visible && hoverTip.text"
+      class="jtools-hover-tip"
+      :style="{ left: hoverTip.x + 'px', top: hoverTip.y + 'px' }"
+    >{{ hoverTip.text }}</div>
     <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
   <el-dialog v-model="queueEditVisible" title="编辑排队消息" width="560px" append-to-body>
     <el-input

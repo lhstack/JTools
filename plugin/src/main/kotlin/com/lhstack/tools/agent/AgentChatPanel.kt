@@ -64,10 +64,7 @@ import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.infoNotify
-import com.intellij.lang.Language
-import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.ui.LanguageTextField
 import com.intellij.ui.awt.RelativePoint
 import org.jdesktop.swingx.VerticalLayout
 import java.awt.BorderLayout
@@ -2089,22 +2086,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun createToolJsonSection(title: String, content: String): JComponent {
-        val viewer = createJsonViewer(content)
+        // 使用 JBTextArea 而非 LanguageTextField，避免创建未释放的 Editor（关项目时 EditorImpl 泄漏）。
+        val viewer = JBTextArea(content).apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            background = UIUtil.getTextFieldBackground()
+            font = JBUI.Fonts.create("JetBrains Mono", 12)
+        }
         return JPanel(BorderLayout(0, JBUI.scale(4))).apply {
             isOpaque = false
             add(JLabel(title), BorderLayout.NORTH)
             add(JBScrollPane(viewer).apply { preferredSize = Dimension(JBUI.scale(540), JBUI.scale(180)) }, BorderLayout.CENTER)
-        }
-    }
-
-    private fun createJsonViewer(text: String): LanguageTextField {
-        val language = Language.findLanguageByID("JSON") ?: Language.findLanguageByID("TEXT")
-        return object : LanguageTextField(language, project, text, false) {
-            override fun createEditor(): EditorEx = super.createEditor().apply {
-                setViewer(true)
-                setVerticalScrollbarVisible(true)
-                setHorizontalScrollbarVisible(true)
-            }
         }
     }
 

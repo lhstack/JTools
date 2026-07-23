@@ -158,3 +158,19 @@ button.composer-send:disabled{opacity:0.55;cursor:not-allowed;filter:none}
 .file-ref-chip .el-button{width:22px;height:22px;margin:0;padding:2px;color:var(--jb-muted)}
 .file-ref-chip .el-button:hover{color:var(--jb-accent)}
 
+.file-context-btn-wrap{display:inline-flex;align-items:center}
+.jtools-hover-tip{
+  position:fixed;
+  z-index:10050;
+  max-width:min(420px,80vw);
+  padding:6px 10px;
+  border:1px solid var(--jb-border, #555);
+  border-radius:6px;
+  background:var(--jb-panel, #2b2f34);
+  color:var(--jb-text, #ddd);
+  font-size:12px;
+  line-height:1.45;
+  white-space:pre-line;
+  pointer-events:none;
+  box-shadow:0 6px 18px rgba(0,0,0,.28);
+}
