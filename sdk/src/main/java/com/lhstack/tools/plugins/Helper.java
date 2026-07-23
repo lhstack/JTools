@@ -47,7 +47,7 @@ public class Helper {
 
     public static Key<Logger> JTOOLS_SYS_LOGGER = Key.create("JTOOLS_SYS_LOGGER");
 
-    public static Integer JTOOLS_VERSION = 1106;
+    public static Integer JTOOLS_VERSION = 1105;
 
     private static final IdeInfo IDE_INFO;
 
