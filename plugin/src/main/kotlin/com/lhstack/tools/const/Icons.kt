@@ -53,6 +53,8 @@ class Icons {
 
         fun agentAttachmentIcon() = findIcon("icons/agent_attachment.svg")
 
+        fun agentFileContextIcon() = findIcon("icons/agent_file_context.svg")
+
         fun closeAllIcon() = findIcon("icons/session_clear.svg")
 
         fun closeOtherIcon() = findIcon("icons/close_other.svg")

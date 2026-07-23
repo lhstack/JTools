@@ -149,8 +149,26 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.4.7</h2>
+            <h2>🚀 Version v1.1.4.8</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>📎 <b>Editor File Context:</b> Chat composer can attach the currently opened editor file path to the start of user messages</li>
+                <li>🎯 <b>Selection Offsets:</b> Selected text is sent as <code>startOffset/endOffset</code>; the UI shows a short chip (e.g. <code>...Server.java 962,1470</code>) with full details on hover</li>
+                <li>🗂️ <b>Project-Scoped Toggle:</b> File-context enablement is persisted per project path</li>
+                <li>🔧 <b>Offset-aware File Read:</b> <code>read_project_files</code> now accepts <code>offset_ranges</code> to read by character offsets (mutually exclusive with <code>line_ranges</code>)</li>
+                <li>🧵 <b>Read-action Safety:</b> Editor selection/document access for file context runs inside a read-action to avoid EDT timer crashes</li>
+                <li>🎨 <b>Icon &amp; Interaction:</b> Dedicated file-context icon button; chip can be dismissed; updates follow active file/selection changes</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.8</code> and aligned SDK helper version metadata to <code>1148</code></li>
+                <li>📎 <b>文件上下文开关：</b>对话输入区支持开启文件上下文，将当前编辑器打开文件路径附加到用户消息开头</li>
+                <li>🎯 <b>选区 offset 上下文：</b>有选区时附加 <code>startOffset/endOffset</code>；UI 以短 chip 展示，悬停显示完整路径与详情</li>
+                <li>🗂️ <b>项目维度开关：</b>文件上下文开关按项目路径隔离持久化，不同项目互不影响</li>
+                <li>🔧 <b>read_project_files 支持 offset：</b>读取工具新增 <code>offset_ranges</code>，可按编辑器选区 offset 读取内容（与 <code>line_ranges</code> 二选一）</li>
+                <li>🧵 <b>编辑器 read-action 修复：</b>同步文件上下文时在 read-action 内访问选区/文档，避免 EDT Timer 线程异常</li>
+                <li>🎨 <b>图标与交互：</b>新增文件上下文图标按钮，chip 支持关闭；切换文件/选区实时更新</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.8</code>，并同步 SDK Helper 版本元数据到 <code>1148</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.4.7</h2>
             <ul>
                 <li>🧩 <b>Provider Custom Headers:</b> Supplier settings now support a custom request-header list that is sent with provider HTTP calls</li>
                 <li>💾 <b>provider_config Storage:</b> Headers are persisted under <code>providers.provider_config.custom_headers</code> without a schema migration</li>

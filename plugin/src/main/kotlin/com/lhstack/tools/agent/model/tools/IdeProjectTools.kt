@@ -28,17 +28,29 @@ import org.jetbrains.concurrency.CancellablePromise
 internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "读取项目文本文件，支持指定行范围和未保存内容。",
-        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。" ,"items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
+        "读取项目文本文件，支持按行范围或字符 offset 范围读取，以及未保存内容。用户消息中的 startOffset/endOffset 可直接用于 offset_ranges。",
+        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。不可与 offset_ranges 同时使用。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"offset_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个字符 offset 半开区间 [start_offset, end_offset)；与编辑器选区 startOffset/endOffset 一致。不可与 line_ranges 同时使用。","items":{"type":"object","properties":{"start_offset":{"type":"integer","minimum":0,"description":"必填。 起始字符偏移，从0开始。"},"end_offset":{"type":"integer","minimum":0,"description":"必填。 结束字符偏移（不含该位置），须 >= start_offset。"}},"required":["start_offset","end_offset"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val requests = args.obj().objectArray("files").map { input ->
-            val ranges = input.getAsJsonArray("line_ranges")?.map { element ->
+            val lineRanges = input.getAsJsonArray("line_ranges")?.map { element ->
                 val range = element.obj("line range")
                 LineRange(range.int("start_line"), range.int("end_line"))
             }.orEmpty()
-            ReadFileRequest(input.string("path"), ranges, input.intOr("max_lines", 1000).coerceIn(1, 5000))
+            val offsetRanges = input.getAsJsonArray("offset_ranges")?.map { element ->
+                val range = element.obj("offset range")
+                OffsetRange(range.int("start_offset"), range.int("end_offset"))
+            }.orEmpty()
+            require(lineRanges.isEmpty() || offsetRanges.isEmpty()) {
+                "path `${input.string("path")}` 不能同时指定 line_ranges 与 offset_ranges"
+            }
+            ReadFileRequest(
+                path = input.string("path"),
+                ranges = lineRanges,
+                offsetRanges = offsetRanges,
+                maxLines = input.intOr("max_lines", 1000).coerceIn(1, 5000),
+            )
         }
         return batchResult("files", support.readFiles(requests))
     }

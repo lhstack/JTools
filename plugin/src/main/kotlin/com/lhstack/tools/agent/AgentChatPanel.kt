@@ -20,6 +20,11 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.event.SelectionEvent
+import com.intellij.openapi.editor.event.SelectionListener
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.ide.CopyPasteManager
 import java.awt.datatransfer.StringSelection
 import com.intellij.openapi.project.Project
@@ -210,7 +215,26 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         setupSessionSelector()
         setupAgentSelector()
         setContent(chatBrowser.component)
-        project.messageBus.connect(this).subscribe(LafManagerListener.TOPIC, LafManagerListener { syncBrowserState() })
+        val connection = project.messageBus.connect(this)
+        connection.subscribe(LafManagerListener.TOPIC, LafManagerListener { syncBrowserState() })
+        connection.subscribe(
+            FileEditorManagerListener.FILE_EDITOR_MANAGER,
+            object : FileEditorManagerListener {
+                override fun selectionChanged(event: FileEditorManagerEvent) {
+                    syncBrowserState()
+                }
+            },
+        )
+        EditorFactory.getInstance().eventMulticaster.addSelectionListener(
+            object : SelectionListener {
+                override fun selectionChanged(e: SelectionEvent) {
+                    if (AgentEditorFileContextSupport.isEnabled(currentProjectPath())) {
+                        syncBrowserState()
+                    }
+                }
+            },
+            this,
+        )
         agentRunDeliverySubscription = AgentRunService.subscribeDeliveries(currentProjectPath(), ::enqueueAgentRunDelivery)
         loadInitialData()
     }
@@ -973,14 +997,24 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun sendMessage() {
         val record = ensureCurrentSessionForSend()
         val agent = resolveSessionAgent(record) ?: return
-        val prompt = inputArea.text.trim()
+        val rawPrompt = inputArea.text.trim()
         val attachments = draftAttachments.toList()
+        if (rawPrompt.isEmpty() && attachments.isEmpty()) return
+
+        val prompt = if (AgentEditorFileContextSupport.isEnabled(currentProjectPath())) {
+            AgentEditorFileContextSupport.prependToPrompt(
+                rawPrompt,
+                AgentEditorFileContextSupport.collect(project),
+            )
+        } else {
+            rawPrompt
+        }
         if (prompt.isEmpty() && attachments.isEmpty()) return
 
         enqueueChatMessage(record, agent, prompt, attachments)
         inputArea.text = ""
         clearDraftAttachments()
-        maybeAutoRenameSession(record, prompt)
+        maybeAutoRenameSession(record, rawPrompt)
     }
 
     private fun enqueueAgentRunDelivery(delivery: AgentRunDelivery) {
@@ -2557,6 +2591,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
             "attachment.open" -> text?.let(::openAttachmentPath)
+            "fileContext.toggle" -> {
+                val projectPath = currentProjectPath()
+                val enabled = payload.get("enabled")?.takeUnless { it.isJsonNull }?.asBoolean
+                    ?: !AgentEditorFileContextSupport.isEnabled(projectPath)
+                AgentEditorFileContextSupport.setEnabled(projectPath, enabled)
+                syncBrowserState()
+                enabled
+            }
             "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
             "queue.edit" -> editPendingQueueItem(
                 requireNotNull(id) { "缺少队列消息 ID" },
@@ -2634,6 +2676,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
         }
         val background = UIUtil.getPanelBackground()
+        val fileContextEnabled = AgentEditorFileContextSupport.isEnabled(currentProjectPath())
+        val fileContextSnapshot = if (fileContextEnabled) {
+            AgentEditorFileContextSupport.collect(project)
+        } else {
+            null
+        }
         chatBrowser.replaceState(AgentBrowserState(
             dark = ColorUtil.isDark(background),
             theme = AgentBrowserTheme(
@@ -2654,6 +2702,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             queue = queue,
             drafts = draftAttachments.map { it.toBrowserAttachment() },
             inputRestore = browserInputRestore,
+            fileContextEnabled = fileContextEnabled,
+            fileContextLabel = AgentEditorFileContextSupport.buttonLabel(fileContextEnabled),
+            fileContextChip = fileContextSnapshot?.let { snapshot ->
+                AgentBrowserFileContextChip(
+                    label = AgentEditorFileContextSupport.formatChipLabel(snapshot) ?: snapshot.fileName,
+                    tooltip = AgentEditorFileContextSupport.formatChipTooltip(snapshot) ?: snapshot.path,
+                    path = snapshot.path,
+                    startOffset = snapshot.startOffset,
+                    endOffset = snapshot.endOffset,
+                    startLine = snapshot.startLine,
+                    endLine = snapshot.endLine,
+                )
+            },
         ))
     }
 
@@ -2673,6 +2734,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("queue") val queue: List<AgentBrowserQueueItem>,
         @SerializedName("drafts") val drafts: List<AgentBrowserAttachment>,
         @SerializedName("inputRestore") val inputRestore: AgentBrowserInputRestore?,
+        @SerializedName("fileContextEnabled") val fileContextEnabled: Boolean,
+        @SerializedName("fileContextLabel") val fileContextLabel: String,
+        @SerializedName("fileContextChip") val fileContextChip: AgentBrowserFileContextChip?,
+    )
+    private data class AgentBrowserFileContextChip(
+        @SerializedName("label") val label: String,
+        @SerializedName("tooltip") val tooltip: String,
+        @SerializedName("path") val path: String,
+        @SerializedName("startOffset") val startOffset: Int?,
+        @SerializedName("endOffset") val endOffset: Int?,
+        @SerializedName("startLine") val startLine: Int?,
+        @SerializedName("endLine") val endLine: Int?,
     )
     private data class AgentBrowserInputRestore(
         @SerializedName("sequence") val sequence: Long,
