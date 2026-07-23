@@ -45,87 +45,13 @@
 
     <change-notes>
         <![CDATA[
-            <h2>Version v1.0.1</h2>
-            <ul>
-                <li>修改插件部分icon</li>
-                <li>在设置面板新增插件仓库连接</li>
-                <li>优化插件卸载,安装和删除逻辑</li>
-            </ul>
-            <h2>Version v1.0.2</h2>
-            <ul>
-                <li>sdk: Helper新增notify函数,type参数说明: IDE_UPDATE,INFORMATION,WARNING,ERROR</li>
-                <li>sdk: Helper新增getSysLogger函数,获取系统日志</li>
-                <li>sdk: Helper新增languageTextField,在无idea插件依赖的情况下可通过此函数创建idea对应的LanguageTextField组件</li>
-                <li>sdk: IPlugin新增support函数,用于判断JTools插件是否支持安装您开发的插件,用法可参考jtools-notes插件</li>
-            </ul>
-            <h2>Version v1.0.3</h2>
-            <ul>
-                <li>sdk新增Since注解,标识版本和修改信息</li>
-                <li>sdk: Helper新增文件选择,保存相关函数</li>
-                <li>sdk: Helper新增openInEditor函数</li>
-                <li>sdk: Helper新增createActionToolbar函数</li>
-                <li>修改IPlugin入参函数名,从projectLocation改为locationHash</li>
-                <li>sdk: Helper修改版本为103</li>
-                <li>sdk: Helper actionButton函数新增isSelected参数支持</li>
-            </ul>
-            <h2>Version v1.0.4</h2>
-            <ul>
-                <li>优化JTools日志控制台,设置为软换行方式输出日志</li>
-            </ul>
-
-            <h2>Version v1.0.5</h2>
-            <ul>
-                <li>清除卸载残留优化</li>
-            </ul>
-
-            <h2>Version v1.0.6</h2>
-            <ul>
-                <li>js插件开发功能新增项目模板,可通过模板创建demo代码</li>
-                <li>js插件开发新增打包功能,可将当前项目打包成可安装的插件</li>
-                <li>原生插件开发优化运行逻辑,降低原生插件开发难度</li>
-            </ul>
-
-            <h2>Version v1.0.7</h2>
-            <ul>
-                <li>插件支持多开功能,需要在插件开发过程中重载supportMultiOpens函数</li>
-                <li>重构插件showPanel,closePanel函数,新增JComponent入参,用户回传createPanel创建的组件,解决多开场景资源回收问题</li>
-                <li>fix: 拖动安装触发openProject回调参数logger错误</li>
-                <li>新增关闭项目触发已打开的面板closePanel函数</li>
-            </ul>
-
-            <h2>Version v1.0.8</h2>
-            <ul>
-                <li>插件面板支持分割功能,目前仅支持左右分割</li>
-                <li>日志控制台支持启用/禁用</li>
-            </ul>
-
-            <h2>Version v1.0.9</h2>
-            <ul>
-                <li>jetbrains全家桶支持</li>
-            </ul>
-
-            <h2>Version v1.1.0</h2>
-            <ul>
-                <li>sdk适配多开</li>
-            </ul>
-
-            <h2>Version v1.1.0.1</h2>
-            <ul>
-                <li>插件保存目录默认会根据jetbrains产品+版本进行隔离</li>
-                <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
-            </ul>
-
-            <h2>Version v1.1.0.6</h2>
-            <ul>
-                <li>对话支持文件上下文：按项目开关，发送当前打开文件路径；有选区时附加 startOffset/endOffset。</li>
-                <li>UI 以短 chip 展示文件上下文，悬停显示完整路径；图标按钮开关，兼容旧 JCEF（原生 title，避免 color-mix）。</li>
-                <li>read_project_files 支持 offset_ranges，可按选区 offset 读取内容。</li>
-                <li>按项目记住并恢复激活会话，IDE 重启后不再总是落到最近更新的全局会话。</li>
-                <li>同步版本号到 v1.1.0.6，SDK Helper 版本元数据更新为 1106。</li>
-            </ul>
-
             <h2>Version v1.1.0.5</h2>
             <ul>
+                <li>对话支持文件上下文：按项目开关，发送当前打开文件路径；有选区时附加 startOffset/endOffset。</li>
+                <li>UI 以短 chip 展示文件上下文，悬停显示完整路径；图标按钮开关，兼容旧 JCEF（自定义浮层提示，避免 color-mix / 原生 title 失效）。</li>
+                <li>read_project_files 支持 offset_ranges，可按选区 offset 读取内容。</li>
+                <li>按项目记住并恢复激活会话，IDE 重启后不再总是落到最近更新的全局会话。</li>
+                <li>工具详情 JSON 查看改用只读文本区，避免关项目时 Editor 未释放。</li>
                 <li>修复中文输入法场景下发送按钮高亮与发送失效问题，兼容 IME 组字状态粘滞。</li>
                 <li>修复进行中对话点停止导致 IDE 卡死的问题（取消 IO 异步化、避免全量历史重渲）。</li>
                 <li>优化生成中内容区滚动行为，降低滚动条闪烁。</li>
@@ -161,7 +87,81 @@
                 <li>智能体配置、会话和运行数据通过 SQLite 在本地持久化</li>
                 <li>适配 IntelliJ IDEA 2022.3 下 JCEF 管理弹窗的调度、页面加载和边框样式</li>
             </ul>
-        ]]>
+
+            <h2>Version v1.1.0.1</h2>
+            <ul>
+                <li>插件保存目录默认会根据jetbrains产品+版本进行隔离</li>
+                <li>插件sdk新增支持函数,提供jtools版本和jetbrains产品信息,可通过此函数适配固定jetbrains产品</li>
+            </ul>
+
+            <h2>Version v1.1.0</h2>
+            <ul>
+                <li>sdk适配多开</li>
+            </ul>
+
+            <h2>Version v1.0.9</h2>
+            <ul>
+                <li>jetbrains全家桶支持</li>
+            </ul>
+
+            <h2>Version v1.0.8</h2>
+            <ul>
+                <li>插件面板支持分割功能,目前仅支持左右分割</li>
+                <li>日志控制台支持启用/禁用</li>
+            </ul>
+
+            <h2>Version v1.0.7</h2>
+            <ul>
+                <li>插件支持多开功能,需要在插件开发过程中重载supportMultiOpens函数</li>
+                <li>重构插件showPanel,closePanel函数,新增JComponent入参,用户回传createPanel创建的组件,解决多开场景资源回收问题</li>
+                <li>fix: 拖动安装触发openProject回调参数logger错误</li>
+                <li>新增关闭项目触发已打开的面板closePanel函数</li>
+            </ul>
+
+            <h2>Version v1.0.6</h2>
+            <ul>
+                <li>js插件开发功能新增项目模板,可通过模板创建demo代码</li>
+                <li>js插件开发新增打包功能,可将当前项目打包成可安装的插件</li>
+                <li>原生插件开发优化运行逻辑,降低原生插件开发难度</li>
+            </ul>
+
+            <h2>Version v1.0.5</h2>
+            <ul>
+                <li>清除卸载残留优化</li>
+            </ul>
+
+            <h2>Version v1.0.4</h2>
+            <ul>
+                <li>优化JTools日志控制台,设置为软换行方式输出日志</li>
+            </ul>
+
+            <h2>Version v1.0.3</h2>
+            <ul>
+                <li>sdk新增Since注解,标识版本和修改信息</li>
+                <li>sdk: Helper新增文件选择,保存相关函数</li>
+                <li>sdk: Helper新增openInEditor函数</li>
+                <li>sdk: Helper新增createActionToolbar函数</li>
+                <li>修改IPlugin入参函数名,从projectLocation改为locationHash</li>
+                <li>sdk: Helper修改版本为103</li>
+                <li>sdk: Helper actionButton函数新增isSelected参数支持</li>
+            </ul>
+
+            <h2>Version v1.0.2</h2>
+            <ul>
+                <li>sdk: Helper新增notify函数,type参数说明: IDE_UPDATE,INFORMATION,WARNING,ERROR</li>
+                <li>sdk: Helper新增getSysLogger函数,获取系统日志</li>
+                <li>sdk: Helper新增languageTextField,在无idea插件依赖的情况下可通过此函数创建idea对应的LanguageTextField组件</li>
+                <li>sdk: IPlugin新增support函数,用于判断JTools插件是否支持安装您开发的插件,用法可参考jtools-notes插件</li>
+            </ul>
+
+            <h2>Version v1.0.1</h2>
+            <ul>
+                <li>修改插件部分icon</li>
+                <li>在设置面板新增插件仓库连接</li>
+                <li>优化插件卸载,安装和删除逻辑</li>
+            </ul>
+
+]]>
     </change-notes>
 
     <!-- Product and plugin compatibility requirements.
