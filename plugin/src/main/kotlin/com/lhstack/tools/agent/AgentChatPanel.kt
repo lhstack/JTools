@@ -58,6 +58,7 @@ import com.lhstack.tools.db.service.AgentRecord
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.ChatSessionRecord
 import com.lhstack.tools.db.service.ChatSessionService
+import com.lhstack.tools.db.service.SettingService
 import com.lhstack.tools.db.service.ChatSessionType
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ResourceConfigService
@@ -132,6 +133,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         const val ROLE_REASONING = "推理"
         const val ROLE_ERROR = "错误"
         const val AUTO_TITLE = "新会话"
+        const val ACTIVE_SESSION_SETTING_PREFIX = "agent.chat.active_session_id:"
         val INPUT_COMPOSER_BACKGROUND = JBColor(Color(0xFFFFFF), Color(0x2B2F34))
         val INPUT_COMPOSER_BORDER = JBColor(Color(0xD3D9E2), Color(0x4E545A))
         val INPUT_COMPOSER_DIVIDER = JBColor(Color(0xE4E8EF), Color(0x43484D))
@@ -207,7 +209,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val modelManageAction = createAction("供应商与模型", Icons.agentModelIcon()) { openModelManager() }
     private val promptManageAction = createAction("提示词管理", Icons.agentPromptIcon()) { openPromptManager() }
     private val agentManageAction = createAction("Agent 管理", Icons.agentManageIcon()) { openAgentManager() }
-       private val skillManageAction = createAction("Skills 管理", Icons.agentSkillsIcon()) { openSkillManager() }
+    private val skillManageAction = createAction("Skills 管理", Icons.agentSkillsIcon()) { openSkillManager() }
     private val globalConfigAction = createAction("全局配置", Icons.agentGlobalConfigIcon()) { openGlobalConfigManager() }
     private val attachmentAction = createAction("添加附件", Icons.agentAttachmentIcon()) { chooseAttachments() }
 
@@ -309,9 +311,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (sessions.isEmpty()) {
             createSession(ChatSessionType.PROJECT)
         } else {
-            currentSessionId = sessions.first().id
+            val targetId = resolveRestoredSessionId(sessions) ?: sessions.first().id
+            currentSessionId = targetId
             refreshSessionSelector(sessions)
-            switchSession(sessions.first().id)
+            switchSession(targetId)
         }
     }
 
@@ -400,6 +403,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun switchSession(sessionId: Long) {
         val record = ChatSessionService.visibleSessionById(sessionId, currentProjectPath()) ?: return
         currentSessionId = record.id
+        rememberActiveSession(record.id)
         updatingSessionSelection = true
         selectSessionItem(record.id)
         updatingSessionSelection = false
@@ -487,11 +491,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val remaining = visibleSessions()
         if (remaining.isEmpty()) {
             currentSessionId = null
+            rememberActiveSession(null)
             createSession(ChatSessionType.PROJECT)
         } else {
-            currentSessionId = remaining.first().id
+            val targetId = remaining.first().id
+            currentSessionId = targetId
             refreshSessionSelector(remaining)
-            switchSession(remaining.first().id)
+            switchSession(targetId)
         }
     }
 
@@ -2632,13 +2638,23 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         AgentBrowserManagement.handle(project, type, payload) {
             val sessions = visibleSessions()
             if (sessions.isEmpty()) {
+                currentSessionId = null
+                rememberActiveSession(null)
                 createSession(ChatSessionType.PROJECT)
             } else {
-                if (currentSessionId !in sessions.map { it.id }) currentSessionId = sessions.first().id
-                refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
-                refreshSessionSelector(sessions)
-                currentSessionId?.let(::refreshCurrentSessionHistoryIfVisible)
-                syncBrowserState()
+                val targetId = when {
+                    currentSessionId != null && sessions.any { it.id == currentSessionId } -> currentSessionId!!
+                    else -> resolveRestoredSessionId(sessions) ?: sessions.first().id
+                }
+                if (currentSessionId != targetId) {
+                    switchSession(targetId)
+                } else {
+                    rememberActiveSession(targetId)
+                    refreshAgentSelector(ChatSessionService.sessionById(targetId)?.agentId)
+                    refreshSessionSelector(sessions)
+                    refreshCurrentSessionHistoryIfVisible(targetId)
+                    syncBrowserState()
+                }
             }
         }
 
@@ -2647,6 +2663,29 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun visibleSessions(): List<ChatSessionRecord> =
         ChatSessionService.listVisibleSessions(currentProjectPath())
+
+    private fun activeSessionSettingKey(projectPath: String = currentProjectPath()): String =
+        ACTIVE_SESSION_SETTING_PREFIX + ChatSessionService.normalizeProjectPath(projectPath)
+
+    private fun rememberActiveSession(sessionId: Long?) {
+        val key = activeSessionSettingKey()
+        if (sessionId == null) {
+            SettingService.setSetting(key, "")
+        } else {
+            SettingService.setSetting(key, sessionId.toString())
+        }
+    }
+
+    private fun loadRememberedSessionId(projectPath: String = currentProjectPath()): Long? {
+        val raw = SettingService.setting(activeSessionSettingKey(projectPath))?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        return raw.toLongOrNull()?.takeIf { it > 0 }
+    }
+
+    private fun resolveRestoredSessionId(sessions: List<ChatSessionRecord>): Long? {
+        val remembered = loadRememberedSessionId() ?: return null
+        return sessions.firstOrNull { it.id == remembered }?.id
+    }
 
     private fun syncBrowserState() {
         if (ApplicationManager.getApplication().isDispatchThread) {
