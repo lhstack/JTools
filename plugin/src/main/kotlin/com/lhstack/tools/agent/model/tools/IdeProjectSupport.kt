@@ -23,6 +23,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.navigation.NavigationItem
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFileSystemItem
@@ -52,7 +53,7 @@ internal class IdeProjectSupport(
         return smartRead {
             val files = requests.map { request ->
                 checkToolThreadCancellation()
-                resolveProjectFileInReadAction(request.path)
+                resolveReadableFileInReadAction(request.path)
             }
             requests.zip(files).map { (request, file) ->
                 readFileInReadAction(file, request.ranges, request.offsetRanges, request.maxLines)
@@ -487,6 +488,19 @@ internal class IdeProjectSupport(
         runOnEdt { FileDocumentManager.getInstance().saveDocument(document) }
     }
 
+    /**
+     * 读取路径解析：项目根内文件用相对路径；find_project_classes / find_project_files
+     * 在 include_global=true 时返回的 VFS URL（如 jar://、jrt://、file://）按协议直接解析，
+     * 使读取工具能消费同体系检索工具产出的路径。仅用于只读，不放宽写入/格式化/检查的项目内约束。
+     */
+    private fun resolveReadableFileInReadAction(path: String): VirtualFile {
+        if (!isVfsUrl(path)) return resolveProjectFileInReadAction(path)
+        val file = VirtualFileManager.getInstance().findFileByUrl(path)
+            ?: throw ToolException("VFS url `$path` was not found")
+        require(!file.isDirectory) { "path `$path` is not a file" }
+        return file
+    }
+
     private fun resolveProjectFileInReadAction(path: String): VirtualFile {
         val ioFile = workspace.resolveExistingPath(path)
         val file = findLocalFileInReadAction(ioFile)
@@ -540,7 +554,8 @@ internal class IdeProjectSupport(
             ?: PsiManager.getInstance(project).findFile(file)?.text
             ?: VfsUtilCore.loadText(file)
 
-    private fun contentKindInReadAction(file: VirtualFile): String = "project"
+    private fun contentKindInReadAction(file: VirtualFile): String =
+        if (file.fileSystem.protocol == LocalFileSystem.PROTOCOL && isProjectFileInReadAction(file)) "project" else "external"
 
     private fun resolveWritableProjectFile(path: String): File {
         val relative = WorkspaceTools.normalizeRelativeSegments(path) ?: throw ToolException.invalidPath(path)
@@ -759,3 +774,9 @@ internal class IndexedSearchViewModel(
 private data class ChooseByNameResults(val items: List<Any>, val truncated: Boolean) : Iterable<Any> by items
 private data class FileMetadata(val path: String, val charset: String)
 internal data class LineRange(val start: Int, val end: Int)
+
+/** VFS URL 前缀（protocol://），用于识别 find_* 工具返回的 jar://、file://、jrt:// 等路径。 */
+private val VFS_URL_PATTERN = Regex("^[a-zA-Z][a-zA-Z0-9+.\\-]*://")
+
+/** 判断读取路径是否为 VFS URL；true 时按协议解析而非项目相对路径。 */
+internal fun isVfsUrl(path: String): Boolean = VFS_URL_PATTERN.containsMatchIn(path)
