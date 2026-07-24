@@ -68,5 +68,11 @@ class Icons {
         fun moveright() = findIcon("icons/moveright.svg")
 
         fun movedown() = findIcon("icons/movedown.svg")
+
+        fun moveleft() = findIcon("icons/moveleft.svg")
+
+        fun movecopy() = findIcon("icons/movecopy.svg")
+
+        fun newTabIcon() = findIcon("icons/new_tab.svg")
     }
 }

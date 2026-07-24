@@ -149,8 +149,25 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.4.8</h2>
+            <h2>🚀 Version v1.1.4.9</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧩 <b>Cross-split Tab Drag:</b> Migrated the more polished two-pane drag: dragging out removes the tab from the source split, a ghost label follows the cursor, and a highlighted placeholder shows the drop position for WYSIWYG insertion</li>
+                <li>🧭 <b>Splitter Layout Convergence:</b> A single <code>refreshSplitterLayout</code> manages left/right mounting, divider visibility, and empty/content page switching, fixing the missing divider after moving tabs</li>
+                <li>📚 <b>VFS URL File Read:</b> <code>read_project_files</code> now accepts VFS URLs (<code>jar://</code>, <code>jrt://</code>, <code>file://</code>) returned by <code>find_project_files</code> / <code>find_project_classes</code> with <code>include_global=true</code>, for reading dependency or SDK sources</li>
+                <li>🏷️ <b>Content Source Marker:</b> Read results mark <code>content_kind</code> as <code>project</code> or <code>external</code></li>
+                <li>📝 <b>IDE Tool Descriptions Rewritten:</b> Rewrote descriptions of 9 IDE project tools to match their real capabilities, covering batch operations, unsaved content, index sources, and boundary constraints</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.9</code> and aligned SDK helper version metadata to <code>1149</code></li>
+                <li>🧩 <b>插件面板跨分屏拖拽：</b>迁移更完善的双栏拖拽实现，拖出即从源分屏移除、幽灵标签随鼠标跟随、目标分屏按落点高亮占位并所见即所得插入</li>
+                <li>🧭 <b>分屏布局收敛：</b>统一 <code>refreshSplitterLayout</code> 管理左右分屏挂载、分隔条与空/内容页切换，修复移动标签后分隔条不显示的问题</li>
+                <li>📚 <b>read_project_files 支持 VFS URL：</b>可直接读取 <code>find_project_files</code> / <code>find_project_classes</code> 在 <code>include_global=true</code> 时返回的 <code>jar://</code>、<code>jrt://</code>、<code>file://</code> 路径，用于查看依赖或 SDK 源码</li>
+                <li>🏷️ <b>内容来源标记：</b>读取结果区分 <code>content_kind</code> 为 <code>project</code> 或 <code>external</code></li>
+                <li>📝 <b>IDE 工具描述重写：</b>按真实能力重写 9 个 IDE 项目工具的描述，补齐批量、未保存内容、索引来源、边界约束等信息</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.9</code>，并同步 SDK Helper 版本元数据到 <code>1149</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.4.8</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>📁 <b>Editor File Context:</b> Chat composer can attach the currently opened editor file path to the start of user messages</li>
                 <li>✂️ <b>Selection Offsets:</b> Selected text is sent as <code>startOffset/endOffset</code>; supports multi-file and multi-caret / block selections within one file</li>
