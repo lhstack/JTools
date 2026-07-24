@@ -50,6 +50,10 @@ internal class AgentChatBrowser(
             client.setProperty(JBCefClient.Properties.JS_QUERY_POOL_SIZE, 1)
             val created = JBCefBrowser.createBuilder()
                 .setClient(client)
+                // windowed（原生窗口）渲染：渲染路径更短、滚动更跟手，中文 IME 走系统原生。
+                // 本 UI 为 webview 独占面板、弹窗均在网页内部，不存在 Swing 浮层与 webview 混叠，
+                // 因此不受 windowed 常见的 z-order 遮挡影响。
+                .setOffScreenRendering(false)
                 .setCreateImmediately(true)
                 .build()
             created.component.background = UIUtil.getPanelBackground()
