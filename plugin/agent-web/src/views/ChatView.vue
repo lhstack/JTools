@@ -32,11 +32,11 @@ const fileContextLabel = computed(() => s.fileContextLabel || '文件上下文')
 const fileContextChip = computed(() => (fileContextEnabled.value ? s.fileContextChip : null) || null)
 const fileContextTitle = computed(() => (
   fileContextEnabled.value
-    ? '关闭文件上下文（仅传递路径，不传文件内容）'
-    : '开启文件上下文（仅传递路径，不传文件内容）'
+    ? '关闭文件上下文：不再附带路径/选中范围'
+    : '开启文件上下文：附带路径；有选区时附带所有选中范围'
 ))
-const fileContextChipTooltip = computed(() => escapeTooltipHtml(fileContextChip.value?.tooltip || fileContextChip.value?.label || ''))
 const fileContextTitleHtml = computed(() => escapeTooltipHtml(fileContextTitle.value))
+const fileContextChipTooltip = computed(() => escapeTooltipHtml(fileContextChip.value?.tooltip || fileContextChip.value?.label || ''))
 function escapeTooltipHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -379,7 +379,7 @@ function drop(event) {
         </div>
       </section>
 
-      <div v-if="drafts.length || fileContextChip" class="draft-strip">
+                  <div v-if="drafts.length || fileContextChip" class="draft-strip">
         <el-tooltip
           v-if="fileContextChip"
           :content="fileContextChipTooltip"
@@ -390,7 +390,7 @@ function drop(event) {
           raw-content
         >
           <div class="file-ref-chip">
-            <span class="file-ref-icon" aria-hidden="true">📎</span>
+            <span class="file-ref-icon" aria-hidden="true">📄</span>
             <b>{{ fileContextChip.label }}</b>
             <el-button
               :icon="Close"
@@ -400,7 +400,7 @@ function drop(event) {
             />
           </div>
         </el-tooltip>
-        <div v-for="item in drafts" :key="item.id" class="draft-chip">
+<div v-for="item in drafts" :key="item.id" class="draft-chip">
           <span v-if="item.kind==='image'&&item.previewUrl" class="draft-thumb" @click="openAttachment(item)"><img :src="item.previewUrl" :alt="item.name"/></span>
           <span v-else class="draft-icon" @click="openAttachment(item)">▤</span>
           <div @click="openAttachment(item)">
