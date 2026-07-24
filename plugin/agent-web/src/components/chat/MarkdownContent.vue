@@ -16,7 +16,20 @@ renderer.code = ({ text, lang }) => {
 }
 const html = computed(() => DOMPurify.sanitize(marked.parse(props.content || '', { renderer }), { ADD_ATTR: ['data-copy'] }))
 
+// 链接改为交给 IDE 用外部浏览器打开，避免在 JCEF 内导航导致整个对话页跳走无法返回。
+function openLinkExternally(event) {
+  const anchor = event.target.closest('a')
+  if (!anchor) return false
+  const href = anchor.getAttribute('href') || ''
+  // 只接管带协议的外链（http/https/mailto 等），锚点与空链接交回默认行为。
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(href)) return false
+  event.preventDefault()
+  invoke('link.open', { text: href })
+  return true
+}
+
 async function click(event) {
+  if (openLinkExternally(event)) return
   const button = event.target.closest('[data-copy]')
   if (!button) return
   const code = button.closest('.code')?.querySelector('code')?.textContent

@@ -1490,21 +1490,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        if (item.runningToolIds.isNotEmpty()) {
-            cancelActiveTool(item)
-        } else {
-            cancelModelResponse(item)
+        // 停止动作本身也放到后台，避免在 EDT 上触发 OkHttp 关闭/日志写回导致卡顿。
+        ApplicationManager.getApplication().executeOnPooledThread {
+            if (item.runningToolIds.isNotEmpty()) {
+                cancelActiveTool(item)
+            } else {
+                cancelModelResponse(item)
+            }
         }
     }
 
     private fun cancelActiveTool(item: ChatQueueItem) {
         item.toolCancelRequested = true
         item.toolToken.cancel()
-        markQueueItemCancellationRequested(item)
+        onUi {
+            markQueueItemCancellationRequested(item)
+        }
         // Keep the conversation alive so the model can receive the cancelled tool result.
     }
 
     private fun cancelModelResponse(item: ChatQueueItem) {
+        // 热路径只打取消标记 + 发 token 取消；真正收尾由 worker 的 catch 完成。
         item.conversationCancelRequested = true
         item.token.cancel()
         if (!hasAssistantOutput(item)) {
@@ -1513,12 +1519,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 item.status = ChatQueueStatus.CANCELLED
                 chatQueue.remove(item)
             }
-            logId?.let(ModelLogService::deleteChatTurn)
-            discardQueueCards(item)
+            onUi {
+                if (project.isDisposed || Disposer.isDisposed(this)) return@onUi
+                logId?.let(ModelLogService::deleteChatTurn)
+                discardQueueCards(item)
+                refreshQueuePanel()
+                updateActiveStopButton()
+                refreshCurrentSessionHistoryIfVisible(item.sessionId)
+                processQueue()
+            }
+        } else {
+            // 已有输出：不要在这里碰历史/卡片；只刷新队列状态，等 worker 走取消收尾。
             refreshQueuePanel()
-            updateActiveStopButton()
-            refreshCurrentSessionHistoryIfVisible(item.sessionId)
-            processQueue()
         }
     }
 

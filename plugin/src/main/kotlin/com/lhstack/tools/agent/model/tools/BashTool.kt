@@ -6,6 +6,9 @@ import com.google.gson.JsonParser
 import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.llm.ToolDefinition
 import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import java.io.File
 import java.nio.charset.Charset
 import java.io.ByteArrayOutputStream
@@ -33,7 +36,7 @@ class BashTool(
         val shell = SelectedShell.current()
         return ToolDefinition(
             name = NAME,
-            description = "使用 ${shell.label} 执行命令并返回 stdout、stderr 和退出码。省略 cwd 时使用系统默认工作目录。最大仅返回 8k的内容，超过 8k整个命令的内容将不返回。",
+            description = "使用 ${shell.label} 执行命令并返回 stdout、stderr 和退出码。省略 cwd 时使用系统默认工作目录。输出上限约 8KB，超过后只返回前 8KB 并在 stderr 说明已截断（进程会被终止），完整输出请用 head/tail/grep 缩小或重定向到文件再分段读取。命令改动文件后若要用 read_project_files 读取，请把 refresh_vfs 设为 true 刷新 IDE 缓存。",
             parameters = JsonParser.parseString(
                 """
                 {
@@ -50,6 +53,10 @@ class BashTool(
                         "timeout_secs": {
                             "type": "integer",
                             "description": "可选。超时秒数，默认30，最大300。"
+                        },
+                        "refresh_vfs": {
+                            "type": "boolean",
+                            "description": "可选。默认false。命令改动了工作区文件且随后要用 read_project_files 等基于 IDE VFS 的工具读取时，设为 true 刷新 IDE 缓存；纯查询命令保持 false 以免影响性能。"
                         }
                     },
                     "required": ["command"]
@@ -77,6 +84,8 @@ class BashTool(
         }
         val timeoutSecs = obj.get("timeout_secs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
             ?.asLong?.coerceIn(1, 300) ?: 30
+        val refreshVfs = obj.get("refresh_vfs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
+            ?.asBoolean ?: false
 
         val shell = SelectedShell.current()
         val builder = ProcessBuilder(shell.program, *shell.args, command)
@@ -124,12 +133,6 @@ class BashTool(
         stdoutThread.join(1000)
         stderrThread.join(1000)
 
-        if (outputExceeded) {
-            throw ToolException(
-                ToolOutputLimit.message(NAME),
-            )
-        }
-
         val stdout = stdoutCapture.text(shell.outputCharset)
         var stderr = stderrCapture.text(shell.outputCharset)
         val exitCode = if (process.isAlive) null else process.exitValue()
@@ -142,12 +145,37 @@ class BashTool(
             if (stderr.isNotEmpty()) stderr += "\n"
             stderr += "用户手动取消"
         }
+        // 输出超上限：进程已被终止且只保留了前面部分，这里不再整段丢弃，
+        // 而是保留已捕获内容并追加说明，最终字节裁剪由 ToolRuntime 的 truncateToLimit 兜底。
+        if (outputExceeded) {
+            if (stderr.isNotEmpty()) stderr += "\n"
+            stderr += "输出超过上限已停止捕获并终止进程，仅返回前面部分；" +
+                "如需完整输出请用 head/tail/grep 缩小结果，或重定向到文件后用 read_project_files 分段读取。"
+        }
+
+        // 仅在调用方显式要求时刷新 VFS：避免每次命令都刷新拖累性能。
+        // 命令改动了磁盘文件且随后要用 read_project_files 读取时，调用方应传 refresh_vfs=true。
+        if (refreshVfs) refreshVfsAfterCommand(cwd)
 
         return JsonObject().apply {
             if (exitCode != null) addProperty("exit_code", exitCode) else add("exit_code", com.google.gson.JsonNull.INSTANCE)
-            addProperty("success", exitCode == 0 && !timedOut && !cancelled)
+            addProperty("success", exitCode == 0 && !timedOut && !cancelled && !outputExceeded)
             addProperty("stdout", stdout)
             addProperty("stderr", stderr)
+        }
+    }
+
+    /**
+     * 命令执行后刷新工作目录的 VFS：让 IDE 重新扫描磁盘变更，
+     * 使 read_project_files 等基于 VFS 的工具能读到 bash 刚写入/修改的最新内容。
+     * async=true 不阻塞工具线程；文件不在 VFS 中（如全新目录）时静默跳过。
+     */
+    private fun refreshVfsAfterCommand(cwd: File) {
+        runCatching {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(cwd) ?: return@executeOnPooledThread
+                VfsUtil.markDirtyAndRefresh(true, true, true, file)
+            }
         }
     }
 
