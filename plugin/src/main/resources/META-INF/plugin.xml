@@ -47,11 +47,12 @@
         <![CDATA[
             <h2>Version v1.1.0.5</h2>
             <ul>
-                <li>对话支持文件上下文：按项目开关，发送当前打开文件路径；有选区时附加 startOffset/endOffset。</li>
-                <li>UI 以短 chip 展示文件上下文，悬停显示完整路径；图标按钮开关，兼容旧 JCEF（自定义浮层提示，避免 color-mix / 原生 title 失效）。</li>
+                <li>对话支持文件上下文（按项目开关）：发送当前打开文件路径；有选区时附带 startOffset/endOffset。</li>
+                <li>支持多文件选区、同文件多光标/块选多处选区；发送前缀全部带上。</li>
+                <li>UI 以单个 chip 汇总展示，悬停提示列出全部路径与 offset（兼容旧 JCEF，自定义悬浮提示，避免 color-mix / 原生 title 失效）。</li>
                 <li>read_project_files 支持 offset_ranges，可按选区 offset 读取内容。</li>
-                <li>按项目记住并恢复激活会话，IDE 重启后不再总是落到最近更新的全局会话。</li>
-                <li>工具详情 JSON 查看改用只读文本区，避免关项目时 Editor 未释放。</li>
+                <li>按项目记住并恢复激活会话，IDE 重启后不会误跳到其他项目的全局会话。</li>
+                <li>工具详情 JSON 查看改为只读文本（JBTextArea），避免关项目时 Editor 未释放。</li>
                 <li>修复中文输入法场景下发送按钮高亮与发送失效问题，兼容 IME 组字状态粘滞。</li>
                 <li>修复进行中对话点停止导致 IDE 卡死的问题（取消 IO 异步化、避免全量历史重渲）。</li>
                 <li>优化生成中内容区滚动行为，降低滚动条闪烁。</li>

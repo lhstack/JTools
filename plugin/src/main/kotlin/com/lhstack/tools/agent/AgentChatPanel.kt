@@ -1009,7 +1009,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val prompt = if (AgentEditorFileContextSupport.isEnabled(currentProjectPath())) {
             AgentEditorFileContextSupport.prependToPrompt(
                 rawPrompt,
-                AgentEditorFileContextSupport.collect(project),
+                AgentEditorFileContextSupport.collectAll(project),
             )
         } else {
             rawPrompt
@@ -2756,10 +2756,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val background = UIUtil.getPanelBackground()
         val fileContextEnabled = AgentEditorFileContextSupport.isEnabled(currentProjectPath())
-        val fileContextSnapshot = if (fileContextEnabled) {
-            AgentEditorFileContextSupport.collect(project)
+        val fileContextSnapshots = if (fileContextEnabled) {
+            AgentEditorFileContextSupport.collectAll(project)
         } else {
-            null
+            emptyList()
         }
         chatBrowser.replaceState(AgentBrowserState(
             dark = ColorUtil.isDark(background),
@@ -2783,15 +2783,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             inputRestore = browserInputRestore,
             fileContextEnabled = fileContextEnabled,
             fileContextLabel = AgentEditorFileContextSupport.buttonLabel(fileContextEnabled),
-            fileContextChip = fileContextSnapshot?.let { snapshot ->
+            fileContextChip = fileContextSnapshots.takeIf { it.isNotEmpty() }?.let { snapshots ->
+                val primary = snapshots.first()
                 AgentBrowserFileContextChip(
-                    label = AgentEditorFileContextSupport.formatChipLabel(snapshot) ?: snapshot.fileName,
-                    tooltip = AgentEditorFileContextSupport.formatChipTooltip(snapshot) ?: snapshot.path,
-                    path = snapshot.path,
-                    startOffset = snapshot.startOffset,
-                    endOffset = snapshot.endOffset,
-                    startLine = snapshot.startLine,
-                    endLine = snapshot.endLine,
+                    label = AgentEditorFileContextSupport.formatChipLabel(snapshots) ?: primary.fileName,
+                    tooltip = AgentEditorFileContextSupport.formatChipTooltip(snapshots) ?: primary.path,
+                    path = primary.path,
+                    startOffset = primary.startOffset,
+                    endOffset = primary.endOffset,
+                    startLine = primary.startLine,
+                    endLine = primary.endLine,
+                    items = snapshots.map { snap ->
+                        AgentBrowserFileContextItem(
+                            path = snap.path,
+                            startOffset = snap.startOffset,
+                            endOffset = snap.endOffset,
+                            startLine = snap.startLine,
+                            endLine = snap.endLine,
+                        )
+                    },
                 )
             },
         ))
@@ -2820,6 +2830,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private data class AgentBrowserFileContextChip(
         @SerializedName("label") val label: String,
         @SerializedName("tooltip") val tooltip: String,
+        @SerializedName("path") val path: String,
+        @SerializedName("startOffset") val startOffset: Int?,
+        @SerializedName("endOffset") val endOffset: Int?,
+        @SerializedName("startLine") val startLine: Int?,
+        @SerializedName("endLine") val endLine: Int?,
+        @SerializedName("items") val items: List<AgentBrowserFileContextItem> = emptyList(),
+    )
+    private data class AgentBrowserFileContextItem(
         @SerializedName("path") val path: String,
         @SerializedName("startOffset") val startOffset: Int?,
         @SerializedName("endOffset") val endOffset: Int?,
