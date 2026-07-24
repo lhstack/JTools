@@ -64,6 +64,12 @@ class ContentPageAction(
 
     private val splitter = JBSplitter(false)
 
+    /**
+     * 跨分屏拖拽是否进行中。进行中时禁止卸载已挂载的分屏组件，
+     * 避免中途卸载源分屏组件打断平台拖拽，导致拖拽被取消、标签回弹。
+     */
+    private var crossPaneDragActive = false
+
     private val goToPluginButton: JButton = object : JButton() {
         override fun contains(x: Int, y: Int): Boolean {
             val width = width
@@ -309,14 +315,18 @@ class ContentPageAction(
     private fun refreshSplitterLayout() {
         val leftComponent = leftTabsPane.component.takeIf { leftTabsPane.tabCount > 0 }
         val rightComponent = rightTabsPane.component.takeIf { rightTabsPane.tabCount > 0 }
-        if (splitter.firstComponent !== leftComponent) {
+        // 跨分屏拖拽进行中不卸载已挂载的分屏组件：卸载会改变组件层级、打断平台 DragHelper
+        // 的鼠标跟踪，使拖最后一个标签时被误判为取消而回弹。仅允许挂载（占位标签落到空侧时需要显示）。
+        if (splitter.firstComponent !== leftComponent && !(crossPaneDragActive && leftComponent == null)) {
             splitter.firstComponent = leftComponent
         }
-        if (splitter.secondComponent !== rightComponent) {
+        if (splitter.secondComponent !== rightComponent && !(crossPaneDragActive && rightComponent == null)) {
             splitter.secondComponent = rightComponent
         }
-        splitter.divider.isVisible = leftComponent != null && rightComponent != null
-        cardLayout.show(contentPanel, if (leftComponent == null && rightComponent == null) cardEmpty else cardView)
+        val firstVisible = splitter.firstComponent != null
+        val secondVisible = splitter.secondComponent != null
+        splitter.divider.isVisible = firstVisible && secondVisible
+        cardLayout.show(contentPanel, if (!firstVisible && !secondVisible) cardEmpty else cardView)
     }
 
     /**
@@ -334,6 +344,7 @@ class ContentPageAction(
 
         override fun dragOutStarted(mouseEvent: MouseEvent, info: TabInfo) {
             val panel = info.component as? PluginTabPanel ?: return
+            crossPaneDragActive = true
             sourcePane = panel.tabsPanel
             ghost = DragGhost(panel.tabsPanel, info)
             panel.tabsPanel.removeTab(info)
@@ -355,6 +366,8 @@ class ContentPageAction(
             val target = placeholderPane ?: paneAtScreenPoint(mouseEvent) ?: source
             val index = placeholderIndex(target) ?: dropIndexFor(target, mouseEvent)
             removePlaceholder()
+            // 拖拽已结束，恢复收敛：addBackTab 内的刷新据此收起空掉的源分屏。
+            crossPaneDragActive = false
             addBackTab(target, info, index)
         }
 
@@ -364,6 +377,7 @@ class ContentPageAction(
             ghost?.dispose()
             ghost = null
             removePlaceholder()
+            crossPaneDragActive = false
             addBackTab(source, info, -1)
         }
 
