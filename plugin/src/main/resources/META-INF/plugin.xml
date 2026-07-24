@@ -52,6 +52,12 @@
                 <li>落点索引按横向排列的 x 中点计算，插入顺序符合鼠标位置；悬停占位时保持不动，消除来回闪烁。</li>
                 <li>修复跨分屏移动标签后分隔条不显示的问题：统一收敛分屏布局状态，避免状态判断早于标签变更。</li>
                 <li>read_project_files 支持按 VFS URL（jar://、file://、jrt:// 等）读取，可直接消费检索工具返回的依赖/SDK 路径。</li>
+                <li>从根因修复旧 JCEF 下中文输入异常（下划线残留、失焦内容还原）：对话浏览器改用 windowed 渲染模式（setOffScreenRendering(false)），IME 走系统原生。</li>
+                <li>移除对话输入框一整套 IME 兼容 hack（DOM 兜底读值、MutationObserver 手动绑定、组字安全定时器等），回归标准 v-model。</li>
+                <li>对话消息中的链接改为交给系统外部浏览器打开：前端拦截 &lt;a&gt; 点击，JCEF 侧 onBeforeBrowse 兜底，避免 webview 跳走后无法返回。</li>
+                <li>工具输出超过 8KB 时改为保留前 8KB 并追加截断说明（按 UTF-8 字符边界安全截断），不再整段丢弃。</li>
+                <li>bash 工具新增 refresh_vfs 可选参数，仅在需要时刷新 VFS，避免每次执行都刷新影响性能。</li>
+                <li>重写 9 个 IDE 项目工具的描述，补齐批量、未保存内容、索引来源、边界约束等信息；工具参数解析兼容模型传入的字符串化 JSON 数组/对象。</li>
                 <li>调高 Kotlin 守护进程堆内存，修复打包时编译 OOM。</li>
                 <li>同步版本号到 v1.1.0.6，SDK Helper 版本元数据更新为 1106。</li>
             </ul>

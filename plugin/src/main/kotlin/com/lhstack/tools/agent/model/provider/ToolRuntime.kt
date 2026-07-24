@@ -112,9 +112,11 @@ class ToolRuntime(
             return "工具调用失败: 模型请求了未注册的工具 `${call.name}`"
         }
         return try {
-            val output = stringifyToolOutput(tools[index].callJsonBlocking(call.arguments))
-            if (call.name in LIMITED_OUTPUT_TOOLS) {
-                ToolOutputLimit.requireWithinLimit(call.name, output)
+            val rawOutput = stringifyToolOutput(tools[index].callJsonBlocking(call.arguments))
+            val output = if (call.name in LIMITED_OUTPUT_TOOLS) {
+                ToolOutputLimit.truncateToLimit(call.name, rawOutput)
+            } else {
+                rawOutput
             }
             if (isCancellationRequested()) "用户手动取消" else output
         } catch (e: Throwable) {

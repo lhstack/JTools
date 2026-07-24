@@ -28,7 +28,7 @@ import org.jetbrains.concurrency.CancellablePromise
 internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "读取项目文本文件，支持按行范围或字符 offset 范围读取，以及未保存内容。用户消息中的 startOffset/endOffset 可直接用于 offset_ranges。",
+        "读取项目内文本文件的内容，通过 IDE VFS 读取，能拿到编辑器中尚未保存的最新内容。可整文件读取，也可按 line_ranges（1 起始闭区间）或 offset_ranges（0 起始半开区间字符偏移）读取，二者互斥；用户消息里的 startOffset/endOffset 可直接填入 offset_ranges。支持一次传多个请求批量读取，同一文件可用不同范围重复读取。path 支持项目相对路径，也支持 find_project_files / find_project_classes 在 include_global=true 时返回的 VFS URL（如 jar://、jrt://、file://），用于读取依赖或 SDK 源码。返回包含 charset、content_kind（project/external）、line_count、按行内容及是否截断等信息。",
         """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。不可与 offset_ranges 同时使用。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"offset_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个字符 offset 半开区间 [start_offset, end_offset)；与编辑器选区 startOffset/endOffset 一致。不可与 line_ranges 同时使用。","items":{"type":"object","properties":{"start_offset":{"type":"integer","minimum":0,"description":"必填。 起始字符偏移，从0开始。"},"end_offset":{"type":"integer","minimum":0,"description":"必填。 结束字符偏移（不含该位置），须 >= start_offset。"}},"required":["start_offset","end_offset"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
@@ -61,7 +61,7 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
 internal class WriteProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "创建或完整覆盖项目文本文件。局部修改请使用 replace_project_text。",
+        "以完整内容创建新文件或整体覆盖已有文件（写入前自动创建缺失的父目录）。写入经 IDE 文档层并保存，行分隔符会规范化。默认拒绝覆盖已存在文件，需 overwrite=true 才覆盖。支持一次传 1 到 20 个写入，路径不能重复。仅限项目根目录内。局部修改请用 replace_project_text，避免重写整个文件。",
         """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个完整文件写入，路径不能重复。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对目标路径。"},"content":{"type":"string","description":"必填。 文件完整内容，可为空字符串。"},"overwrite":{"type":"boolean","default":false,"description":"可选。 是否覆盖已有文件，默认false。"}},"required":["path","content"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
@@ -82,7 +82,7 @@ internal class WriteProjectFilesTool(private val support: IdeProjectSupport) : T
 internal class ReplaceProjectTextTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "精确替换项目文件中的文本；默认要求旧文本仅出现一次。",
+        "对项目文件做精确文本替换，在 IDE 文档层修改并保存，适合不重写整个文件的局部编辑。默认要求 old_text 在文件中恰好出现一次，否则报错；replace_all=true 时替换全部匹配。new_text 可为空串以删除匹配文本。支持一次传 1 到 20 个修改，同一文件可多处修改，各修改基于修改前的内容且目标范围不能重叠。",
         """{"type":"object","properties":{"edits":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个精确文本修改；同一路径可包含多个修改，各修改基于修改前的文件内容且目标范围不能重叠。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 Existing text-file path relative to the current project root."},"old_text":{"type":"string","minLength":1,"description":"必填。 Non-empty exact text to locate. When case_sensitive is false, matching ignores letter case."},"new_text":{"type":"string","description":"必填。 Text that replaces old_text. May be an empty string to delete the matched text."},"replace_all":{"type":"boolean","default":false,"description":"可选。 Default false requires exactly one match. Set true to replace every match in the file."},"case_sensitive":{"type":"boolean","default":true,"description":"可选。 Whether old_text matching is case-sensitive. Default true."}},"required":["path","old_text","new_text"],"additionalProperties":false}}},"required":["edits"],"additionalProperties":false}""",
     )
 
@@ -105,7 +105,7 @@ internal class ReplaceProjectTextTool(private val support: IdeProjectSupport) : 
 internal class FindProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "按文件名或路径模糊查找文件。默认只查当前项目；include_global=true 时包含依赖、SDK 和外部文件。",
+        "借助 IDE 的 Go to File 索引按文件名或相对路径模糊查找文件，返回匹配文件的相对路径并标记结果是否被截断。可一次传 1 到 20 个查询，各查询独立返回。默认只在当前项目内查找；include_global=true 时扩展到依赖、SDK 和外部文件，此时命中项路径可能是 jar://、jrt:// 等 VFS URL，可直接交给 read_project_files 读取。",
         """{"type":"object","properties":{"queries":{"type":"array","minItems":1,"maxItems":20,"description":"必填。1到20个文件名或相对路径模糊查询。","items":{"type":"string","minLength":1,"description":"必填。文件名或路径查询。"}},"max_results_per_query":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。每个查询最多返回数量，默认100，范围1到1000。"},"include_global":{"type":"boolean","default":false,"description":"可选。是否包含依赖、SDK和外部文件，默认false。"}},"required":["queries"],"additionalProperties":false}""",
     )
 
@@ -126,7 +126,7 @@ internal class FindProjectFilesTool(private val support: IdeProjectSupport) : To
 internal class FindProjectClassesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "按名称模糊查找类或当前语言插件支持的类型。默认只查当前项目；include_global=true 时包含依赖和 SDK。",
+        "借助 IDE 的 Go to Class 索引按名称模糊查找类，或当前语言插件支持的其它可导航类型。返回项包含简单名、限定名，若能定位到文件还会带上相对路径与行号，并标记结果是否被截断。可一次传 1 到 20 个查询，各查询独立返回。默认只查当前项目；include_global=true 时扩展到依赖和 SDK，此时命中项路径可能是 jar://、jrt:// 等 VFS URL，可直接交给 read_project_files 读取源码。仅支持已安装对应语言插件的类型。",
         """{"type":"object","properties":{"queries":{"type":"array","minItems":1,"maxItems":20,"description":"必填。1到20个类名或类型名模糊查询。","items":{"type":"string","minLength":1,"description":"必填。类名、类型名或限定名。"}},"max_results_per_query":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。每个查询最多返回数量，默认100，范围1到1000。"},"include_global":{"type":"boolean","default":false,"description":"可选。是否包含依赖和SDK中的类型，默认false。"}},"required":["queries"],"additionalProperties":false}""",
     )
 
@@ -147,7 +147,7 @@ internal class FindProjectClassesTool(private val support: IdeProjectSupport) : 
 internal class SearchProjectTextTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "搜索项目文件内容，支持正则、大小写、文件名过滤和上下文行。只查文件名请使用 find_project_files。",
+        "在项目范围内全文搜索文件内容，基于 IDE 的 Find in Files 索引，搜索前会等索引就绪。支持普通文本或正则（use_regex）、区分或忽略大小写（case_sensitive）。可用 file_name_glob 按文件名或项目相对路径 glob（支持 *、**、?，如 *.md 或 src/**/*.kt）过滤。每个匹配返回命中行的路径、行号、内容，以及前后 context_lines 行上下文，并标记结果是否被截断。只想按文件名查找请用 find_project_files。",
         """{"type":"object","properties":{"text":{"type":"string","minLength":1,"description":"必填。搜索文本；use_regex=true时为正则。"},"use_regex":{"type":"boolean","default":false,"description":"可选。是否使用正则，默认false。"},"case_sensitive":{"type":"boolean","default":true,"description":"可选。是否区分大小写，默认true。"},"file_name_glob":{"type":"string","minLength":1,"description":"可选。文件名或项目相对路径glob；支持*、**、?，如*.md或src/**/*.xx。默认不过滤。"},"context_lines":{"type":"integer","minimum":0,"maximum":20,"default":2,"description":"可选。匹配行前后上下文行数，默认2，范围0到20。"},"max_results":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。最多返回数量，默认100，范围1到1000。"}},"required":["text"],"additionalProperties":false}""",
     )
 
@@ -169,7 +169,7 @@ internal class SearchProjectTextTool(private val support: IdeProjectSupport) : T
 internal class FormatProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "使用 IDE 格式化项目文件的指定行范围并保存。",
+        "使用 IDE 当前代码风格格式化项目文件中指定的行范围并保存。必须提供 line_ranges，只格式化选定行，不会整文件重排，避免影响未选中的改动。同一文件可传多个行范围，范围须有序且不重叠。可一次传 1 到 20 个文件。仅对已安装文件类型插件支持的文件生效。",
         """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个需要格式化的项目文件。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对文件路径。"},"line_ranges":{"type":"array","minItems":1,"description":"必填。 有序且不重叠的闭区间，行号从1开始。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 格式化起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 格式化结束行，包含该行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"timeout_secs":{"type":"integer","minimum":1,"maximum":120,"default":30,"description":"可选。 格式化超时秒数，默认30，范围1到120。"}},"required":["path","line_ranges"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
@@ -197,7 +197,7 @@ internal class BuildProjectTool(
     override val executionTimeoutSeconds: Long = 660L
     override fun definition(prompt: String) = definition(
         NAME,
-        "使用 IDE 构建或重新构建当前项目，并返回状态和诊断。",
+        "调用 IDE 的构建系统对当前整个项目发起构建（build）或重新构建（rebuild，先清理再全量构建），执行前会先保存所有打开文档。构建结束返回状态（completed/failed/aborted）、是否成功、错误与告警计数及明细、stdout/stderr 输出。支持通过取消令牌中断，可设置超时。用于验证改动是否通过编译。",
         """{"type":"object","properties":{"mode":{"type":"string","enum":["build","rebuild"],"default":"build","description":"可选。 构建模式，默认build；rebuild表示重新构建。"},"timeout_secs":{"type":"integer","minimum":1,"maximum":3600,"default":600,"description":"可选。 构建超时秒数，默认600，范围1到3600。"}},"required":[],"additionalProperties":false}""",
     )
 
@@ -299,7 +299,7 @@ internal class BuildProjectTool(
 internal class InspectProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "使用当前 IDE 检查配置检查指定项目文件，并返回问题位置和级别。",
+        "用 IDE 当前生效的 Inspection Profile 对指定项目文件做代码检查（等同 IDE 的 Inspect Code），返回每个问题的级别、描述、行列位置和字符 offset 区间。检查在智能模式下运行并等索引就绪。可一次传 1 到 20 个不重复文件；errors_only=true 时只返回错误级问题。仅对已安装文件类型插件支持的文件生效。",
         """{"type":"object","properties":{"paths":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个不重复的项目文件路径。","items":{"type":"string","minLength":1,"description":"必填。 项目根目录相对文件路径。"}},"errors_only":{"type":"boolean","default":false,"description":"可选。 是否只返回错误级问题，默认false。"}},"required":["paths"],"additionalProperties":false}""",
     )
 
@@ -352,7 +352,7 @@ private fun inspectFile(
         .asSequence()
         .filter { wrapper -> profile.isToolEnabled(wrapper.displayKey, psiFile) }
         .mapNotNull { wrapper -> wrapper.tool as? com.intellij.codeInspection.LocalInspectionTool }
-                .flatMap { tool ->
+        .flatMap { tool ->
             ProgressManager.checkCanceled()
             tool.processFile(psiFile, inspectionManager).asSequence()
         }
@@ -401,8 +401,7 @@ private val ERROR_HIGHLIGHT_TYPES = setOf(
 
 private fun JsonObject.objectArray(name: String): List<JsonObject> {
     val element = get(name) ?: throw ToolException("missing argument `$name`")
-    require(element.isJsonArray) { "$name must be an array" }
-    return element.asJsonArray.map { it.obj("$name item") }.also { values ->
+    return element.asJsonArrayLenient(name).map { it.obj("$name item") }.also { values ->
         require(values.isNotEmpty()) { "$name must not be empty" }
         require(values.size <= MAX_BATCH_ITEMS) { "$name supports at most $MAX_BATCH_ITEMS items" }
     }
@@ -410,8 +409,7 @@ private fun JsonObject.objectArray(name: String): List<JsonObject> {
 
 private fun JsonObject.stringArray(name: String): List<String> {
     val element = get(name) ?: throw ToolException("missing argument `$name`")
-    require(element.isJsonArray) { "$name must be an array" }
-    return element.asJsonArray.mapIndexed { index, item ->
+    return element.asJsonArrayLenient(name).mapIndexed { index, item ->
         item.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
             ?.asString?.takeIf { it.isNotBlank() }
             ?: throw ToolException("$name item ${index + 1} must be a non-blank string")
@@ -435,8 +433,29 @@ private fun definition(name: String, description: String, schema: String) = Tool
     parameters = JsonParser.parseString(schema),
 )
 
-private fun JsonElement.obj(name: String = "arguments"): JsonObject =
-    takeIf { it.isJsonObject }?.asJsonObject ?: throw ToolException("$name must be a JSON object")
+private fun JsonElement.obj(name: String = "arguments"): JsonObject {
+    if (isJsonObject) return asJsonObject
+    // 兼容部分模型把对象序列化成 JSON 字符串（如 "{...}"）而非真正的 JSON 对象。
+    if (isJsonPrimitive && asJsonPrimitive.isString) {
+        val parsed = runCatching { JsonParser.parseString(asString) }.getOrNull()
+        if (parsed != null && parsed.isJsonObject) return parsed.asJsonObject
+    }
+    throw ToolException("$name must be a JSON object")
+}
+
+/**
+ * 宽松解析 JSON 数组：既接受真正的 JSON 数组，也兼容部分模型把数组序列化成 JSON 字符串
+ * （如 "[{...}]"）后再传入的情况。只有解析结果确实是数组才接受，否则报清晰错误，
+ * 不掩盖真正的参数类型问题。
+ */
+private fun JsonElement.asJsonArrayLenient(name: String): JsonArray {
+    if (isJsonArray) return asJsonArray
+    if (isJsonPrimitive && asJsonPrimitive.isString) {
+        val parsed = runCatching { JsonParser.parseString(asString) }.getOrNull()
+        if (parsed != null && parsed.isJsonArray) return parsed.asJsonArray
+    }
+    throw ToolException("$name must be an array")
+}
 
 private fun JsonObject.string(name: String): String = optionalString(name)?.takeIf { it.isNotBlank() }
     ?: throw ToolException("missing argument `$name`")

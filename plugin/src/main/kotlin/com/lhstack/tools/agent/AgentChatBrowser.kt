@@ -18,6 +18,8 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefDragHandler
 import org.cef.handler.CefKeyboardHandler
 import org.cef.handler.CefKeyboardHandlerAdapter
+import org.cef.handler.CefRequestHandlerAdapter
+import org.cef.network.CefRequest
 import org.cef.misc.BoolRef
 import org.cef.misc.EventFlags
 import org.cef.callback.CefDragData
@@ -50,6 +52,9 @@ internal class AgentChatBrowser(
             client.setProperty(JBCefClient.Properties.JS_QUERY_POOL_SIZE, 1)
             val created = JBCefBrowser.createBuilder()
                 .setClient(client)
+                // 关闭离屏渲染，改用原生窗口模式：老 JCEF(2022.3) 的 OSR 模式中文 IME 有问题
+                // （preedit 下划线消不掉、组字不 commit、失焦丢字），windowed 模式走系统原生输入法即正常。
+                .setOffScreenRendering(false)
                 .build()
             created.component.background = UIUtil.getPanelBackground()
             created.setPageBackgroundColor(css(UIUtil.getPanelBackground()))
@@ -117,6 +122,32 @@ internal class AgentChatBrowser(
                     }
                 }, created.cefBrowser)
             }
+            // 兜底拦截主框架导航：任何离开本地对话页（http://jtools.agent/...）的导航都改为
+            // 交给 IDE 用外部浏览器打开，避免 JCEF 内部跳走整个对话页且无法返回。
+            // 前端已对 <a> 点击做了拦截，这里覆盖中键点击、window.location 等绕过前端的场景。
+            client.addRequestHandler(object : CefRequestHandlerAdapter() {
+                override fun onBeforeBrowse(
+                    browser: CefBrowser,
+                    frame: CefFrame,
+                    request: CefRequest,
+                    userGesture: Boolean,
+                    isRedirect: Boolean,
+                ): Boolean {
+                    if (!frame.isMain) return false
+                    // 只接管真实用户手势触发的导航；初始 loadHTML 与 JCEF 内部导航 userGesture=false，放行。
+                    if (!userGesture) return false
+                    val url = request.url ?: return false
+                    // 本地对话页放行；只把 http/https/mailto 等真实外链交给外部浏览器，其余（about:、data: 等内部协议）放行。
+                    if (url.startsWith(LOCAL_PAGE_URL_PREFIX)) return false
+                    if (!isExternalLink(url)) return false
+                    ApplicationManager.getApplication().invokeLater {
+                        onCommand(AgentBrowserCommand("link.open", com.google.gson.JsonObject().apply {
+                            addProperty("text", url)
+                        }))
+                    }
+                    return true
+                }
+            }, created.cefBrowser)
             client.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
                     if (!frame.isMain) return
@@ -147,7 +178,6 @@ internal class AgentChatBrowser(
                     if (!ta) ta = document.activeElement;
                     // 中文 IME 组字中不发送，避免半成品拼音/候选状态被提交。
                     if (ta && ta.isComposing) return;
-                    if (window.jtoolsImeComposing && ta && !String(ta.value || '').trim()) return;
                     var text = (ta && (ta.tagName === 'TEXTAREA' || ta.tagName === 'INPUT')) ? (ta.value || '') : '';
                     if (!String(text).trim()) {
                         var btnEmpty = document.querySelector('.composer-send');
@@ -204,6 +234,16 @@ internal class AgentChatBrowser(
         renderTimer.stop()
         pendingState = null
         ready = false
+    }
+
+    private companion object {
+        // 本地对话页地址前缀；导航目标以此开头视为内部页面，其余一律交给外部浏览器。
+        const val LOCAL_PAGE_URL_PREFIX = "http://jtools.agent/"
+
+        // 只把 http/https/mailto 等真实外链交给外部浏览器；about:、data:、blob: 等内部协议放行。
+        private val EXTERNAL_LINK_PATTERN = Regex("^(https?|mailto):", RegexOption.IGNORE_CASE)
+
+        fun isExternalLink(url: String): Boolean = EXTERNAL_LINK_PATTERN.containsMatchIn(url)
     }
 
     private fun loadPage(): String {
