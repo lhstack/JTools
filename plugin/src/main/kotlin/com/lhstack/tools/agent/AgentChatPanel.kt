@@ -137,6 +137,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val INPUT_COMPOSER_FOCUS_BORDER = JBColor(0x4B90FF, 0x4B90FF)
     }
 
+    @Volatile
+    private var disposed = false
+
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val chatBrowser: AgentChatBrowser by lazy { AgentChatBrowser(gson, ::handleBrowserCommand, onDropFiles = ::addAttachmentFiles) }
     private val managementWindows by lazy { AgentManagementWindowManager(project, gson, ::refreshManagementData) }
@@ -1520,7 +1523,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 chatQueue.remove(item)
             }
             onUi {
-                if (project.isDisposed || Disposer.isDisposed(this)) return@onUi
+                if (project.isDisposed || disposed) return@onUi
                 logId?.let(ModelLogService::deleteChatTurn)
                 discardQueueCards(item)
                 refreshQueuePanel()
@@ -2562,6 +2565,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     override fun dispose() {
+        disposed = true
         browserStateTimer.stop()
         agentRunSubscription?.close()
         agentRunDeliverySubscription?.close()

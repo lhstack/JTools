@@ -1,6 +1,6 @@
 package com.lhstack.tools.agent
 
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -45,7 +45,7 @@ object AgentEditorFileContextSupport {
 
     fun collect(project: Project): Snapshot? = collectAll(project).firstOrNull()
 
-    fun collectAll(project: Project): List<Snapshot> = ReadAction.compute<List<Snapshot>, RuntimeException> {
+    fun collectAll(project: Project): List<Snapshot> = runReadAction {
         collectAllInReadAction(project)
     }
 
