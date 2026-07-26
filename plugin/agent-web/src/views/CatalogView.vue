@@ -93,6 +93,9 @@ async function saveProvider(){
     if(/^authorization$/i.test(name)){ElMessage.warning('自定义请求头不支持 Authorization，请使用上方 API Key');return}
   }
   provider.providerConfig.custom_headers=headers.map(h=>({name:String(h.name||'').trim(),value:String(h.value??'')}))
+  const proxyUrl=String(provider.providerConfig.proxy_url||'').trim()
+  if(proxyUrl)provider.providerConfig.proxy_url=proxyUrl
+  else delete provider.providerConfig.proxy_url
   const saved=await api('provider.save',{...provider,enabled:!!provider.enabled});ElMessage.success('供应商已保存');await load();selectedId.value=saved.id;const g=groups.value.find(x=>x.provider.id===saved.id);if(g){assign(provider,{...emptyProvider(),...g.provider});normalizeProviderHeaders(provider)}}
 async function loadRemoteModels(){
   if(!provider.id){ElMessage.warning('请先保存供应商');return}
@@ -148,6 +151,7 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
               <el-form-item label="Base URL"><el-input v-model="provider.baseUrl"/></el-form-item>
               <el-form-item v-if="provider.kind==='openai'" label="OpenAI API"><el-select v-model="provider.api"><el-option label="Chat Completions" value="completions"/><el-option label="Responses" value="responses"/></el-select></el-form-item>
               <el-form-item v-else label="Anthropic Version"><el-input v-model="provider.anthropicVersion" placeholder="2023-06-01"/></el-form-item>
+              <el-form-item label="代理地址"><el-input v-model="provider.providerConfig.proxy_url" clearable placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"/></el-form-item>
             </div>
             <div class="provider-headers">
               <div class="provider-headers-head">
