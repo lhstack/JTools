@@ -2762,15 +2762,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     label = AgentEditorFileContextSupport.formatChipLabel(snapshots) ?: primary.fileName,
                     tooltip = AgentEditorFileContextSupport.formatChipTooltip(snapshots) ?: primary.path,
                     path = primary.path,
-                    startOffset = primary.startOffset,
-                    endOffset = primary.endOffset,
                     startLine = primary.startLine,
                     endLine = primary.endLine,
                     items = snapshots.map { snap ->
                         AgentBrowserFileContextItem(
                             path = snap.path,
-                            startOffset = snap.startOffset,
-                            endOffset = snap.endOffset,
                             startLine = snap.startLine,
                             endLine = snap.endLine,
                         )
@@ -2804,16 +2800,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("label") val label: String,
         @SerializedName("tooltip") val tooltip: String,
         @SerializedName("path") val path: String,
-        @SerializedName("startOffset") val startOffset: Int?,
-        @SerializedName("endOffset") val endOffset: Int?,
         @SerializedName("startLine") val startLine: Int?,
         @SerializedName("endLine") val endLine: Int?,
         @SerializedName("items") val items: List<AgentBrowserFileContextItem> = emptyList(),
     )
     private data class AgentBrowserFileContextItem(
         @SerializedName("path") val path: String,
-        @SerializedName("startOffset") val startOffset: Int?,
-        @SerializedName("endOffset") val endOffset: Int?,
         @SerializedName("startLine") val startLine: Int?,
         @SerializedName("endLine") val endLine: Int?,
     )

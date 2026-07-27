@@ -140,7 +140,7 @@ JTools/
 - ✂️ **工具输出截断保留** - 工具输出超过 8KB 时不再整段丢弃，改为保留前 8KB 并在末尾附截断说明与下一步提示（按 UTF-8 字符边界安全截断）
 - 🔄 **bash 新增 refresh_vfs 参数** - bash 执行后可选刷新 VFS（默认关闭），改动磁盘文件且随后要用 `read_project_files` 读取时传 `true`，避免读到 IDE 缓存旧内容
 - 🧩 **工具参数兼容字符串化 JSON** - IDE 项目工具的数组/对象参数兼容部分模型序列化成 JSON 字符串（如 `"[{...}]"`）的情况，解析结果确实是数组/对象才接受，否则仍报清晰错误
-- 🧹 **零宽区间视为未指定** - `read_project_files` 的 `offset_ranges` 中如 `[0, 0)` 的零宽区间不选中任何字符，现在视为未指定，不再与 `line_ranges` 误报互斥
+- 📐 **统一为行区间** - 文件上下文选区改为上报 `startLine/endLine`，`read_project_files` 移除 `offset_ranges` 只保留 `line_ranges`，消除 offset 与行号两套口径及其互斥报错
 - 🔢 **数值参数 0 视为未指定** - `max_lines`、`max_results`、`max_results_per_query`、`timeout_secs`、`max_bytes`、`max_response_bytes` 等下界为 1 的可选参数传 `0` 时取默认值，不再被夹成 1 导致只读一行或超时一秒；`context_lines` 的 `0` 仍是合法值
 - 📦 **版本元数据同步** - 插件版本号升级到 `v1.1.4.9`，并同步 SDK Helper 版本元数据到 `1149`
 
