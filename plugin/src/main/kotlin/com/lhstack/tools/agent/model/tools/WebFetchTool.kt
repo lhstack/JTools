@@ -45,8 +45,9 @@ class WebFetchTool(
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
         val url = stringField(obj, "url") ?: throw ToolException.missingBody("url")
         val method = parseHttpMethod(stringField(obj, "method"))
-        val timeoutSecs = longField(obj, "timeout_secs")?.coerceIn(1, 300) ?: defaultTimeoutSecs.coerceIn(1, 300)
-        val maxResponseBytes = longField(obj, "max_response_bytes")?.coerceIn(1, 5_000_000)
+        val timeoutSecs = longField(obj, "timeout_secs")?.takeIf { it > 0 }?.coerceIn(1, 300)
+            ?: defaultTimeoutSecs.coerceIn(1, 300)
+        val maxResponseBytes = longField(obj, "max_response_bytes")?.takeIf { it > 0 }?.coerceIn(1, 5_000_000)
             ?: defaultMaxResponseBytes.coerceIn(1, 5_000_000)
 
         checkCancelled()

@@ -83,7 +83,7 @@ class BashTool(
             }
         }
         val timeoutSecs = obj.get("timeout_secs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
-            ?.asLong?.coerceIn(1, 300) ?: 30
+            ?.asLong?.takeIf { it > 0 }?.coerceIn(1, 300) ?: 30
         val refreshVfs = obj.get("refresh_vfs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
             ?.asBoolean ?: false
 

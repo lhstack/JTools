@@ -29,7 +29,7 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
     override fun definition(prompt: String) = definition(
         NAME,
         "读取项目内文本文件的内容，通过 IDE VFS 读取，能拿到编辑器中尚未保存的最新内容。可整文件读取，也可按 line_ranges（1 起始闭区间）或 offset_ranges（0 起始半开区间字符偏移）读取，二者互斥；用户消息里的 startOffset/endOffset 可直接填入 offset_ranges。支持一次传多个请求批量读取，同一文件可用不同范围重复读取。path 支持项目相对路径，也支持 find_project_files / find_project_classes 在 include_global=true 时返回的 VFS URL（如 jar://、jrt://、file://），用于读取依赖或 SDK 源码。返回包含 charset、content_kind（project/external）、line_count、按行内容及是否截断等信息。",
-        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。不可与 offset_ranges 同时使用。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"offset_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个字符 offset 半开区间 [start_offset, end_offset)；与编辑器选区 startOffset/endOffset 一致。不可与 line_ranges 同时使用。","items":{"type":"object","properties":{"start_offset":{"type":"integer","minimum":0,"description":"必填。 起始字符偏移，从0开始。"},"end_offset":{"type":"integer","minimum":0,"description":"必填。 结束字符偏移（不含该位置），须 >= start_offset。"}},"required":["start_offset","end_offset"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
+        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。不可与 offset_ranges 同时使用。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"offset_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个字符 offset 半开区间 [start_offset, end_offset)；与编辑器选区 startOffset/endOffset 一致。start_offset 等于 end_offset 的零宽区间会被忽略，等同于未指定。不可与 line_ranges 同时使用。","items":{"type":"object","properties":{"start_offset":{"type":"integer","minimum":0,"description":"必填。 起始字符偏移，从0开始。"},"end_offset":{"type":"integer","minimum":0,"description":"必填。 结束字符偏移（不含该位置），须 >= start_offset。"}},"required":["start_offset","end_offset"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -38,10 +38,12 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
                 val range = element.obj("line range")
                 LineRange(range.int("start_line"), range.int("end_line"))
             }.orEmpty()
+            // 零宽区间 [x, x) 不选中任何字符，视为未指定 offset_ranges；
+            // 起止倒置等非法区间保留，交由下游按契约报错，不在此处掩盖。
             val offsetRanges = input.getAsJsonArray("offset_ranges")?.map { element ->
                 val range = element.obj("offset range")
                 OffsetRange(range.int("start_offset"), range.int("end_offset"))
-            }.orEmpty()
+            }?.filter { it.start != it.end }.orEmpty()
             require(lineRanges.isEmpty() || offsetRanges.isEmpty()) {
                 "path `${input.string("path")}` 不能同时指定 line_ranges 与 offset_ranges"
             }
@@ -49,7 +51,7 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
                 path = input.string("path"),
                 ranges = lineRanges,
                 offsetRanges = offsetRanges,
-                maxLines = input.intOr("max_lines", 1000).coerceIn(1, 5000),
+                maxLines = input.positiveIntOr("max_lines", 1000).coerceIn(1, 5000),
             )
         }
         return batchResult("files", support.readFiles(requests))
@@ -112,7 +114,7 @@ internal class FindProjectFilesTool(private val support: IdeProjectSupport) : To
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
         val queries = input.stringArray("queries")
-        val limit = input.intOr("max_results_per_query", 100).coerceIn(1, 1000)
+        val limit = input.positiveIntOr("max_results_per_query", 100).coerceIn(1, 1000)
         val includeGlobal = input.booleanOr("include_global", false)
         val results = queries.map { query ->
             support.findFiles(query, limit, includeGlobal).apply { addProperty("query", query) }
@@ -133,7 +135,7 @@ internal class FindProjectClassesTool(private val support: IdeProjectSupport) : 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
         val queries = input.stringArray("queries")
-        val limit = input.intOr("max_results_per_query", 100).coerceIn(1, 1000)
+        val limit = input.positiveIntOr("max_results_per_query", 100).coerceIn(1, 1000)
         val includeGlobal = input.booleanOr("include_global", false)
         val results = queries.map { query ->
             support.findClasses(query, limit, includeGlobal).apply { addProperty("query", query) }
@@ -159,7 +161,7 @@ internal class SearchProjectTextTool(private val support: IdeProjectSupport) : T
             input.booleanOr("case_sensitive", true),
             input.optionalString("file_name_glob"),
             input.intOr("context_lines", 2).coerceIn(0, 20),
-            input.intOr("max_results", 100).coerceIn(1, 1000),
+            input.positiveIntOr("max_results", 100).coerceIn(1, 1000),
         )
     }
 
@@ -181,7 +183,7 @@ internal class FormatProjectFilesTool(private val support: IdeProjectSupport) : 
             support.format(
                 input.string("path"),
                 ranges,
-                input.intOr("timeout_secs", 30).coerceIn(1, 120),
+                input.positiveIntOr("timeout_secs", 30).coerceIn(1, 120),
             )
         }
         return batchResult("files", results)
@@ -205,7 +207,7 @@ internal class BuildProjectTool(
         val input = args.obj()
         val mode = input.stringOr("mode", "build").lowercase()
         require(mode == "build" || mode == "rebuild") { "mode must be build or rebuild" }
-        val timeoutSecs = input.intOr("timeout_secs", 600).coerceIn(1, 3600)
+        val timeoutSecs = input.positiveIntOr("timeout_secs", 600).coerceIn(1, 3600)
         saveDocumentsBeforeBuild()
         val execution = startBuild(mode)
         val interruptId = (execution.promise as? CancellablePromise<*>)?.let { cancellable ->
@@ -471,4 +473,11 @@ private fun JsonObject.stringOr(name: String, default: String): String = optiona
 private fun JsonObject.int(name: String): Int = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
     ?: throw ToolException("missing integer argument `$name`")
 private fun JsonObject.intOr(name: String, default: Int): Int = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt ?: default
+
+/**
+ * 下界为 1 的可选整数参数：部分模型习惯用 0 表达"不指定"，直接 coerceIn(1, N) 会把 0
+ * 静默夹成 1，得到"只读一行""超时一秒"这类明显偏离意图的行为。此处把 0 视为未指定并取默认值。
+ * 仅适用于 0 本身不是合法取值的参数；下界为 0 的参数（如 context_lines）不得使用。
+ */
+private fun JsonObject.positiveIntOr(name: String, default: Int): Int = intOr(name, default).takeIf { it != 0 } ?: default
 private fun JsonObject.booleanOr(name: String, default: Boolean): Boolean = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean ?: default

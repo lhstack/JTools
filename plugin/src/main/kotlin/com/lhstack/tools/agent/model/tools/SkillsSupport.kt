@@ -36,9 +36,13 @@ object SkillsSupport {
         }
     }
 
-    /** 照抄 clamp_limit：默认值 + [1, max] 夹取。 */
+    /**
+     * 照抄 clamp_limit：默认值 + [1, max] 夹取。
+     * 下界为 1，故 0 不是有效取值；部分模型用 0 表达"未指定"，此时取默认值，
+     * 避免被夹成 1 导致静默只返回一条结果。
+     */
     fun clampLimit(value: Int?, default: Int, max: Int): Int =
-        (value ?: default).coerceIn(1, max)
+        (value?.takeIf { it > 0 } ?: default).coerceIn(1, max)
 
     /** 照抄 join_skill_resource_path：拒绝越权，返回 canonical 路径。 */
     fun joinSkillResourcePath(root: File, path: String): File {
