@@ -162,6 +162,7 @@
                 <li>✂️ <b>Truncated Tool Output:</b> Tool output over 8KB is no longer dropped entirely; the first 8KB is kept with a truncation note and next-step hint (safely truncated on UTF-8 character boundaries)</li>
                 <li>🔄 <b>bash refresh_vfs Option:</b> bash can optionally refresh the VFS after running (off by default); pass <code>true</code> when the command changed files that will be read via <code>read_project_files</code> to avoid stale IDE cache</li>
                 <li>🧩 <b>Stringified JSON Argument Tolerance:</b> Array/object arguments of IDE project tools tolerate models serializing them as JSON strings (e.g. <code>"[{...}]"</code>), accepting only when the parse result is truly an array/object and otherwise reporting a clear error</li>
+                <li>🔍 <b>Empty Offset Range:</b> Zero-width <code>offset_ranges</code> entries such as <code>[0, 0)</code> are treated as unspecified, so they no longer conflict with <code>line_ranges</code></li>
                 <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.9</code> and aligned SDK helper version metadata to <code>1149</code></li>
                 <li>🧩 <b>插件面板跨分屏拖拽：</b>迁移更完善的双栏拖拽实现，拖出即从源分屏移除、幽灵标签随鼠标跟随、目标分屏按落点高亮占位并所见即所得插入</li>
                 <li>🧭 <b>分屏布局收敛：</b>统一 <code>refreshSplitterLayout</code> 管理左右分屏挂载、分隔条与空/内容页切换，修复移动标签后分隔条不显示的问题</li>
@@ -173,6 +174,7 @@
                 <li>✂️ <b>工具输出截断保留：</b>工具输出超过 8KB 时不再整段丢弃，改为保留前 8KB 并在末尾附截断说明与下一步提示，按 UTF-8 字符边界安全截断</li>
                 <li>🔄 <b>bash 新增 refresh_vfs 参数：</b>bash 执行后可选刷新 VFS（默认关闭），改动磁盘文件且随后要用 <code>read_project_files</code> 读取时传 <code>true</code>，避免读到 IDE 缓存旧内容</li>
                 <li>🧩 <b>工具参数兼容字符串化 JSON：</b>IDE 项目工具的数组/对象参数兼容部分模型序列化成 JSON 字符串（如 <code>"[{...}]"</code>）的情况，解析结果确实是数组/对象才接受，否则仍报清晰错误</li>
+                <li>🔍 <b>零宽区间视为未指定：</b><code>offset_ranges</code> 中如 <code>[0, 0)</code> 的零宽区间不选中任何字符，现在视为未指定，不再与 <code>line_ranges</code> 误报互斥</li>
                 <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.9</code>，并同步 SDK Helper 版本元数据到 <code>1149</code></li>
             </ul>
 
