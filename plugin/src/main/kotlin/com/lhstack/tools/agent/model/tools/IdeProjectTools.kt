@@ -28,8 +28,8 @@ import org.jetbrains.concurrency.CancellablePromise
 internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
         NAME,
-        "读取项目内文本文件的内容，通过 IDE VFS 读取，能拿到编辑器中尚未保存的最新内容。可整文件读取，也可按 line_ranges（1 起始闭区间）或 offset_ranges（0 起始半开区间字符偏移）读取，二者互斥；用户消息里的 startOffset/endOffset 可直接填入 offset_ranges。支持一次传多个请求批量读取，同一文件可用不同范围重复读取。path 支持项目相对路径，也支持 find_project_files / find_project_classes 在 include_global=true 时返回的 VFS URL（如 jar://、jrt://、file://），用于读取依赖或 SDK 源码。返回包含 charset、content_kind（project/external）、line_count、按行内容及是否截断等信息。",
-        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。不可与 offset_ranges 同时使用。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"offset_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个字符 offset 半开区间 [start_offset, end_offset)；与编辑器选区 startOffset/endOffset 一致。start_offset 等于 end_offset 的零宽区间会被忽略，等同于未指定。不可与 line_ranges 同时使用。","items":{"type":"object","properties":{"start_offset":{"type":"integer","minimum":0,"description":"必填。 起始字符偏移，从0开始。"},"end_offset":{"type":"integer","minimum":0,"description":"必填。 结束字符偏移（不含该位置），须 >= start_offset。"}},"required":["start_offset","end_offset"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
+        "读取项目内文本文件的内容，通过 IDE VFS 读取，能拿到编辑器中尚未保存的最新内容。可整文件读取，也可按 line_ranges（1 起始闭区间）读取；用户消息里的 startLine/endLine 可直接填入 line_ranges。支持一次传多个请求批量读取，同一文件可用不同范围重复读取。path 支持项目相对路径，也支持 find_project_files / find_project_classes 在 include_global=true 时返回的 VFS URL（如 jar://、jrt://、file://），用于读取依赖或 SDK 源码。返回包含 charset、content_kind（project/external）、line_count、按行内容及是否截断等信息。",
+        """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
@@ -38,19 +38,9 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
                 val range = element.obj("line range")
                 LineRange(range.int("start_line"), range.int("end_line"))
             }.orEmpty()
-            // 零宽区间 [x, x) 不选中任何字符，视为未指定 offset_ranges；
-            // 起止倒置等非法区间保留，交由下游按契约报错，不在此处掩盖。
-            val offsetRanges = input.getAsJsonArray("offset_ranges")?.map { element ->
-                val range = element.obj("offset range")
-                OffsetRange(range.int("start_offset"), range.int("end_offset"))
-            }?.filter { it.start != it.end }.orEmpty()
-            require(lineRanges.isEmpty() || offsetRanges.isEmpty()) {
-                "path `${input.string("path")}` 不能同时指定 line_ranges 与 offset_ranges"
-            }
             ReadFileRequest(
                 path = input.string("path"),
                 ranges = lineRanges,
-                offsetRanges = offsetRanges,
                 maxLines = input.positiveIntOr("max_lines", 1000).coerceIn(1, 5000),
             )
         }

@@ -18,7 +18,7 @@ JTools 是一个面向 JetBrains IDE 的插件管理与开发工具集，支持�
 - `bash` 工具新增 `refresh_vfs` 可选参数，仅在需要时刷新 VFS，避免每次执行都刷新影响性能。
 - 重写 9 个 IDE 项目工具的描述，补齐批量、未保存内容、索引来源、边界约束等信息；工具参数解析兼容模型传入的字符串化 JSON 数组/对象。
 - 调高 Kotlin 守护进程堆内存，修复打包时编译 OOM。
-- `read_project_files` 的 `offset_ranges` 中如 `[0, 0)` 的零宽区间不选中任何字符，现在视为未指定，不再与 `line_ranges` 误报互斥。
+- 文件上下文选区改为上报 `startLine/endLine`，`read_project_files` 移除 `offset_ranges` 只保留 `line_ranges`，消除 offset 与行号两套口径及其互斥报错。
 - `max_lines`、`max_results`、`max_results_per_query`、`timeout_secs`、`max_bytes`、`max_response_bytes` 等下界为 1 的可选参数传 `0` 时取默认值，不再被夹成 1 导致只读一行或超时一秒；`context_lines` 的 `0` 仍是合法值。
 - 同步版本号到 `v1.1.0.6`，SDK Helper 版本元数据更新为 `1106`。
 

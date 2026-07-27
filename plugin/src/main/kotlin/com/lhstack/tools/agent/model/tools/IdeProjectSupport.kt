@@ -56,7 +56,7 @@ internal class IdeProjectSupport(
                 resolveReadableFileInReadAction(request.path)
             }
             requests.zip(files).map { (request, file) ->
-                readFileInReadAction(file, request.ranges, request.offsetRanges, request.maxLines)
+                readFileInReadAction(file, request.ranges, request.maxLines)
             }
         }
     }
@@ -64,16 +64,9 @@ internal class IdeProjectSupport(
     private fun readFileInReadAction(
         file: VirtualFile,
         ranges: List<LineRange>,
-        offsetRanges: List<OffsetRange>,
         maxLines: Int,
     ): JsonObject {
         require(!file.isDirectory) { "path `${displayPathInReadAction(file)}` is not a file" }
-        require(ranges.isEmpty() || offsetRanges.isEmpty()) {
-            "path `${displayPathInReadAction(file)}` cannot use both line_ranges and offset_ranges"
-        }
-        if (offsetRanges.isNotEmpty()) {
-            return readFileByOffsetsInReadAction(file, offsetRanges, maxLines)
-        }
         val text = readTextInReadAction(file)
         val lines = text.split('\n')
         val selectedRanges = if (ranges.isEmpty()) listOf(LineRange(1, minOf(lines.size, maxLines))) else ranges
@@ -98,57 +91,6 @@ internal class IdeProjectSupport(
             addProperty("content_kind", contentKindInReadAction(file))
             addProperty("line_count", lines.size)
             addProperty("truncated", emitted >= maxLines && selectedRanges.sumOf { it.end - it.start + 1 } > emitted)
-            add("lines", output)
-        }
-    }
-
-    private fun readFileByOffsetsInReadAction(
-        file: VirtualFile,
-        offsetRanges: List<OffsetRange>,
-        maxLines: Int,
-    ): JsonObject {
-        val text = readTextInReadAction(file)
-        val lines = text.split('\n')
-        val output = JsonArray()
-        val usedOffsets = JsonArray()
-        var emitted = 0
-        var requestedLines = 0
-        for (range in offsetRanges) {
-            require(range.start >= 0 && range.end >= range.start) {
-                "invalid offset range ${range.start}-${range.end}"
-            }
-            require(range.end <= text.length) {
-                "end_offset ${range.end} exceeds file length ${text.length} for `${displayPathInReadAction(file)}`"
-            }
-            val snippet = text.substring(range.start, range.end)
-            val startLine = if (range.start == 0) 1 else text.substring(0, range.start).count { it == '\n' } + 1
-            val snippetLines = snippet.split('\n')
-            requestedLines += snippetLines.size
-            snippetLines.forEachIndexed { index, lineText ->
-                if (emitted >= maxLines) return@forEachIndexed
-                output.add(JsonObject().apply {
-                    addProperty("line", startLine + index)
-                    addProperty("text", lineText.trimEnd('\r'))
-                    if (index == 0) addProperty("start_offset", range.start)
-                    if (index == snippetLines.lastIndex) addProperty("end_offset", range.end)
-                })
-                emitted++
-            }
-            usedOffsets.add(JsonObject().apply {
-                addProperty("start_offset", range.start)
-                addProperty("end_offset", range.end)
-                addProperty("start_line", startLine)
-                addProperty("end_line", startLine + snippetLines.size - 1)
-            })
-        }
-        return JsonObject().apply {
-            addProperty("path", displayPathInReadAction(file))
-            addProperty("charset", file.charset.name())
-            addProperty("content_kind", contentKindInReadAction(file))
-            addProperty("line_count", lines.size)
-            addProperty("char_count", text.length)
-            addProperty("truncated", emitted >= maxLines && requestedLines > emitted)
-            add("offset_ranges", usedOffsets)
             add("lines", output)
         }
     }
@@ -706,10 +648,8 @@ internal class ProjectFileGlob(pattern: String?) {
 internal data class ReadFileRequest(
     val path: String,
     val ranges: List<LineRange>,
-    val offsetRanges: List<OffsetRange> = emptyList(),
     val maxLines: Int,
 )
-internal data class OffsetRange(val start: Int, val end: Int)
 internal data class WriteFileRequest(val path: String, val content: String, val overwrite: Boolean)
 internal data class ReplaceTextRequest(
     val path: String,

@@ -21,13 +21,11 @@ object AgentEditorFileContextSupport {
 
     data class Snapshot(
         val path: String,
-        val startOffset: Int? = null,
-        val endOffset: Int? = null,
         val startLine: Int? = null,
         val endLine: Int? = null,
     ) {
         val hasSelection: Boolean
-            get() = startOffset != null && endOffset != null && startOffset != endOffset
+            get() = startLine != null && endLine != null
 
         val fileName: String
             get() = path.substringAfterLast('/').ifBlank { path }
@@ -60,13 +58,15 @@ object AgentEditorFileContextSupport {
                 val document = editor.document
                 for ((start, end) in selectionRanges(editor)) {
                     if (start == end) continue
-                    val key = "$path:$start:$end"
+                    val startLine = document.getLineNumber(start) + 1
+                    val endLine = document.getLineNumber((end - 1).coerceAtLeast(start)) + 1
+                    // 按行区间去重：同一文件内多处选区落在相同行范围时只保留一处，
+                    // 避免同行多光标产生重复的 line_ranges。
+                    val key = "$path:$startLine:$endLine"
                     selectedSnapshots[key] = Snapshot(
                         path = path,
-                        startOffset = start,
-                        endOffset = end,
-                        startLine = document.getLineNumber(start) + 1,
-                        endLine = document.getLineNumber((end - 1).coerceAtLeast(start)) + 1,
+                        startLine = startLine,
+                        endLine = endLine,
                     )
                 }
             }
@@ -123,7 +123,7 @@ object AgentEditorFileContextSupport {
         if (snapshots.size == 1) {
             val context = snapshots[0]
             val name = truncateFileName(context.fileName)
-            return if (context.hasSelection) "$name ${context.startOffset},${context.endOffset}" else name
+            return if (context.hasSelection) "$name ${context.startLine}-${context.endLine}" else name
         }
         val first = truncateFileName(snapshots[0].fileName)
         val fileCount = snapshots.map { it.path }.distinct().size
@@ -137,7 +137,7 @@ object AgentEditorFileContextSupport {
         if (snapshots.isEmpty()) return null
         return snapshots.joinToString("\n") { context ->
             if (context.hasSelection) {
-                "${context.path}, startOffset=${context.startOffset}, endOffset=${context.endOffset}"
+                "${context.path}, startLine=${context.startLine}, endLine=${context.endLine}"
             } else context.path
         }
     }
@@ -168,10 +168,10 @@ object AgentEditorFileContextSupport {
         if (context.hasSelection) {
             buildString {
                 append(context.path)
-                append(", startOffset=")
-                append(context.startOffset)
-                append(", endOffset=")
-                append(context.endOffset)
+                append(", startLine=")
+                append(context.startLine)
+                append(", endLine=")
+                append(context.endLine)
             }
         } else context.path
 

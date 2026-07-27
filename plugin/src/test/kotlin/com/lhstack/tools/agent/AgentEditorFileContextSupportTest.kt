@@ -15,27 +15,21 @@ class AgentEditorFileContextSupportTest {
     }
 
     @Test
-    fun `formatPrefix for selection includes offsets`() {
+    fun `formatPrefix for selection includes line range`() {
         val prefix = AgentEditorFileContextSupport.formatPrefix(
             AgentEditorFileContextSupport.Snapshot(
                 path = "plugin/src/Main.kt",
-                startOffset = 12,
-                endOffset = 88,
                 startLine = 3,
                 endLine = 10,
             ),
         )
-        assertEquals("plugin/src/Main.kt, startOffset=12, endOffset=88", prefix)
+        assertEquals("plugin/src/Main.kt, startLine=3, endLine=10", prefix)
     }
 
     @Test
-    fun `formatPrefix ignores empty selection range`() {
+    fun `formatPrefix without line range is path only`() {
         val prefix = AgentEditorFileContextSupport.formatPrefix(
-            AgentEditorFileContextSupport.Snapshot(
-                path = "a.kt",
-                startOffset = 5,
-                endOffset = 5,
-            ),
+            AgentEditorFileContextSupport.Snapshot(path = "a.kt"),
         )
         assertEquals("a.kt", prefix)
     }
@@ -56,13 +50,11 @@ class AgentEditorFileContextSupportTest {
     fun `prependToPrompt with empty body is context only`() {
         val snapshot = AgentEditorFileContextSupport.Snapshot(
             path = "a.kt",
-            startOffset = 1,
-            endOffset = 9,
             startLine = 1,
             endLine = 2,
         )
         val result = AgentEditorFileContextSupport.prependToPrompt("   ", snapshot)
-        assertEquals("a.kt, startOffset=1, endOffset=9", result)
+        assertEquals("a.kt, startLine=1, endLine=2", result)
     }
 
     @Test
@@ -80,7 +72,7 @@ class AgentEditorFileContextSupportTest {
     }
 
     @Test
-    fun `formatChipLabel uses truncated name and offsets`() {
+    fun `formatChipLabel uses truncated name and line range`() {
         assertEquals(
             "Main.kt",
             AgentEditorFileContextSupport.formatChipLabel(
@@ -88,24 +80,20 @@ class AgentEditorFileContextSupportTest {
             ),
         )
         assertEquals(
-            "...gradle.kts 100,200",
+            "....gradle.kts 89-94",
             AgentEditorFileContextSupport.formatChipLabel(
                 AgentEditorFileContextSupport.Snapshot(
                     path = "plugin/build.gradle.kts",
-                    startOffset = 100,
-                    endOffset = 200,
                     startLine = 89,
                     endLine = 94,
                 ),
             ),
         )
         assertEquals(
-            "Main.kt 1,10",
+            "Main.kt 12-12",
             AgentEditorFileContextSupport.formatChipLabel(
                 AgentEditorFileContextSupport.Snapshot(
                     path = "Main.kt",
-                    startOffset = 1,
-                    endOffset = 10,
                     startLine = 12,
                     endLine = 12,
                 ),
@@ -116,6 +104,6 @@ class AgentEditorFileContextSupportTest {
     @Test
     fun `truncateFileName keeps trailing characters`() {
         assertEquals("short.kt", AgentEditorFileContextSupport.truncateFileName("short.kt"))
-        assertEquals("...gradle.kts", AgentEditorFileContextSupport.truncateFileName("build.gradle.kts", 14))
+        assertEquals("....gradle.kts", AgentEditorFileContextSupport.truncateFileName("build.gradle.kts", 14))
     }
 }
