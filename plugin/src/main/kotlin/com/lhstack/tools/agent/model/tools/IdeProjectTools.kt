@@ -51,7 +51,7 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
                 path = input.string("path"),
                 ranges = lineRanges,
                 offsetRanges = offsetRanges,
-                maxLines = input.intOr("max_lines", 1000).coerceIn(1, 5000),
+                maxLines = input.positiveIntOr("max_lines", 1000).coerceIn(1, 5000),
             )
         }
         return batchResult("files", support.readFiles(requests))
@@ -114,7 +114,7 @@ internal class FindProjectFilesTool(private val support: IdeProjectSupport) : To
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
         val queries = input.stringArray("queries")
-        val limit = input.intOr("max_results_per_query", 100).coerceIn(1, 1000)
+        val limit = input.positiveIntOr("max_results_per_query", 100).coerceIn(1, 1000)
         val includeGlobal = input.booleanOr("include_global", false)
         val results = queries.map { query ->
             support.findFiles(query, limit, includeGlobal).apply { addProperty("query", query) }
@@ -135,7 +135,7 @@ internal class FindProjectClassesTool(private val support: IdeProjectSupport) : 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
         val queries = input.stringArray("queries")
-        val limit = input.intOr("max_results_per_query", 100).coerceIn(1, 1000)
+        val limit = input.positiveIntOr("max_results_per_query", 100).coerceIn(1, 1000)
         val includeGlobal = input.booleanOr("include_global", false)
         val results = queries.map { query ->
             support.findClasses(query, limit, includeGlobal).apply { addProperty("query", query) }
@@ -161,7 +161,7 @@ internal class SearchProjectTextTool(private val support: IdeProjectSupport) : T
             input.booleanOr("case_sensitive", true),
             input.optionalString("file_name_glob"),
             input.intOr("context_lines", 2).coerceIn(0, 20),
-            input.intOr("max_results", 100).coerceIn(1, 1000),
+            input.positiveIntOr("max_results", 100).coerceIn(1, 1000),
         )
     }
 
@@ -183,7 +183,7 @@ internal class FormatProjectFilesTool(private val support: IdeProjectSupport) : 
             support.format(
                 input.string("path"),
                 ranges,
-                input.intOr("timeout_secs", 30).coerceIn(1, 120),
+                input.positiveIntOr("timeout_secs", 30).coerceIn(1, 120),
             )
         }
         return batchResult("files", results)
@@ -207,7 +207,7 @@ internal class BuildProjectTool(
         val input = args.obj()
         val mode = input.stringOr("mode", "build").lowercase()
         require(mode == "build" || mode == "rebuild") { "mode must be build or rebuild" }
-        val timeoutSecs = input.intOr("timeout_secs", 600).coerceIn(1, 3600)
+        val timeoutSecs = input.positiveIntOr("timeout_secs", 600).coerceIn(1, 3600)
         saveDocumentsBeforeBuild()
         val execution = startBuild(mode)
         val interruptId = (execution.promise as? CancellablePromise<*>)?.let { cancellable ->
@@ -474,4 +474,11 @@ private fun JsonObject.stringOr(name: String, default: String): String = optiona
 private fun JsonObject.int(name: String): Int = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
     ?: throw ToolException("missing integer argument `$name`")
 private fun JsonObject.intOr(name: String, default: Int): Int = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt ?: default
+
+/**
+ * 读取下界为 1 的可选整数参数：缺失或显式传 0 都视为未指定并取默认值。
+ * 部分模型习惯用 0 表达"不设置"，若直接夹取到 1 会静默退化成"只取 1 条结果"、"超时 1 秒"等
+ * 明显偏离调用意图的行为。仅对 0 放宽；负数等真正非法值仍按原有边界约束处理。
+ */
+private fun JsonObject.positiveIntOr(name: String, default: Int): Int = intOr(name, default).takeIf { it != 0 } ?: default
 private fun JsonObject.booleanOr(name: String, default: Boolean): Boolean = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean ?: default

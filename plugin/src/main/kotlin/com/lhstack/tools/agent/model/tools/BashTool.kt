@@ -82,8 +82,9 @@ class BashTool(
                 throw ToolException.invalidCwd(e.message ?: e.toString())
             }
         }
+        // 部分模型用 0 表达"不指定超时"；0 及负值按未指定处理取默认值，避免夹取成 1 秒导致命令必然超时。
         val timeoutSecs = obj.get("timeout_secs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
-            ?.asLong?.coerceIn(1, 300) ?: 30
+            ?.asLong?.takeIf { it > 0 }?.coerceIn(1, 300) ?: 30
         val refreshVfs = obj.get("refresh_vfs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
             ?.asBoolean ?: false
 

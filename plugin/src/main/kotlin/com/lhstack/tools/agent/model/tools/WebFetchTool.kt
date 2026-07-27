@@ -45,8 +45,10 @@ class WebFetchTool(
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
         val url = stringField(obj, "url") ?: throw ToolException.missingBody("url")
         val method = parseHttpMethod(stringField(obj, "method"))
-        val timeoutSecs = longField(obj, "timeout_secs")?.coerceIn(1, 300) ?: defaultTimeoutSecs.coerceIn(1, 300)
-        val maxResponseBytes = longField(obj, "max_response_bytes")?.coerceIn(1, 5_000_000)
+        // 部分模型用 0 表达"不指定"；0 及负值按未指定处理取配置默认值，避免夹取成 1 导致请求必然超时或响应被截成 1 字节。
+        val timeoutSecs = longField(obj, "timeout_secs")?.takeIf { it > 0 }?.coerceIn(1, 300)
+            ?: defaultTimeoutSecs.coerceIn(1, 300)
+        val maxResponseBytes = longField(obj, "max_response_bytes")?.takeIf { it > 0 }?.coerceIn(1, 5_000_000)
             ?: defaultMaxResponseBytes.coerceIn(1, 5_000_000)
 
         checkCancelled()

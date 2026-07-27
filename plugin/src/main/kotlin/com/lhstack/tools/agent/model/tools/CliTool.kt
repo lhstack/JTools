@@ -96,7 +96,8 @@ class CliTool(
         require(server.enabled != 0) { "MCP 服务 `${server.id}` 已禁用" }
         return McpRuntime(
             server,
-            args.optionalLong("timeout_secs")?.coerceIn(1, 300) ?: 30,
+            // 部分模型用 0 表达"不指定超时"；0 及负值按未指定处理取默认值。
+            args.optionalLong("timeout_secs")?.takeIf { it > 0 }?.coerceIn(1, 300) ?: 30,
             cancel,
         )
     }
