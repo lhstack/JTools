@@ -1,8 +1,8 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, Close, Delete, EditPen, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
-import { hostState as s, invoke } from '../bridge/jcefBridge'
+import { ArrowDown, ArrowUp, Close, Delete, EditPen, MagicStick, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
+import { hostState as s, api, invoke } from '../bridge/jcefBridge'
 import ChatMessage from '../components/chat/ChatMessage.vue'
 
 const prompt = ref('')
@@ -18,6 +18,14 @@ const queueEditVisible = ref(false)
 const queueEditItem = ref(null)
 const queueEditPrompt = ref('')
 const queueEditSaving = ref(false)
+const polishVisible = ref(false)
+const polishStatus = ref('running')
+const polishError = ref('')
+const polishResults = ref([])
+const polishActive = ref(0)
+const polishTaskId = ref('')
+const POLISH_POLL_INTERVAL = 600
+let polishPollTimer = null
 const MESSAGE_CARD_POOL_SIZE = 10
 const MESSAGE_CACHE_PREFIX = 'jtools:chat-messages:v1:'
 const SELECTED_SESSION_CACHE_KEY = 'jtools:selected-session:v1'
@@ -232,6 +240,85 @@ async function send() {
     sending.value = false
   }
 }
+
+const polishAvailable = computed(() => !!s.polishEnabled)
+const polishAgentName = computed(() => s.polishAgentName || '')
+const polishTitle = computed(() => `润色输入内容（${polishAgentName.value}）`)
+
+async function startPolish() {
+  const text = prompt.value.trim()
+  if (!text || polishVisible.value) return
+  polishStatus.value = 'running'
+  polishError.value = ''
+  polishResults.value = []
+  polishActive.value = 0
+  polishTaskId.value = ''
+  polishVisible.value = true
+  try {
+    const { taskId } = await api('polish.start', { text })
+    polishTaskId.value = taskId
+    schedulePolishPoll()
+  } catch (error) {
+    polishStatus.value = 'failed'
+    polishError.value = error?.message || String(error)
+  }
+}
+
+function schedulePolishPoll() {
+  clearPolishPoll()
+  polishPollTimer = setTimeout(pollPolish, POLISH_POLL_INTERVAL)
+}
+
+function clearPolishPoll() {
+  if (polishPollTimer) {
+    clearTimeout(polishPollTimer)
+    polishPollTimer = null
+  }
+}
+
+async function pollPolish() {
+  const taskId = polishTaskId.value
+  if (!taskId) return
+  try {
+    const data = await api('polish.poll', { taskId })
+    if (polishTaskId.value !== taskId) return
+    if (data.status === 'running') {
+      schedulePolishPoll()
+      return
+    }
+    polishStatus.value = data.status
+    polishTaskId.value = ''
+    if (data.status === 'completed') polishResults.value = data.results || []
+    else if (data.status === 'failed') polishError.value = data.error || '润色失败'
+  } catch (error) {
+    if (polishTaskId.value !== taskId) return
+    polishStatus.value = 'failed'
+    polishError.value = error?.message || String(error)
+  }
+}
+
+// 关闭润色弹窗。仍在运行的任务需要中断；已出结果或已失败的任务宿主侧已回收，无需再取消。
+// 幂等：弹窗 @close 与按钮点击可能先后触发同一次关闭。
+async function closePolish() {
+  const taskId = polishTaskId.value
+  const running = polishStatus.value === 'running'
+  clearPolishPoll()
+  polishTaskId.value = ''
+  polishVisible.value = false
+  if (taskId && running) await invoke('polish.cancel', { taskId })
+}
+
+// 当前选中方案的完整文本；结果为空时返回空串，避免模板越界访问。
+const polishActiveText = computed(() => polishResults.value[polishActive.value] || '')
+
+function applyPolishResult() {
+  const text = polishActiveText.value
+  if (!text) return
+  prompt.value = text
+  closePolish()
+}
+
+onUnmounted(clearPolishPoll)
 
 function stopQueueItem(item) {
   invoke('queue.stop', { id: item.id })
@@ -473,6 +560,15 @@ function drop(event) {
           @keydown.ctrl.enter.prevent="send"
         />
         <el-button
+          v-if="polishAvailable"
+          class="composer-polish"
+          size="small"
+          :icon="MagicStick"
+          :disabled="sending || !prompt.trim()"
+          :title="`使用 ${polishAgentName} 润色输入内容`"
+          @click="startPolish"
+        >润色</el-button>
+        <el-button
           class="composer-send"
           type="primary"
           size="small"
@@ -501,6 +597,37 @@ function drop(event) {
     <template #footer>
       <el-button @click="queueEditVisible=false">取消</el-button>
       <el-button type="primary" :disabled="!queueEditPrompt.trim()" :loading="queueEditSaving" @click="saveQueueEdit">保存</el-button>
+    </template>
+  </el-dialog>
+  <el-dialog
+    v-model="polishVisible"
+    :title="polishTitle"
+    width="760px"
+    class="polish-dialog"
+    append-to-body
+    :close-on-click-modal="false"
+    @close="closePolish"
+  >
+    <div v-if="polishStatus==='running'" class="polish-running">
+      <el-icon class="is-loading"><Refresh /></el-icon>
+      <span>润色中，请稍候…</span>
+    </div>
+    <el-alert v-else-if="polishStatus==='failed'" type="error" :closable="false" :title="polishError" />
+    <div v-else-if="polishStatus==='completed'" class="polish-body">
+      <el-tabs v-model="polishActive" class="polish-tabs">
+        <el-tab-pane v-for="(_, index) in polishResults" :key="index" :name="index" :label="`方案 ${index + 1}`" />
+      </el-tabs>
+      <pre class="polish-preview">{{ polishActiveText }}</pre>
+    </div>
+    <template #footer>
+      <span v-if="polishStatus==='completed'" class="polish-hint">{{ polishActiveText.length }} 字符</span>
+      <el-button @click="closePolish">{{ polishStatus==='running' ? '中断' : '关闭' }}</el-button>
+      <el-button
+        v-if="polishStatus==='completed'"
+        type="primary"
+        :disabled="!polishActiveText"
+        @click="applyPolishResult"
+      >应用到输入框</el-button>
     </template>
   </el-dialog>
   <el-dialog v-model="sessionDialogVisible" title="新建会话" width="440px" append-to-body>

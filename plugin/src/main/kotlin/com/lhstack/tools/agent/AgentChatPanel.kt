@@ -2610,6 +2610,16 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
             "attachment.open" -> text?.let(::openAttachmentPath)
+            "polish.start" -> mapOf(
+                "taskId" to AgentPolishService.start(project, text ?: error("缺少润色内容")),
+            )
+            "polish.poll" -> AgentPolishService.poll(payload.polishTaskId())
+            "polish.cancel" -> {
+                // 取消会关闭底层 HTTP 连接，放到后台线程，避免阻塞 EDT 卡住界面。
+                val taskId = payload.polishTaskId()
+                AgentExecutors.shared.submit { AgentPolishService.cancel(taskId) }
+                Unit
+            }
             "fileContext.toggle" -> {
                 val projectPath = currentProjectPath()
                 val enabled = payload.get("enabled")?.takeUnless { it.isJsonNull }?.asBoolean
@@ -2639,6 +2649,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             else -> handleBrowserManagementCommand(command.type, payload)
         }
     }
+
+    /** 润色任务 ID；缺失时直接报错，不静默放过导致后续查询到不存在的任务。 */
+    private fun JsonObject.polishTaskId(): String =
+        get("taskId")?.takeUnless { it.isJsonNull }?.asString?.takeIf { it.isNotBlank() }
+            ?: error("缺少润色任务 ID")
 
     private fun refreshManagementData() {
         refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
@@ -2729,6 +2744,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
         val background = UIUtil.getPanelBackground()
         val fileContextEnabled = AgentEditorFileContextSupport.isEnabled(currentProjectPath())
+        val polishAgent = AgentPolishService.configuredAgent()
         val fileContextSnapshots = if (fileContextEnabled) {
             AgentEditorFileContextSupport.collectAll(project)
         } else {
@@ -2754,6 +2770,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             queue = queue,
             drafts = draftAttachments.map { it.toBrowserAttachment() },
             inputRestore = browserInputRestore,
+            polishEnabled = polishAgent != null,
+            polishAgentName = polishAgent?.name,
             fileContextEnabled = fileContextEnabled,
             fileContextLabel = AgentEditorFileContextSupport.buttonLabel(fileContextEnabled),
             fileContextChip = fileContextSnapshots.takeIf { it.isNotEmpty() }?.let { snapshots ->
@@ -2792,6 +2810,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("queue") val queue: List<AgentBrowserQueueItem>,
         @SerializedName("drafts") val drafts: List<AgentBrowserAttachment>,
         @SerializedName("inputRestore") val inputRestore: AgentBrowserInputRestore?,
+        @SerializedName("polishEnabled") val polishEnabled: Boolean,
+        @SerializedName("polishAgentName") val polishAgentName: String?,
         @SerializedName("fileContextEnabled") val fileContextEnabled: Boolean,
         @SerializedName("fileContextLabel") val fileContextLabel: String,
         @SerializedName("fileContextChip") val fileContextChip: AgentBrowserFileContextChip?,

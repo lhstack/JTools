@@ -149,8 +149,33 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.4.9</h2>
+            <h2>🚀 Version v1.1.5.0</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>✨ <b>Chat Input Polish:</b> A new "Polish" button in the chat composer runs a configured Agent over the current input and returns multiple candidate rewrites for preview and one-click fill-back</li>
+                <li>🧩 <b>Ephemeral Polish Tool:</b> A virtual <code>submit_polish_results</code> tool is injected per polish run only; it never enters the global tool registry nor appears in Agent tool configuration</li>
+                <li>⚙️ <b>Select-type Global Settings:</b> Global configuration gains a <code>select</code> field type, plus a new "Chat Polish Agent" option chosen from enabled Agents; leaving it unset hides the polish entry entirely</li>
+                <li>🔁 <b>Settings Apply Immediately:</b> Saving global settings now notifies the chat panel to resync, so the polish entry appears or disappears without reopening the panel</li>
+                <li>🎭 <b>Polish Honours Agent Persona:</b> The polish instruction now requires strict adherence to the Agent's role, capability profile and working method; the conflicting "varied styles" wording was removed so candidates differ only in wording and sentence structure</li>
+                <li>📖 <b>Full Result Review:</b> Results use native Element Plus tabs plus a large preview pane (<code>min(56vh,560px)</code>, internal scrolling, selectable text) with a character count in the footer; fill-back requires clicking "Apply to input" to prevent mis-taps</li>
+                <li>🗂️ <b>No Session Pollution:</b> Polish runs are not written as session messages and never enter the chat queue; they are logged under the <code>chat_polish</code> type and remain traceable in model logs</li>
+                <li>⚡ <b>Non-blocking Cancellation:</b> Cancelling runs on a background thread to avoid closing HTTP connections on the EDT and freezing the UI; running tasks can be interrupted at any time</li>
+                <li>🛡️ <b>Explicit Polish Failures:</b> If the model does not call the submit tool as instructed, the run fails with a hint to check tool-call support instead of scraping the answer body for results</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.0</code> and aligned SDK helper version metadata to <code>1150</code></li>
+                <li>✨ <b>输入框润色：</b>对话输入框新增「润色」按钮，调用指定 Agent 对当前输入内容生成多个候选版本，可预览后回填</li>
+                <li>🧩 <b>润色虚拟工具动态注册：</b>新增 <code>submit_polish_results</code> 虚拟工具，仅在润色任务执行期间按次注入，不进入全局工具注册表，也不出现在 Agent 工具配置清单中</li>
+                <li>⚙️ <b>全局设置支持下拉选项：</b>全局配置项新增 <code>select</code> 类型，新增「输入框润色 Agent」配置，从已启用 Agent 中选择，默认「不启用」时对话界面不显示润色入口</li>
+                <li>🔁 <b>配置保存即时生效：</b>全局设置保存后主动通知对话面板同步状态，润色入口无需重开面板即可出现或消失</li>
+                <li>🎭 <b>润色遵循 Agent 人格：</b>润色指令改为要求严格遵循该 Agent 的角色设定、能力画像与工作方法，移除与人格冲突的「风格各异」措辞，多个候选只在用词句式上区别</li>
+                <li>📖 <b>润色结果完整查看：</b>结果改为 Element Plus 原生标签页切换 + 大预览区（高度 <code>min(56vh,560px)</code>、内部滚动、文本可选中），底部显示当前方案字符数，需点击「应用到输入框」才回填，避免误触</li>
+                <li>🗂️ <b>润色不污染会话历史：</b>润色不写入会话消息、不进入对话队列，以 <code>chat_polish</code> 类型记录到模型日志，可在模型日志中追溯</li>
+                <li>⚡ <b>润色中断不卡界面：</b>取消动作放到后台线程执行，避免在 EDT 上关闭 HTTP 连接导致界面卡顿；运行中任务可随时中断</li>
+                <li>🛡️ <b>润色失败显式暴露：</b>模型未按约定调用提交工具时直接报错并提示检查该模型是否支持工具调用，不解析回答正文凑结果</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.0</code>，并同步 SDK Helper 版本元数据到 <code>1150</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.4.9</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>🧩 <b>Cross-split Tab Drag:</b> Migrated the more polished two-pane drag: dragging out removes the tab from the source split, a ghost label follows the cursor, and a highlighted placeholder shows the drop position for WYSIWYG insertion</li>
                 <li>🧭 <b>Splitter Layout Convergence:</b> A single <code>refreshSplitterLayout</code> manages left/right mounting, divider visibility, and empty/content page switching, fixing the missing divider after moving tabs</li>
@@ -181,7 +206,6 @@
             </ul>
 
             <h2>🚀 Version v1.1.4.8</h2>
-            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>📁 <b>Editor File Context:</b> Chat composer can attach the currently opened editor file path to the start of user messages</li>
                 <li>✂️ <b>Selection Offsets:</b> Selected text is sent as <code>startOffset/endOffset</code>; supports multi-file and multi-caret / block selections within one file</li>

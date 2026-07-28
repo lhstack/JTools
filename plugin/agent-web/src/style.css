@@ -110,6 +110,17 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{background:v
 .composer-send:active{background:color-mix(in srgb,var(--jb-accent) 76%,#000 24%)!important}
 .composer-send.is-disabled,.composer-send.is-disabled:hover{background:color-mix(in srgb,var(--jb-accent) 35%,var(--jb-panel))!important;color:color-mix(in srgb,#fff 70%,var(--jb-muted))!important;opacity:1!important}
 .composer-send .el-icon,.composer-send span{color:inherit!important}
+.composer-polish{position:absolute;z-index:3;right:72px;bottom:8px;height:28px;padding:0 10px!important;border-radius:6px!important;border:1px solid var(--soft-border)!important;background:var(--jb-panel)!important;color:var(--jb-text)!important;box-shadow:none!important}
+.composer-polish:hover,.composer-polish:focus{border-color:var(--jb-accent)!important;background:color-mix(in srgb,var(--jb-accent) 12%,var(--jb-panel))!important;color:var(--jb-accent)!important}
+.composer-polish.is-disabled,.composer-polish.is-disabled:hover{border-color:var(--soft-border)!important;background:var(--jb-panel)!important;color:var(--jb-muted)!important;opacity:1!important}
+.polish-running{display:flex;align-items:center;gap:8px;padding:18px 4px;color:var(--jb-muted);font-size:13px}
+.polish-dialog .el-dialog__body{padding-top:14px;padding-bottom:6px}
+.polish-body{display:flex;flex-direction:column;gap:14px}
+.polish-tabs .el-tabs__header{margin:0}
+/* 方案切换只用 tab 头，内容统一由下方预览区渲染，这里的空内容区不占位。 */
+.polish-tabs .el-tabs__content{display:none}
+.polish-preview{margin:0;box-sizing:border-box;height:min(56vh,560px);overflow-y:auto;border:1px solid var(--soft-border);border-radius:3px;background:var(--jb-panel);padding:12px 14px;color:var(--jb-text);font-family:inherit;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text}
+.polish-hint{margin-right:auto;color:var(--jb-muted);font-size:12px}
 .file-context-btn{width:28px;min-width:28px;padding:0!important}
 .file-context-btn .file-context-icon{display:inline-grid;width:16px;height:16px;place-items:center}
 .file-context-btn .file-context-icon svg{display:block}
