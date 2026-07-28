@@ -27,8 +27,26 @@ import java.util.concurrent.Future
 internal object AgentBrowserManagement {
     private val remoteModelJobs = ConcurrentHashMap<String, Future<List<Map<String, String>>>>()
 
-    private data class ConfigField(val key: String, val label: String, val type: String, val default: String)
+    private data class ConfigField(
+        val key: String,
+        val label: String,
+        val type: String,
+        val default: String,
+        val options: () -> List<Map<String, Any?>> = ::noOptions,
+    )
+
+    private fun noOptions(): List<Map<String, Any?>> = emptyList()
+
+    /** 润色 Agent 候选：空值表示不启用，其余为当前已启用的 Agent。 */
+    private fun polishAgentOptions(): List<Map<String, Any?>> = buildList {
+        add(mapOf("label" to "不启用", "value" to ""))
+        AgentService.listAgents()
+            .filter { it.enabled }
+            .forEach { agent -> add(mapOf("label" to agent.name, "value" to agent.id.toString())) }
+    }
+
     private val configFields = listOf(
+        ConfigField(AgentPolishService.SETTING_KEY, "输入框润色 Agent", "select", "", ::polishAgentOptions),
         ConfigField("model.max_tool_call_rounds", "默认工具调用轮次", "number", "30"),
         ConfigField("model.max_retries", "默认模型重试次数", "number", "0"),
         ConfigField("model.dns_servers", "模型请求 DNS", "text", ""),
@@ -130,8 +148,9 @@ internal object AgentBrowserManagement {
         "skill.save" -> { ResourceConfigService.writeSkillFile(string(payload, "name"), string(payload, "path"), string(payload, "content")); Unit }
         "skill.createFile" -> mapOf("path" to ResourceConfigService.createSkillFile(string(payload, "name"), payload.stringOrNull("parentPath"), string(payload, "fileName")))
         "skill.createDirectory" -> mapOf("path" to ResourceConfigService.createSkillDirectory(string(payload, "name"), payload.stringOrNull("parentPath"), string(payload, "directoryName")))
-        "config.get" -> configFields.map { mapOf("key" to it.key, "label" to it.label, "type" to it.type, "value" to (SettingService.setting(it.key) ?: it.default)) }
-        "config.save" -> { payload.getAsJsonObject("values").entrySet().forEach { (key, value) -> SettingService.setSetting(key, value.asString) }; Unit }
+        "config.get" -> configFields.map { mapOf("key" to it.key, "label" to it.label, "type" to it.type, "value" to (SettingService.setting(it.key) ?: it.default), "options" to it.options()) }
+        // 润色 Agent 等配置直接影响对话面板入口，保存后需要通知宿主同步状态。
+        "config.save" -> { payload.getAsJsonObject("values").entrySet().forEach { (key, value) -> SettingService.setSetting(key, value.asString) }; changed(); Unit }
         else -> error("Unsupported Agent UI command: $type")
     }
 

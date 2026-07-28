@@ -146,6 +146,37 @@ button.composer-send.is-empty{opacity:0.75}
 button.composer-send.is-busy,
 button.composer-send:disabled{opacity:0.55;cursor:not-allowed;filter:none}
 
+/* polish: 与原生发送按钮同风格，避免 color-mix 以兼容旧版 JCEF/Chromium */
+button.composer-polish{
+  position:absolute;
+  z-index:3;
+  right:72px;
+  bottom:8px;
+  height:28px;
+  margin:0;
+  padding:0 12px;
+  border:1px solid var(--jb-border, #d3d9e2);
+  border-radius:6px;
+  background:var(--jb-panel);
+  color:var(--jb-text);
+  font:inherit;
+  font-size:12px;
+  font-weight:500;
+  line-height:1;
+  cursor:pointer;
+}
+button.composer-polish:hover,
+button.composer-polish:focus{border-color:var(--jb-accent);color:var(--jb-accent);outline:none}
+button.composer-polish:disabled{opacity:0.55;cursor:not-allowed;color:var(--jb-muted);border-color:var(--jb-border, #d3d9e2)}
+.polish-running{display:flex;align-items:center;gap:8px;padding:18px 4px;color:var(--jb-muted);font-size:13px}
+.polish-dialog .el-dialog__body{padding-top:14px;padding-bottom:6px}
+.polish-body{display:flex;flex-direction:column;gap:14px}
+.polish-tabs .el-tabs__header{margin:0}
+/* 方案切换只用 tab 头，内容统一由下方预览区渲染，这里的空内容区不占位。 */
+.polish-tabs .el-tabs__content{display:none}
+.polish-preview{margin:0;box-sizing:border-box;height:min(56vh,560px);overflow-y:auto;border:1px solid var(--soft-border);border-radius:3px;background:var(--jb-panel);padding:12px 14px;color:var(--jb-text);font-family:inherit;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text}
+.polish-hint{margin-right:auto;color:var(--jb-muted);font-size:12px}
+
 /* file context: avoid color-mix for older JCEF/Chromium */
 .file-context-btn{width:28px;min-width:28px;padding:0!important}
 .file-context-btn .file-context-icon{display:inline-grid;width:16px;height:16px;place-items:center}
