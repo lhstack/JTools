@@ -10,11 +10,17 @@ import com.lhstack.tools.agent.model.llm.ToolFunction
 import com.lhstack.tools.agent.model.llm.ToolResult
 import com.lhstack.tools.agent.model.llm.ToolResultContent
 import com.lhstack.tools.agent.model.llm.UserContent
+import com.lhstack.tools.agent.model.provider.ProviderMessageHistory
 
 /** Restores only complete, valid tool-call/result pairs from persisted history. */
 internal object ChatTurnHistoryMessages {
     fun append(messages: MutableList<Message>, structured: JsonObject?) {
         if (structured == null) return
+        val exactMessages = ProviderMessageHistory.fromJson(structured.get("provider_messages"))
+        if (exactMessages.isNotEmpty()) {
+            messages.addAll(exactMessages)
+            return
+        }
         val pairs = validToolPairs(structured)
         if (pairs.isNotEmpty()) {
             messages.add(Message.Assistant(id = null, content = pairs.map { it.call }))

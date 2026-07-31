@@ -72,6 +72,7 @@ object AgentRuntime {
         val requestMetadata: JsonObject? = null,
         val userMessageAt: String? = null,
         val onLogCreated: ((Long) -> Unit)? = null,
+        val appendMessageChannel: AppendMessageChannel = AppendMessageChannel.NONE,
     )
 
     /** 照抄 execute_agent_prompt：按 Agent id 执行一次直接提示。 */
@@ -163,6 +164,7 @@ object AgentRuntime {
             cancel = request.cancel,
             toolCancel = request.toolCancel,
             onLogCreated = request.onLogCreated,
+            appendMessageChannel = request.appendMessageChannel,
         )
         val output = result.value.get("response")?.takeIf { it.isJsonPrimitive }?.asString
             ?: result.value.toString()

@@ -440,5 +440,6 @@ class ProviderRound(
     val reasoning: MutableList<String> = mutableListOf(),
     val toolCalls: MutableList<ProviderToolCall> = mutableListOf(),
     val providerMessages: MutableList<Message> = mutableListOf(),
+    val appendMessages: MutableList<com.lhstack.tools.agent.model.provider.InjectedAppendMessage> = mutableListOf(),
     val usage: Usage = Usage(),
 )

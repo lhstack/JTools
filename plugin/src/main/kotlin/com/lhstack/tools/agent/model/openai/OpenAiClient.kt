@@ -16,8 +16,11 @@ import com.lhstack.tools.agent.model.llm.ProviderRound
 import com.lhstack.tools.agent.model.llm.ProviderToolCall
 import com.lhstack.tools.agent.model.llm.Usage
 import com.lhstack.tools.agent.model.params.OpenAiProviderType
+import com.lhstack.tools.agent.model.provider.AppendMessage
+import com.lhstack.tools.agent.model.provider.AppendMessageChannel
 import com.lhstack.tools.agent.model.provider.ModelStreamSink
 import com.lhstack.tools.agent.model.provider.ToolRuntime
+import com.lhstack.tools.agent.model.provider.toUserMessage
 
 /**
  * OpenAI 客户端。完全照抄 awake-claw openai.rs 的 OpenAiClient。
@@ -58,6 +61,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         request: OpenAiChatRequest,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): ProviderRound {
         val total = ProviderRound()
         var rounds = 0
@@ -65,7 +69,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             throwIfCancelled(cancel)
             val round = chatOnce(request, cancel)
             emitRoundText(round)
-            val loop = continueChatToolLoop(request, total, round, rounds, toolRuntime, cancel)
+            val loop = continueChatToolLoop(request, total, round, rounds, toolRuntime, cancel, appendMessageChannel)
             if (!loop.continueLoop) {
                 return total
             }
@@ -78,13 +82,14 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         request: OpenAiChatRequest,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): ProviderRound {
         val total = ProviderRound()
         var rounds = 0
         while (true) {
             throwIfCancelled(cancel)
             val round = chatStream(chatUrl(), request.body, request.maxRetries, cancel)
-            val loop = continueChatToolLoop(request, total, round, rounds, toolRuntime, cancel)
+            val loop = continueChatToolLoop(request, total, round, rounds, toolRuntime, cancel, appendMessageChannel)
             if (!loop.continueLoop) {
                 return total
             }
@@ -99,6 +104,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         request: OpenAiResponsesRequest,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): ProviderRound {
         val total = ProviderRound()
         var rounds = 0
@@ -117,7 +123,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
                 OpenAiParser.parseResponse(value)
             }
             if (!request.stream) emitRoundText(round)
-            val loop = continueResponsesToolLoop(request, total, round, rounds, toolRuntime, cancel)
+            val loop = continueResponsesToolLoop(request, total, round, rounds, toolRuntime, cancel, appendMessageChannel)
             if (!loop.continueLoop) {
                 return total
             }
@@ -499,12 +505,12 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         rounds: Int,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): LoopResult {
-        throwIfCancelled(cancel)
         throwIfCancelled(cancel)
         val toolCalls = mergeProviderRound(total, round)
         if (toolCalls.isEmpty()) {
-            return LoopResult(false, rounds)
+            return continueWithPendingAppendsOrStop(request::appendMessages, total, rounds, appendMessageChannel)
         }
         val nextRounds = rounds + 1
         if (nextRounds > request.maxToolRounds) {
@@ -512,13 +518,30 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         }
         val toolMessage = toolResultMessage(toolRuntime.executeToolCalls(toolCalls))
         throwIfCancelled(cancel)
-        throwIfCancelled(cancel)
+        val appendedMessages = appendMessageChannel.fetch()
+        val assistantMessage = total.providerMessages.last()
         val appended = buildList {
-            total.providerMessages.lastOrNull()?.let { add(it) }
+            add(assistantMessage)
             add(toolMessage)
+            addAll(appendedMessages.map { it.toUserMessage() })
         }
         request.appendMessages(appended)
         total.providerMessages.add(toolMessage)
+        total.providerMessages.addAll(appendedMessages.map { it.toUserMessage() })
+        appendMessageChannel.onProviderMessages(buildList {
+            add(assistantMessage)
+            add(toolMessage)
+            addAll(appendedMessages.map { it.toUserMessage() })
+        })
+        appendedMessages.forEach {
+            total.appendMessages.add(
+                com.lhstack.tools.agent.model.provider.InjectedAppendMessage(
+                    it,
+                    nextRounds
+                )
+            )
+        }
+        appendMessageChannel.onInjected(appendedMessages, nextRounds)
         return LoopResult(true, nextRounds)
     }
 
@@ -529,10 +552,11 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         rounds: Int,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): LoopResult {
         val toolCalls = mergeProviderRound(total, round)
         if (toolCalls.isEmpty()) {
-            return LoopResult(false, rounds)
+            return continueWithPendingAppendsOrStop(request::appendMessages, total, rounds, appendMessageChannel)
         }
         throwIfCancelled(cancel)
         val nextRounds = rounds + 1
@@ -541,13 +565,65 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         }
         val toolMessage = toolResultMessage(toolRuntime.executeToolCalls(toolCalls))
         throwIfCancelled(cancel)
+        val appendedMessages = appendMessageChannel.fetch()
+        val assistantMessage = total.providerMessages.last()
         val appended = buildList {
-            total.providerMessages.lastOrNull()?.let { add(it) }
+            add(assistantMessage)
             add(toolMessage)
+            addAll(appendedMessages.map { it.toUserMessage() })
         }
         request.appendMessages(appended)
         total.providerMessages.add(toolMessage)
+        total.providerMessages.addAll(appendedMessages.map { it.toUserMessage() })
+        appendMessageChannel.onProviderMessages(buildList {
+            add(assistantMessage)
+            add(toolMessage)
+            addAll(appendedMessages.map { it.toUserMessage() })
+        })
+        appendedMessages.forEach {
+            total.appendMessages.add(
+                com.lhstack.tools.agent.model.provider.InjectedAppendMessage(
+                    it,
+                    nextRounds
+                )
+            )
+        }
+        appendMessageChannel.onInjected(appendedMessages, nextRounds)
         return LoopResult(true, nextRounds)
+    }
+
+    private fun continueWithPendingAppendsOrStop(
+        appendMessages: (List<Message>) -> Unit,
+        total: ProviderRound,
+        rounds: Int,
+        channel: AppendMessageChannel,
+    ): LoopResult {
+        val messages = channel.fetchPendingOrClose()
+        val finalAssistant = total.providerMessages.last()
+        if (messages == null) {
+            channel.onProviderMessages(listOf(finalAssistant))
+            return LoopResult(false, rounds)
+        }
+        val userMessages = messages.map { it.toUserMessage() }
+        appendMessages(buildList {
+            total.providerMessages.lastOrNull()?.let { add(it) }
+            addAll(userMessages)
+        })
+        total.providerMessages.addAll(userMessages)
+        channel.onProviderMessages(buildList {
+            add(finalAssistant)
+            addAll(userMessages)
+        })
+        messages.forEach {
+            total.appendMessages.add(
+                com.lhstack.tools.agent.model.provider.InjectedAppendMessage(
+                    it,
+                    rounds + 1
+                )
+            )
+        }
+        channel.onInjected(messages, rounds + 1)
+        return LoopResult(true, rounds)
     }
 
     companion object {
@@ -573,6 +649,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             total.usage.add(round.usage)
             total.toolCalls.addAll(round.toolCalls)
             total.providerMessages.addAll(round.providerMessages)
+            total.appendMessages.addAll(round.appendMessages)
             return round.toolCalls.toList()
         }
 

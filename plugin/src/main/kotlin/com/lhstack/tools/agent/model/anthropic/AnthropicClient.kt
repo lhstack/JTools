@@ -17,8 +17,11 @@ import com.lhstack.tools.agent.model.llm.Message
 import com.lhstack.tools.agent.model.llm.ProviderRound
 import com.lhstack.tools.agent.model.llm.ProviderToolCall
 import com.lhstack.tools.agent.model.llm.Usage
+import com.lhstack.tools.agent.model.provider.AppendMessage
+import com.lhstack.tools.agent.model.provider.AppendMessageChannel
 import com.lhstack.tools.agent.model.provider.ModelStreamSink
 import com.lhstack.tools.agent.model.provider.ToolRuntime
+import com.lhstack.tools.agent.model.provider.toUserMessage
 
 /**
  * Anthropic 客户端。完全照抄 awake-claw anthropic.rs 的 AnthropicClient。
@@ -58,6 +61,7 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         request: AnthropicMessageRequest,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): ProviderRound {
         val total = ProviderRound()
         var rounds = 0
@@ -66,7 +70,7 @@ class AnthropicClient(private val params: AnthropicClientParams) {
             val value = postMessage(request, cancel)
             val round = AnthropicParser.parseMessageResponse(value)
             emitRoundText(round)
-            val loop = continueToolLoop(request, total, round, rounds, toolRuntime, cancel)
+            val loop = continueToolLoop(request, total, round, rounds, toolRuntime, cancel, appendMessageChannel)
             if (!loop.continueLoop) {
                 return total
             }
@@ -79,13 +83,14 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         request: AnthropicMessageRequest,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): ProviderRound {
         val total = ProviderRound()
         var rounds = 0
         while (true) {
             throwIfCancelled(cancel)
             val round = messageStream(request, cancel)
-            val loop = continueToolLoop(request, total, round, rounds, toolRuntime, cancel)
+            val loop = continueToolLoop(request, total, round, rounds, toolRuntime, cancel, appendMessageChannel)
             if (!loop.continueLoop) {
                 return total
             }
@@ -350,11 +355,12 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         rounds: Int,
         toolRuntime: ToolRuntime,
         cancel: ModelCancel?,
+        appendMessageChannel: AppendMessageChannel,
     ): LoopResult {
         throwIfCancelled(cancel)
         val toolCalls = mergeProviderRound(total, round)
         if (toolCalls.isEmpty()) {
-            return LoopResult(false, rounds)
+            return continueWithPendingAppendsOrStop(request, total, rounds, appendMessageChannel)
         }
         val nextRounds = rounds + 1
         if (nextRounds > request.maxToolRounds) {
@@ -362,13 +368,66 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         }
         val toolMessage = toolResultMessage(toolRuntime.executeToolCalls(toolCalls))
         throwIfCancelled(cancel)
+        val appendedMessages = appendMessageChannel.fetch()
+        val userMessages = appendedMessages.map { it.toUserMessage() }
+        val assistantMessage = total.providerMessages.last()
         val appended = buildList {
-            total.providerMessages.lastOrNull()?.let { add(it) }
+            add(assistantMessage)
             add(toolMessage)
+            addAll(userMessages)
         }
         request.appendMessages(appended)
         total.providerMessages.add(toolMessage)
+        total.providerMessages.addAll(userMessages)
+        appendMessageChannel.onProviderMessages(buildList {
+            add(assistantMessage)
+            add(toolMessage)
+            addAll(userMessages)
+        })
+        appendedMessages.forEach {
+            total.appendMessages.add(
+                com.lhstack.tools.agent.model.provider.InjectedAppendMessage(
+                    it,
+                    nextRounds
+                )
+            )
+        }
+        appendMessageChannel.onInjected(appendedMessages, nextRounds)
         return LoopResult(true, nextRounds)
+    }
+
+    private fun continueWithPendingAppendsOrStop(
+        request: AnthropicMessageRequest,
+        total: ProviderRound,
+        rounds: Int,
+        channel: AppendMessageChannel,
+    ): LoopResult {
+        val messages = channel.fetchPendingOrClose()
+        val finalAssistant = total.providerMessages.last()
+        if (messages == null) {
+            channel.onProviderMessages(listOf(finalAssistant))
+            return LoopResult(false, rounds)
+        }
+        val userMessages = messages.map { it.toUserMessage() }
+        request.appendMessages(buildList {
+            total.providerMessages.lastOrNull()?.let { add(it) }
+            addAll(userMessages)
+        })
+        total.providerMessages.addAll(userMessages)
+        channel.onProviderMessages(buildList {
+            add(finalAssistant)
+            addAll(userMessages)
+        })
+        messages.forEach {
+            total.appendMessages.add(
+                com.lhstack.tools.agent.model.provider.InjectedAppendMessage(
+                    it,
+                    rounds + 1
+                )
+            )
+        }
+        channel.onInjected(messages, rounds + 1)
+        return LoopResult(true, rounds)
     }
 
     companion object {

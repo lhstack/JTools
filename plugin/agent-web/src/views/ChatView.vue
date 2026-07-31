@@ -18,6 +18,10 @@ const queueEditVisible = ref(false)
 const queueEditItem = ref(null)
 const queueEditPrompt = ref('')
 const queueEditSaving = ref(false)
+const appendDialogVisible = ref(false)
+const appendTarget = ref(null)
+const appendPrompt = ref('')
+const appendSaving = ref(false)
 const polishVisible = ref(false)
 const polishStatus = ref('running')
 const polishError = ref('')
@@ -165,6 +169,7 @@ watch(
     item.reasoning,
     item.generating,
     item.actorLabel,
+    item.appendMessages?.map((message) => `${message.id}:${message.content}:${message.createdAt}`).join('|'),
     item.tools?.map((tool) => `${tool.id}:${tool.finished}:${tool.failed}`).join('|')
   ]),
   () => {
@@ -376,6 +381,27 @@ function applyPolishResult() {
   closePolish()
 }
 
+function openAppendDialog(item) {
+  if (!item.appendable) return
+  appendTarget.value = item
+  appendPrompt.value = ''
+  appendDialogVisible.value = true
+}
+
+async function saveAppendMessage() {
+  const text = appendPrompt.value.trim()
+  if (!text || !appendTarget.value || appendSaving.value) return
+  appendSaving.value = true
+  try {
+    await api('queue.append', { id: appendTarget.value.id, text })
+    appendDialogVisible.value = false
+    appendTarget.value = null
+    appendPrompt.value = ''
+  } finally {
+    appendSaving.value = false
+  }
+}
+
 function stopQueueItem(item) {
   invoke('queue.stop', { id: item.id })
 }
@@ -497,6 +523,16 @@ function drop(event) {
               <small :title="item.prompt || '附件消息'">{{ queuePreview(item.prompt || '附件消息') }}</small>
             </div>
             <div class="queue-actions">
+              <el-button
+                v-if="item.appendable"
+                :icon="Plus"
+                text
+                circle
+                size="small"
+                :title="item.pendingAppendCount ? `追加消息（${item.pendingAppendCount} 条待投递）` : '追加消息'"
+                aria-label="追加消息"
+                @click="openAppendDialog(item)"
+              />
               <el-button
                 v-if="item.editable"
                 :icon="EditPen"
@@ -635,6 +671,31 @@ function drop(event) {
       :style="{ left: hoverTip.x + 'px', top: hoverTip.y + 'px' }"
     >{{ hoverTip.text }}</div>
     <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
+  <el-dialog
+    v-model="appendDialogVisible"
+    title="追加消息"
+    width="560px"
+    append-to-body
+    :close-on-click-modal="false"
+    @closed="appendTarget=null; appendPrompt=''"
+  >
+    <el-input
+      v-model="appendPrompt"
+      type="textarea"
+      :rows="6"
+      resize="none"
+      maxlength="200000"
+      show-word-limit
+      autofocus
+      placeholder="输入要在本轮对话中优先投递的消息"
+      @keydown.meta.enter.prevent="saveAppendMessage"
+      @keydown.ctrl.enter.prevent="saveAppendMessage"
+    />
+    <template #footer>
+      <el-button @click="appendDialogVisible=false">取消</el-button>
+      <el-button type="primary" :disabled="!appendPrompt.trim()" :loading="appendSaving" @click="saveAppendMessage">追加</el-button>
+    </template>
+  </el-dialog>
   <el-dialog v-model="queueEditVisible" title="编辑排队消息" width="560px" append-to-body>
     <el-input
       v-model="queueEditPrompt"

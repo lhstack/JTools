@@ -18,6 +18,17 @@ function limitToolDetails(detail) {
 const previewSrc = ref('')
 const previewVisible = ref(false)
 const runExpanded = ref(true)
+const appendExpanded = ref(false)
+const expandedAppendMessages = ref(new Set())
+function appendMessageExpanded(messageId) {
+  return expandedAppendMessages.value.has(messageId)
+}
+function toggleAppendMessage(messageId) {
+  const next = new Set(expandedAppendMessages.value)
+  if (next.has(messageId)) next.delete(messageId)
+  else next.add(messageId)
+  expandedAppendMessages.value = next
+}
 function openAttachment(att) {
   if (att.kind === 'image' && att.previewUrl) {
     previewSrc.value = att.previewUrl
@@ -74,6 +85,40 @@ onBeforeUnmount(() => {
         <div v-if="item.messageType==='agent_run'&&item.agentRun?.prompt" class="agent-run-prompt"><b>运行输入</b><span>{{item.agentRun.prompt}}</span></div>
         <span v-if="item.generating" class="running">生成中…</span>
         <div v-if="item.role==='user'" class="plain">{{item.content}}</div>
+        <section v-if="item.role==='user'&&item.appendMessages?.length" class="append-messages">
+          <button
+            class="append-message-head"
+            type="button"
+            :aria-expanded="appendExpanded"
+            @click="appendExpanded=!appendExpanded"
+          >
+            <span class="append-message-icon" aria-hidden="true">↳</span>
+            <strong>追加消息</strong>
+            <small>{{item.appendMessages.length}} 条</small>
+            <em>{{appendExpanded?'⌃':'⌄'}}</em>
+          </button>
+          <div v-show="appendExpanded" class="append-message-list">
+            <article
+              v-for="(message,index) in item.appendMessages"
+              :key="message.id"
+              class="append-message-item"
+              :class="{ expanded: appendMessageExpanded(message.id) }"
+            >
+              <button
+                class="append-message-item-head"
+                type="button"
+                :aria-expanded="appendMessageExpanded(message.id)"
+                @click="toggleAppendMessage(message.id)"
+              >
+                <span class="append-message-order"><b>{{index+1}}</b>第 {{index+1}} 条追加</span>
+                <span class="append-message-preview">{{message.content}}</span>
+                <time v-if="message.createdAt">{{message.createdAt}}</time>
+                <em>{{appendMessageExpanded(message.id)?'⌃':'⌄'}}</em>
+              </button>
+              <div v-show="appendMessageExpanded(message.id)" class="append-message-content">{{message.content}}</div>
+            </article>
+          </div>
+        </section>
         <div v-if="item.attachments?.length" class="message-attachments">
           <article v-for="x in item.attachments" :key="x.id" class="message-attachment" @click="openAttachment(x)"><img v-if="x.kind==='image'&&x.previewUrl" :src="x.previewUrl" :alt="x.name"/><div v-else class="file-preview">附件</div><footer><strong>{{x.name}}</strong><small>{{x.mimeType||x.kind}} · {{Math.max(1,Math.ceil(x.size/1024))}} KB</small></footer></article>
         </div>

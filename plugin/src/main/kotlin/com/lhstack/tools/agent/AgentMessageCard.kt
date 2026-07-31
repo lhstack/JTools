@@ -1,6 +1,8 @@
 package com.lhstack.tools.agent
 
 import com.google.gson.annotations.SerializedName
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 internal sealed interface AgentChatCard {
@@ -16,10 +18,17 @@ internal class AgentUserMessageCard(
     private val createdAt: String? = null,
     private val persisted: Boolean = false,
     private val actorLabel: String? = null,
+    appendMessages: List<AgentBrowserAppendMessage> = emptyList(),
     override val id: String = "user-${UUID.randomUUID()}",
 ) : AgentChatCard {
+    private var appendMessages = appendMessages
+
     fun setContent(text: String) {
         content = text
+    }
+
+    fun setAppendMessages(value: List<AgentBrowserAppendMessage>) {
+        appendMessages = value
     }
 
     override fun toBrowserMessage() = AgentBrowserMessage(
@@ -31,6 +40,7 @@ internal class AgentUserMessageCard(
         deletable = onDelete != null,
         persisted = persisted,
         actorLabel = actorLabel,
+        appendMessages = appendMessages,
     )
 
     override fun delete() = onDelete?.invoke() ?: Unit
@@ -234,8 +244,14 @@ internal data class AgentBrowserMessage(
     @SerializedName("messageType") val messageType: String = "message",
     @SerializedName("agentRun") val agentRun: AgentBrowserRun? = null,
     @SerializedName("actorLabel") val actorLabel: String? = null,
+    @SerializedName("appendMessages") val appendMessages: List<AgentBrowserAppendMessage> = emptyList(),
 )
 
+internal data class AgentBrowserAppendMessage(
+    @SerializedName("id") val id: String,
+    @SerializedName("content") val content: String,
+    @SerializedName("createdAt") val createdAt: String?,
+)
 
 internal data class AgentBrowserUsageItem(
     @SerializedName("label") val label: String,
@@ -292,6 +308,14 @@ private fun toolResultFailed(result: String): Boolean =
 
 private fun normalizeBlockText(text: String): String = normalizeLineBreaks(text).trim()
 private fun normalizeLineBreaks(text: String): String = text.replace("\r\n", "\n").replace('\r', '\n')
+internal fun compactAppendMessageCreatedAt(value: String?): String? {
+    val text = value?.trim().orEmpty()
+    if (text.isBlank()) return null
+    return LocalDateTime.parse(text.replace(' ', 'T')).format(APPEND_MESSAGE_TIME_FORMATTER)
+}
+
+private val APPEND_MESSAGE_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
 private fun compactCreatedAt(value: String?): String? {
     val text = value?.trim().orEmpty()
     if (text.isBlank()) return null
