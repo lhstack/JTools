@@ -29,6 +29,7 @@ class RunOutput(
     val messages: List<Message>,
     val roundMessages: List<Message>,
     val reasoning: List<String>,
+    val appendMessages: List<InjectedAppendMessage> = emptyList(),
     val cancelled: Boolean = false,
     val maxTurnsReached: Boolean = false,
 ) {
@@ -49,6 +50,8 @@ class RunOutput(
         addProperty("response", output)
         add("tool_calls", collectStructuredToolCalls(events))
         add("tool_results", collectStructuredToolResults(events))
+        add("append_messages", JsonArray().apply { appendMessages.forEach { add(it.toJson()) } })
+        add("provider_messages", ProviderMessageHistory.toJson(roundMessages))
         add("usage", usage.toJson())
     }
 

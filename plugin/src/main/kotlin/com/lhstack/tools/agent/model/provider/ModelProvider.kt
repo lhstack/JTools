@@ -42,6 +42,7 @@ class ModelProviderRequest(
     val httpTrace: ModelHttpTrace,
     val cancel: ModelCancel? = null,
     val toolCancel: ModelCancel? = null,
+    val appendMessageChannel: AppendMessageChannel = AppendMessageChannel.NONE,
 )
 
 /** 远程模型列表请求。照抄 RemoteModelsRequest。 */
@@ -67,6 +68,10 @@ object ModelProvider {
     fun execute(executor: ModelHttpExecutor, request: ModelProviderRequest): RunOutput {
         val messages = ArrayList(request.history)
         messages.add(request.promptMessage)
+        val initialAppends = request.appendMessageChannel.fetch()
+        messages.addAll(initialAppends.map(AppendMessage::toUserMessage))
+        request.appendMessageChannel.onProviderMessages(initialAppends.map(AppendMessage::toUserMessage))
+        request.appendMessageChannel.onInjected(initialAppends, 0)
         val toolRuntime = ToolRuntime(
             definitions = request.toolDefinitions,
             tools = request.tools,
@@ -77,12 +82,17 @@ object ModelProvider {
         )
         val round = executeProviderRound(executor, request, messages, toolRuntime)
         messages.addAll(round.providerMessages)
+        val roundMessages = buildList {
+            addAll(initialAppends.map(AppendMessage::toUserMessage))
+            addAll(round.providerMessages)
+        }
         return RunOutput(
             output = round.response,
             usage = round.usage,
             messages = messages,
-            roundMessages = round.providerMessages.toList(),
+            roundMessages = roundMessages,
             reasoning = round.reasoning.toList(),
+            appendMessages = round.appendMessages.toList(),
         )
     }
 
@@ -158,9 +168,9 @@ object ModelProvider {
                     maxRetries = request.maxRetries,
                 )
                 if (request.streamed) {
-                    client.stream(chatRequest, toolRuntime, request.cancel)
+                    client.stream(chatRequest, toolRuntime, request.cancel, request.appendMessageChannel)
                 } else {
-                    client.chat(chatRequest, toolRuntime, request.cancel)
+                    client.chat(chatRequest, toolRuntime, request.cancel, request.appendMessageChannel)
                 }
             }
 
@@ -177,7 +187,7 @@ object ModelProvider {
                     maxToolRounds = request.maxTurns,
                     maxRetries = request.maxRetries,
                 )
-                client.responses(responsesRequest, toolRuntime, request.cancel)
+                client.responses(responsesRequest, toolRuntime, request.cancel, request.appendMessageChannel)
             }
         }
     }
@@ -212,9 +222,9 @@ object ModelProvider {
             maxRetries = request.maxRetries,
         )
         return if (request.streamed) {
-            client.stream(messageRequest, toolRuntime, request.cancel)
+            client.stream(messageRequest, toolRuntime, request.cancel, request.appendMessageChannel)
         } else {
-            client.chat(messageRequest, toolRuntime, request.cancel)
+            client.chat(messageRequest, toolRuntime, request.cancel, request.appendMessageChannel)
         }
     }
 }

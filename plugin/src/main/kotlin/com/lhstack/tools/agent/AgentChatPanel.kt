@@ -50,6 +50,8 @@ import com.lhstack.tools.agent.model.log.ModelLogService
 import com.lhstack.tools.agent.model.tools.UpdateAgentDistillationTool
 import com.lhstack.tools.agent.model.log.ModelRequestException
 import com.lhstack.tools.agent.model.provider.AgentRuntime
+import com.lhstack.tools.agent.model.provider.AppendMessage
+import com.lhstack.tools.agent.model.provider.AppendMessageChannel
 import com.lhstack.tools.agent.model.provider.AssistantOutputPolicy
 import com.lhstack.tools.agent.model.provider.ModelStreamSink
 import com.lhstack.tools.agent.model.provider.ToolEventSink
@@ -591,6 +593,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val snapshot = jsonObject(turn.requestData, "request_snapshot") ?: return
         val prompt = jsonString(snapshot.get("prompt_message"))
         val attachments = readAttachmentSnapshots(snapshot)
+        val structured = jsonObject(turn.responseData, "structured_response")
+        val appendMessages = readAppendMessages(structured)
         if (prompt.isBlank() && attachments.isEmpty()) return
         appendMessage(
             sessionId,
@@ -604,8 +608,21 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             cardId = "turn-${turn.logId}-user",
             persisted = true,
             actorLabel = userActorLabel(snapshot),
+            appendMessages = appendMessages,
         )
     }
+
+    private fun readAppendMessages(structured: JsonObject?): List<AgentBrowserAppendMessage> =
+        structured?.get("append_messages")?.takeIf { it.isJsonArray }?.asJsonArray?.mapNotNull { element ->
+            val value = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val content = jsonString(value.get("content"))
+            if (content.isBlank()) return@mapNotNull null
+            AgentBrowserAppendMessage(
+                jsonString(value.get("id")).ifBlank { UUID.randomUUID().toString() },
+                content,
+                compactAppendMessageCreatedAt(jsonString(value.get("created_at"))),
+            )
+        }.orEmpty()
 
     private fun userActorLabel(snapshot: JsonObject): String? {
         val sourceRunId = jsonString(snapshot.get("source_agent_run_id"))
@@ -1160,6 +1177,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             clientMessageOrder = item.order,
             userMessageAt = item.userMessageAt,
             onLogCreated = { logId -> item.persistedLogId = logId },
+            appendMessageChannel = appendMessageChannel(item),
             project = project,
             requestMetadata = item.sourceAgentRunId?.let { runId ->
                 JsonObject().apply {
@@ -1440,6 +1458,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             val items = chatQueue.filter { it.sessionId == sessionId }
             items.forEach { item ->
                 item.status = ChatQueueStatus.CANCELLED
+                cancelPendingAppendMessages(item)
                 item.token.cancel()
                 item.toolToken.cancel()
             }
@@ -1457,11 +1476,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             when (item.status) {
                 ChatQueueStatus.PENDING -> {
                     item.status = ChatQueueStatus.CANCELLED
+                    cancelPendingAppendMessages(item)
                     chatQueue.remove(item)
                     item.sessionId
                 }
                 ChatQueueStatus.PROCESSING -> {
                     item.conversationCancelRequested = true
+                    cancelPendingAppendMessages(item)
                     item.token.cancel()
                     null
                 }
@@ -1471,6 +1492,69 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         refreshQueuePanel()
         sessionToRefresh?.let { refreshCurrentSessionHistoryIfVisible(it) }
         processQueue()
+    }
+
+    private fun appendMessageChannel(item: ChatQueueItem): AppendMessageChannel = object : AppendMessageChannel {
+        override fun fetch(): List<AppendMessage> = synchronized(queueLock) {
+            if (item.token.isCancelled()) return@synchronized emptyList()
+            drainPendingAppendMessages(item)
+        }
+
+        override fun fetchPendingOrClose(): List<AppendMessage>? = synchronized(queueLock) {
+            if (item.token.isCancelled()) {
+                cancelPendingAppendMessages(item)
+                return@synchronized null
+            }
+            val messages = drainPendingAppendMessages(item)
+            if (messages.isNotEmpty()) return@synchronized messages
+            item.acceptingAppendMessages = false
+            null
+        }
+
+        override fun onInjected(messages: List<AppendMessage>, round: Int) {
+            if (messages.isEmpty()) return
+            val displayMessages = synchronized(queueLock) {
+                item.injectedAppendMessages.addAll(messages)
+                (item.injectedAppendMessages + item.pendingAppendMessages).toList()
+            }
+            onUi {
+                item.userCard?.setAppendMessages(displayMessages.map(::toBrowserAppendMessage))
+                syncBrowserState()
+            }
+        }
+    }
+
+    private fun toBrowserAppendMessage(message: AppendMessage): AgentBrowserAppendMessage = AgentBrowserAppendMessage(
+        message.id,
+        message.content,
+        compactAppendMessageCreatedAt(message.createdAt),
+    )
+
+    private fun drainPendingAppendMessages(item: ChatQueueItem): List<AppendMessage> {
+        val messages = item.pendingAppendMessages.toList()
+        item.pendingAppendMessages.clear()
+        return messages
+    }
+
+    private fun cancelPendingAppendMessages(item: ChatQueueItem) {
+        item.acceptingAppendMessages = false
+        item.pendingAppendMessages.clear()
+    }
+
+    private fun appendToQueueItem(messageId: String, text: String) {
+        val content = text.trim()
+        require(content.isNotEmpty()) { "追加消息不能为空" }
+        val queueItem: ChatQueueItem
+        val displayMessages = synchronized(queueLock) {
+            queueItem = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) { "进行中的消息不存在" }
+            require(queueItem.status == ChatQueueStatus.PROCESSING) { "只有进行中的消息可以追加" }
+            require(queueItem.acceptingAppendMessages) { "本轮模型回复已结束，不能继续追加" }
+            queueItem.pendingAppendMessages.add(AppendMessage(content = content, createdAt = messageTimeNow()))
+            (queueItem.injectedAppendMessages + queueItem.pendingAppendMessages).toList()
+        }
+        queueItem.userCard?.setAppendMessages(displayMessages.map(::toBrowserAppendMessage))
+        refreshQueuePanel()
+        syncBrowserState()
     }
 
     private fun editPendingQueueItem(messageId: String, prompt: String) {
@@ -1493,28 +1577,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        // 停止动作本身也放到后台，避免在 EDT 上触发 OkHttp 关闭/日志写回导致卡顿。
+        // 停止当前会话轮次时同时取消工具与模型请求，并原子清空所有待投递追加消息。
         ApplicationManager.getApplication().executeOnPooledThread {
-            if (item.runningToolIds.isNotEmpty()) {
-                cancelActiveTool(item)
-            } else {
-                cancelModelResponse(item)
-            }
+            cancelModelResponse(item)
         }
-    }
-
-    private fun cancelActiveTool(item: ChatQueueItem) {
-        item.toolCancelRequested = true
-        item.toolToken.cancel()
-        onUi {
-            markQueueItemCancellationRequested(item)
-        }
-        // Keep the conversation alive so the model can receive the cancelled tool result.
     }
 
     private fun cancelModelResponse(item: ChatQueueItem) {
         // 热路径只打取消标记 + 发 token 取消；真正收尾由 worker 的 catch 完成。
-        item.conversationCancelRequested = true
+        synchronized(queueLock) {
+            item.conversationCancelRequested = true
+            cancelPendingAppendMessages(item)
+        }
+        item.toolToken.cancel()
         item.token.cancel()
         if (!hasAssistantOutput(item)) {
             val logId = item.persistedLogId
@@ -1535,18 +1610,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             // 已有输出：不要在这里碰历史/卡片；只刷新队列状态，等 worker 走取消收尾。
             refreshQueuePanel()
         }
-    }
-
-    private fun markQueueItemCancellationRequested(item: ChatQueueItem) {
-        val runningIds = item.runningToolIds.toList()
-        item.canceledToolIds.addAll(runningIds)
-        item.runningToolIds.clear()
-        item.runningToolCount = 0
-        runningIds.forEach { toolId ->
-            item.assistantCard?.updateToolResult(toolId, "用户手动取消")
-        }
-        refreshQueuePanel()
-        updateActiveStopButton()
     }
 
     private fun updateActiveStopButton() = Unit
@@ -1663,7 +1726,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun resetCancelledTools(item: ChatQueueItem) {
         item.toolToken.reset()
-        item.toolCancelRequested = false
     }
 
     private fun scrollQueueItemIfVisible(item: ChatQueueItem) {
@@ -1673,6 +1735,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun deleteQueueTurn(item: ChatQueueItem) {
         synchronized(queueLock) {
             item.status = ChatQueueStatus.CANCELLED
+            cancelPendingAppendMessages(item)
             item.token.cancel()
             item.toolToken.cancel()
             chatQueue.remove(item)
@@ -1832,6 +1895,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         cardId: String? = null,
         persisted: Boolean = false,
         actorLabel: String? = null,
+        appendMessages: List<AgentBrowserAppendMessage> = emptyList(),
     ) {
         if (role == ROLE_USER) {
             addMessageCard(
@@ -1843,6 +1907,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     createdAt = createdAt,
                     persisted = persisted,
                     actorLabel = actorLabel,
+                    appendMessages = appendMessages,
                     id = cardId ?: "user-${UUID.randomUUID()}",
                 )
             )
@@ -2629,6 +2694,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 enabled
             }
             "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
+            "queue.append" -> appendToQueueItem(
+                requireNotNull(id) { "缺少队列消息 ID" },
+                requireNotNull(text) { "缺少追加消息内容" },
+            )
             "queue.edit" -> editPendingQueueItem(
                 requireNotNull(id) { "缺少队列消息 ID" },
                 requireNotNull(text) { "缺少队列消息内容" },
@@ -2739,6 +2808,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     item.status.label,
                     item.status == ChatQueueStatus.PROCESSING,
                     item.status == ChatQueueStatus.PENDING,
+                    item.status == ChatQueueStatus.PROCESSING && item.acceptingAppendMessages,
+                    item.pendingAppendMessages.size,
                 )
             }
         }
@@ -2860,6 +2931,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("status") val status: String,
         @SerializedName("processing") val processing: Boolean,
         @SerializedName("editable") val editable: Boolean,
+        @SerializedName("appendable") val appendable: Boolean,
+        @SerializedName("pendingAppendCount") val pendingAppendCount: Int,
     )
 
     private fun messageTimeNow(): String = LocalDateTime.now().toString().replace('T', ' ')
@@ -2887,7 +2960,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val toolToken: ModelCancel = ModelCancel(),
         var status: ChatQueueStatus = ChatQueueStatus.PENDING,
         var runningToolCount: Int = 0,
-        var toolCancelRequested: Boolean = false,
         var conversationCancelRequested: Boolean = false,
         var hasAssistantOutput: Boolean = false,
         @Volatile var persistedLogId: Long? = null,
@@ -2897,6 +2969,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val toolResults: MutableMap<String, String> = linkedMapOf(),
         val runningToolIds: MutableSet<String> = linkedSetOf(),
         val canceledToolIds: MutableSet<String> = linkedSetOf(),
+        val pendingAppendMessages: MutableList<AppendMessage> = mutableListOf(),
+        val injectedAppendMessages: MutableList<AppendMessage> = mutableListOf(),
+        var acceptingAppendMessages: Boolean = true,
         var userCard: AgentUserMessageCard? = null,
         var assistantCard: AgentAssistantMessageCard? = null,
     )

@@ -149,8 +149,25 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.0</h2>
+            <h2>🚀 Version v1.1.5.1</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>💬 <b>Append Messages While Running:</b> Active chat queue items now accept additional user messages without stopping the current model request or creating another queued turn; each append is delivered as an independent user message</li>
+                <li>🔁 <b>Correct Loop Continuation:</b> A provider loop now continues when either tool calls or pending append messages exist, so a tool-free model response no longer terminates before queued appends are delivered</li>
+                <li>🧾 <b>Exact Append History:</b> Model logs persist append metadata together with the actual provider message order, preserving the sequence of tool calls, tool results and appended user messages when history is restored</li>
+                <li>🛑 <b>Cancellation Boundary:</b> Stopping a turn cancels model and tool requests, atomically closes the append channel and removes undelivered append messages</li>
+                <li>🎨 <b>Collapsible Append Display:</b> User cards provide group-level and per-message expansion, internal scrolling for large lists and long content, and correctly formatted timestamps without leaking fractional-second digits</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.1</code> and aligned SDK helper version metadata to <code>1151</code></li>
+                <li>💬 <b>运行中追加消息：</b>进行中的对话队列项支持继续追加用户消息；追加内容按独立用户消息投递，无需停止当前模型请求或重新排队</li>
+                <li>🔁 <b>工具循环继续条件修复：</b>下一轮由“存在工具调用或待处理追加消息”共同决定；即使模型未调用工具，只要有追加消息也会继续请求模型</li>
+                <li>🧾 <b>追加顺序精确持久化：</b>模型日志记录追加消息元数据及实际 Provider 消息顺序，恢复历史时保留工具调用、工具结果和追加消息的真实先后关系</li>
+                <li>🛑 <b>取消边界收敛：</b>停止会话时同步取消模型与工具请求，并原子关闭追加入口、清空尚未投递的追加消息</li>
+                <li>🎨 <b>追加消息折叠展示：</b>用户消息卡片提供追加消息总览和单条两级展开/收起；大量消息及超长正文在区域内滚动，并修正小数秒被误显示为裸数字的问题</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.1</code>，并同步 SDK Helper 版本元数据到 <code>1151</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.5.0</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>✨ <b>Chat Input Polish:</b> A new "Polish" button in the chat composer runs a configured Agent over the current input and returns multiple candidate rewrites for preview and one-click fill-back</li>
                 <li>🧩 <b>Ephemeral Polish Tool:</b> A virtual <code>submit_polish_results</code> tool is injected per polish run only; it never enters the global tool registry nor appears in Agent tool configuration</li>

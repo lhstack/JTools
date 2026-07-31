@@ -51,12 +51,14 @@ object ModelRuntime {
         cancel: ModelCancel? = null,
         toolCancel: ModelCancel? = null,
         onLogCreated: ((Long) -> Unit)? = null,
+        appendMessageChannel: AppendMessageChannel = AppendMessageChannel.NONE,
     ): Result {
         val toolDefinitions = modelLogToolDefinitions(tools)
         val additionalParams = ModelParams.additionalParams(model, environmentId)
         val maxToolRounds = resolveMaxToolRounds(model, agentMaxTurns)
         val maxRetries = resolveMaxRetries(model)
         val httpTrace = ModelHttpTrace(UUID.randomUUID().toString())
+        val recordedAppendMessages = RecordingAppendMessageChannel(appendMessageChannel)
         val modelLogId = ModelLogService.createModelLog(model, logContext, httpTrace.requestData())
         onLogCreated?.invoke(modelLogId)
         val hook = TraceHook()
@@ -80,13 +82,18 @@ object ModelRuntime {
             httpTrace = httpTrace,
             cancel = cancel,
             toolCancel = toolCancel,
+            appendMessageChannel = recordedAppendMessages,
         )
 
         val output = try {
             ModelProvider.execute(executor, request)
         } catch (e: Throwable) {
             val message = e.message ?: e.toString()
-            val partialResponse = partialOutput.structuredValue(hook)
+            val partialResponse = partialOutput.structuredValue(
+                hook,
+                recordedAppendMessages.appendMessagesSnapshot(),
+                completeProviderMessages(recordedAppendMessages.providerMessagesSnapshot(), hook.events()),
+            )
             ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
             if (cancel?.isCancelled() == true) {
                 // Cancellation is a terminal model-log state when any model output
@@ -114,10 +121,44 @@ object ModelRuntime {
             throw ModelRequestException(modelLogId, message, partialResponse, assistantMessageAt, e)
         }
 
-        val value = output.structuredValue(hook.events())
+        val value = output.structuredValue(hook.events()).also {
+            val recordedMessages = recordedAppendMessages.appendMessagesSnapshot()
+            it.add("append_messages", com.google.gson.JsonArray().apply {
+                recordedMessages.forEach { message -> add(message.toJson()) }
+            })
+            it.add("provider_messages", ProviderMessageHistory.toJson(
+                completeProviderMessages(recordedAppendMessages.providerMessagesSnapshot(), hook.events()),
+            ))
+        }
         ModelLogService.updateModelRequestLogRequestData(modelLogId, modelRequestLogData(httpTrace, logContext))
         val assistantMessageAt = ModelLogService.finishModelLogSuccess(modelLogId, httpTrace.responseData(value))
         return Result(value, modelLogId, assistantMessageAt)
+    }
+
+    private fun completeProviderMessages(messages: List<Message>, events: List<TraceEvent>): List<Message> {
+        if (messages.isEmpty()) return emptyList()
+        val completedResultIds = events.filterIsInstance<TraceEvent.ToolResult>()
+            .flatMap { listOfNotNull(it.internalCallId, it.toolCallId) }
+            .toSet()
+        val completedCallIds = messages.asSequence()
+            .filterIsInstance<Message.Assistant>()
+            .flatMap { it.content.asSequence() }
+            .filterIsInstance<com.lhstack.tools.agent.model.llm.AssistantContent.ToolCall>()
+            .map { it.toolCall }
+            .filter { it.id in completedResultIds || it.callId in completedResultIds }
+            .flatMap { sequenceOf(it.id, it.callId).filterNotNull() }
+            .toSet()
+        return messages.filter { message ->
+            when (message) {
+                is Message.Assistant -> message.content.none { it is com.lhstack.tools.agent.model.llm.AssistantContent.ToolCall } ||
+                    message.content.filterIsInstance<com.lhstack.tools.agent.model.llm.AssistantContent.ToolCall>()
+                        .all { it.toolCall.id in completedCallIds || it.toolCall.callId in completedCallIds }
+                is Message.User -> message.content.none { it is com.lhstack.tools.agent.model.llm.UserContent.ToolResult } ||
+                    message.content.filterIsInstance<com.lhstack.tools.agent.model.llm.UserContent.ToolResult>()
+                        .all { it.toolResult.id in completedCallIds || it.toolResult.callId in completedCallIds }
+                is Message.System -> true
+            }
+        }
     }
 
     /** 照抄 model_request_log_data：把 request_snapshot 并入首个请求数据。 */
@@ -163,19 +204,24 @@ object ModelRuntime {
             delegate.onReasoningDelta(text)
         }
 
-        fun structuredValue(hook: TraceHook): JsonObject? = synchronized(lock) {
+        fun structuredValue(
+            hook: TraceHook,
+            appendMessages: List<InjectedAppendMessage>,
+            providerMessages: List<Message>,
+        ): JsonObject? = synchronized(lock) {
             val responseText = response.toString()
             val reasoningText = reasoning.toString()
             val events = hook.events()
-            if (responseText.isBlank() && reasoningText.isBlank() && events.isEmpty()) {
+            if (responseText.isBlank() && reasoningText.isBlank() && events.isEmpty() && appendMessages.isEmpty()) {
                 return@synchronized null
             }
             RunOutput(
                 output = responseText,
                 usage = Usage(),
                 messages = emptyList(),
-                roundMessages = emptyList(),
+                roundMessages = providerMessages,
                 reasoning = listOfNotNull(reasoningText.takeIf { it.isNotBlank() }),
+                appendMessages = appendMessages,
             ).structuredValue(events).takeIf(AssistantOutputPolicy::hasOutput)
         }
     }

@@ -29,6 +29,22 @@ class ChatTurnHistoryMessagesTest {
     }
 
     @Test
+    fun `exact provider messages override flattened history`() {
+        val structured = history(JsonObject(), includeResult = true).apply {
+            add("provider_messages", com.lhstack.tools.agent.model.provider.ProviderMessageHistory.toJson(listOf(
+                Message.user("append message"),
+                Message.assistant("answer"),
+            )))
+        }
+        val messages = mutableListOf<Message>()
+
+        ChatTurnHistoryMessages.append(messages, structured)
+
+        assertEquals("append message", assertIs<UserContent.Text>(assertIs<Message.User>(messages[0]).content.single()).text)
+        assertEquals("answer", assertIs<AssistantContent.Text>(assertIs<Message.Assistant>(messages[1]).content.single()).text)
+    }
+
+    @Test
     fun `call without result is removed from provider history`() {
         val messages = mutableListOf<Message>()
         ChatTurnHistoryMessages.append(messages, history(JsonParser.parseString("{}"), includeResult = false))
