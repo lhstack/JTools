@@ -149,8 +149,23 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.1</h2>
+            <h2>🚀 Version v1.1.5.2</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>📎 <b>Append Attachments While Running:</b> The append-message dialog now accepts selected or pasted images and files while a conversation is active; attachments can be sent alone or with text and follow the actual Provider message order into model context and restored history</li>
+                <li>🖼️ <b>Append Attachment Presentation:</b> Appended-message cards show image thumbnails and file metadata, support image preview or opening files in the IDE, and provide attachment deduplication, removal and pre-send validation</li>
+                <li>🛑 <b>Layered Stop Semantics Restored:</b> When tools are running, Stop cancels only the active tools and returns a “cancelled by user” result so the model can continue the turn; the whole model response is terminated only when no tool is active</li>
+                <li>📐 <b>Strict Chat Width Containment:</b> Markdown, tables, code blocks, long links, tool details and appended messages stay inside the message area through wrapping or local scrolling instead of stretching the chat layout</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.2</code> and aligned SDK helper version metadata to <code>1152</code></li>
+                <li>📎 <b>运行中追加附件：</b>进行中的对话支持在追加消息弹窗中选择或粘贴图片与文件；附件与文字可独立或组合发送，并按真实 Provider 消息顺序进入模型上下文和会话历史</li>
+                <li>🖼️ <b>追加附件展示与打开：</b>追加消息卡片展示图片缩略图和文件信息，支持点击预览图片或在 IDE 中打开文件；弹窗支持附件去重、移除和发送前检查</li>
+                <li>🛑 <b>停止层级语义恢复：</b>有工具执行时停止按钮只取消当前工具，并将“用户手动取消”结果返回模型继续本轮对话；没有工具执行时才终止整个模型回复</li>
+                <li>📐 <b>对话内容宽度约束：</b>Markdown、表格、代码块、长链接、工具详情及追加消息统一限制在消息区域内，超宽内容改为换行或局部滚动，避免撑开对话布局</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.2</code>，并同步 SDK Helper 版本元数据到 <code>1152</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.5.1</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>💬 <b>Append Messages While Running:</b> Active chat queue items now accept additional user messages without stopping the current model request or creating another queued turn; each append is delivered as an independent user message</li>
                 <li>🔁 <b>Correct Loop Continuation:</b> A provider loop now continues when either tool calls or pending append messages exist, so a tool-free model response no longer terminates before queued appends are delivered</li>

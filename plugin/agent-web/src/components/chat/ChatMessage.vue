@@ -115,7 +115,16 @@ onBeforeUnmount(() => {
                 <time v-if="message.createdAt">{{message.createdAt}}</time>
                 <em>{{appendMessageExpanded(message.id)?'⌃':'⌄'}}</em>
               </button>
-              <div v-show="appendMessageExpanded(message.id)" class="append-message-content">{{message.content}}</div>
+              <div v-show="appendMessageExpanded(message.id)" class="append-message-content">
+                <div v-if="message.content" class="append-message-text">{{message.content}}</div>
+                <div v-if="message.attachments?.length" class="append-message-attachments">
+                  <article v-for="attachment in message.attachments" :key="attachment.id" class="append-message-attachment" @click="openAttachment(attachment)">
+                    <img v-if="attachment.kind==='image'&&attachment.previewUrl" :src="attachment.previewUrl" :alt="attachment.name"/>
+                    <span v-else class="file-preview">附件</span>
+                    <div><b>{{attachment.name}}</b><small>{{attachment.mimeType||attachment.kind}} · {{Math.max(1,Math.ceil(attachment.size/1024))}} KB</small></div>
+                  </article>
+                </div>
+              </div>
             </article>
           </div>
         </section>
