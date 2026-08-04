@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, EditPen, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, api, invoke } from '../bridge/jcefBridge'
 import ChatMessage from '../components/chat/ChatMessage.vue'
@@ -21,7 +21,11 @@ const queueEditSaving = ref(false)
 const appendDialogVisible = ref(false)
 const appendTarget = ref(null)
 const appendPrompt = ref('')
+const appendAttachments = ref([])
 const appendSaving = ref(false)
+const APPEND_ATTACHMENT_POLL_INTERVAL = 100
+const APPEND_ATTACHMENT_POLL_LIMIT = 600
+const appendAttachmentLoading = ref(false)
 const polishVisible = ref(false)
 const polishStatus = ref('running')
 const polishError = ref('')
@@ -385,18 +389,76 @@ function openAppendDialog(item) {
   if (!item.appendable) return
   appendTarget.value = item
   appendPrompt.value = ''
+  appendAttachments.value = []
   appendDialogVisible.value = true
+}
+
+function mergeAppendAttachments(items) {
+  const merged = new Map(appendAttachments.value.map((item) => [item.path || item.id, item]))
+  ;(items || []).forEach((item) => merged.set(item.path || item.id, item))
+  appendAttachments.value = [...merged.values()]
+}
+
+async function runAppendAttachmentTask(type) {
+  if (appendAttachmentLoading.value) return
+  appendAttachmentLoading.value = true
+  let taskId = ''
+  try {
+    const started = await api(`${type}.start`)
+    taskId = started.taskId
+    for (let attempt = 0; attempt < APPEND_ATTACHMENT_POLL_LIMIT; attempt += 1) {
+      const result = await api('appendAttachment.poll', { taskId })
+      if (result.status === 'completed') {
+        mergeAppendAttachments(result.attachments)
+        return
+      }
+      if (result.status === 'failed') throw new Error(result.error || '追加附件失败')
+      await new Promise((resolve) => setTimeout(resolve, APPEND_ATTACHMENT_POLL_INTERVAL))
+    }
+    throw new Error('追加附件操作超时')
+  } catch (error) {
+    if (taskId) await invoke('appendAttachment.cancel', { taskId }).catch(() => {})
+    ElMessage.error(error?.message || String(error))
+  } finally {
+    appendAttachmentLoading.value = false
+  }
+}
+
+async function chooseAppendAttachments() {
+  await runAppendAttachmentTask('appendAttachment.choose')
+}
+
+async function pasteAppendAttachments(event) {
+  if (event?.clipboardData) {
+    const hasFiles = [...event.clipboardData.items].some((item) => item.kind === 'file')
+    if (!hasFiles) return
+    event.preventDefault()
+  }
+  await runAppendAttachmentTask('appendAttachment.paste')
+}
+
+function removeAppendAttachment(id) {
+  appendAttachments.value = appendAttachments.value.filter((item) => item.id !== id)
+}
+
+function closeAppendDialog() {
+  appendTarget.value = null
+  appendPrompt.value = ''
+  appendAttachments.value = []
 }
 
 async function saveAppendMessage() {
   const text = appendPrompt.value.trim()
-  if (!text || !appendTarget.value || appendSaving.value) return
+  if ((!text && !appendAttachments.value.length) || !appendTarget.value || appendSaving.value) return
   appendSaving.value = true
   try {
-    await api('queue.append', { id: appendTarget.value.id, text })
+    await api('queue.append', {
+      id: appendTarget.value.id,
+      text,
+      attachments: appendAttachments.value.map(({ id, name, path, mimeType, size, kind }) => ({ id, name, path, mimeType, size, kind })),
+    })
     appendDialogVisible.value = false
-    appendTarget.value = null
-    appendPrompt.value = ''
+    closeAppendDialog()
   } finally {
     appendSaving.value = false
   }
@@ -677,7 +739,7 @@ function drop(event) {
     width="560px"
     append-to-body
     :close-on-click-modal="false"
-    @closed="appendTarget=null; appendPrompt=''"
+    @closed="closeAppendDialog"
   >
     <el-input
       v-model="appendPrompt"
@@ -687,13 +749,26 @@ function drop(event) {
       maxlength="200000"
       show-word-limit
       autofocus
-      placeholder="输入要在本轮对话中优先投递的消息"
+      placeholder="输入要在本轮对话中优先投递的消息；也可以只追加附件"
+      @paste="pasteAppendAttachments"
       @keydown.meta.enter.prevent="saveAppendMessage"
       @keydown.ctrl.enter.prevent="saveAppendMessage"
     />
+    <div class="append-attachment-toolbar">
+      <el-button :icon="Paperclip" :loading="appendAttachmentLoading" :disabled="appendAttachmentLoading" @click="chooseAppendAttachments">添加附件</el-button>
+      <span>支持图片或文件，可只追加附件</span>
+    </div>
+    <div v-if="appendAttachments.length" class="append-attachment-list">
+      <div v-for="item in appendAttachments" :key="item.id" class="append-attachment-chip">
+        <span v-if="item.kind==='image'&&item.previewUrl" class="draft-thumb" @click="openAttachment(item)"><img :src="item.previewUrl" :alt="item.name"/></span>
+        <span v-else class="draft-icon" @click="openAttachment(item)">▤</span>
+        <div @click="openAttachment(item)"><b>{{item.name}}</b><small>{{item.mimeType||item.kind}} · {{Math.max(1,Math.ceil(item.size/1024))}} KB</small></div>
+        <el-button :icon="Close" text aria-label="移除追加附件" @click="removeAppendAttachment(item.id)" />
+      </div>
+    </div>
     <template #footer>
       <el-button @click="appendDialogVisible=false">取消</el-button>
-      <el-button type="primary" :disabled="!appendPrompt.trim()" :loading="appendSaving" @click="saveAppendMessage">追加</el-button>
+      <el-button type="primary" :disabled="!appendPrompt.trim()&&!appendAttachments.length" :loading="appendSaving" @click="saveAppendMessage">追加</el-button>
     </template>
   </el-dialog>
   <el-dialog v-model="queueEditVisible" title="编辑排队消息" width="560px" append-to-body>

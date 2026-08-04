@@ -251,6 +251,7 @@ internal data class AgentBrowserAppendMessage(
     @SerializedName("id") val id: String,
     @SerializedName("content") val content: String,
     @SerializedName("createdAt") val createdAt: String?,
+    @SerializedName("attachments") val attachments: List<AgentBrowserAttachment> = emptyList(),
 )
 
 internal data class AgentBrowserUsageItem(

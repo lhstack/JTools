@@ -66,6 +66,14 @@ internal class AgentChatBrowser(
             query.addHandler { request ->
                 runCatching {
                     val command = parseCommand(request)
+                    // 文件选择器处于模态状态时，普通 invokeAndWait 会等待非模态 EDT 队列，进而占满
+                    // 唯一的 JCEF query 线程。轮询/取消只访问 ConcurrentHashMap，必须直接在 query 线程执行。
+                    if (AgentBrowserCommandThreadPolicy.canRunOnQueryThread(command.type)) {
+                        val data = onCommand(command)
+                        return@runCatching JBCefJSQuery.Response(
+                            gson.toJson(mapOf("ok" to true, "data" to data)),
+                        )
+                    }
                     // queue.stop/edit 在 2022.3 上若走 invokeAndWait，容易与流式刷新/EDT 形成死锁卡死。
                     // 这两类命令只要求“尽快触发”，不要求同步返回业务结果。
                     if (command.type == "queue.stop" || command.type == "queue.edit") {
@@ -268,6 +276,15 @@ internal object AgentBrowserShortcutSupport {
             EventFlags.EVENTFLAG_CONTROL_DOWN or EventFlags.EVENTFLAG_COMMAND_DOWN
         ) != 0
     }
+}
+
+internal object AgentBrowserCommandThreadPolicy {
+    private val QUERY_THREAD_COMMANDS = setOf(
+        "appendAttachment.poll",
+        "appendAttachment.cancel",
+    )
+
+    fun canRunOnQueryThread(commandType: String): Boolean = commandType in QUERY_THREAD_COMMANDS
 }
 
 internal data class AgentBrowserCommand(

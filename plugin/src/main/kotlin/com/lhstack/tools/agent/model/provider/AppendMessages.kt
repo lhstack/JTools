@@ -10,6 +10,8 @@ data class AppendMessage(
     val id: String = UUID.randomUUID().toString(),
     val content: String,
     val createdAt: String,
+    val attachments: List<UserContent> = emptyList(),
+    val attachmentSnapshots: List<JsonObject> = emptyList(),
 )
 
 /** 已投递追加消息及其在 provider 回环中的精确位置。 */
@@ -58,12 +60,18 @@ internal class RecordingAppendMessageChannel(private val delegate: AppendMessage
     fun providerMessagesSnapshot(): List<Message> = synchronized(lock) { providerMessages.toList() }
 }
 
-internal fun AppendMessage.toUserMessage(): Message = Message.User(listOf(UserContent.Text(content)))
+internal fun AppendMessage.toUserMessage(): Message = Message.User(buildList {
+    if (content.isNotBlank()) add(UserContent.Text(content))
+    addAll(attachments)
+})
 
 /** 供模型日志和浏览器卡片共用的稳定 JSON 契约。 */
 internal fun InjectedAppendMessage.toJson(): JsonObject = JsonObject().apply {
     addProperty("id", message.id)
     addProperty("content", message.content)
+    add("attachments", com.google.gson.JsonArray().apply {
+        message.attachmentSnapshots.forEach { add(it.deepCopy()) }
+    })
     addProperty("created_at", message.createdAt)
     addProperty("injected_round", round)
 }

@@ -90,6 +90,7 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.time.LocalDateTime
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import javax.imageio.ImageIO
 import javax.swing.Action
@@ -185,6 +186,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
 
     private val queueOrder = AtomicLong(0)
+    private val appendAttachmentTasks = ConcurrentHashMap<String, AppendAttachmentTask>()
     private val queueLock = Any()
     private val chatQueue = mutableListOf<ChatQueueItem>()
     private var currentSessionId: Long? = null
@@ -615,11 +617,15 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         structured?.get("append_messages")?.takeIf { it.isJsonArray }?.asJsonArray?.mapNotNull { element ->
             val value = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
             val content = jsonString(value.get("content"))
-            if (content.isBlank()) return@mapNotNull null
+            val attachments = value.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray
+                ?.mapNotNull(::readAttachmentSnapshot)
+                .orEmpty()
+            if (content.isBlank() && attachments.isEmpty()) return@mapNotNull null
             AgentBrowserAppendMessage(
                 jsonString(value.get("id")).ifBlank { UUID.randomUUID().toString() },
                 content,
                 compactAppendMessageCreatedAt(jsonString(value.get("created_at"))),
+                attachments.map(AgentAttachmentState::toBrowserAttachment),
             )
         }.orEmpty()
 
@@ -751,17 +757,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun readAttachmentSnapshots(snapshot: JsonObject): List<AgentAttachmentState> {
         val array = snapshot.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
-        return array.mapNotNull { element ->
-            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-            AgentAttachmentState(
-                id = jsonString(obj.get("id")).ifBlank { UUID.randomUUID().toString() },
-                name = jsonString(obj.get("name")),
-                path = jsonString(obj.get("path")),
-                mimeType = jsonString(obj.get("mimeType")),
-                size = obj.get("size")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0,
-                kind = jsonString(obj.get("kind")).ifBlank { AgentAttachmentKind.FILE.id },
-            )
-        }
+        return array.mapNotNull(::readAttachmentSnapshot)
+    }
+
+    private fun readAttachmentSnapshot(element: JsonElement): AgentAttachmentState? {
+        val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        return AgentAttachmentState(
+            id = jsonString(obj.get("id")).ifBlank { UUID.randomUUID().toString() },
+            name = jsonString(obj.get("name")),
+            path = jsonString(obj.get("path")),
+            mimeType = jsonString(obj.get("mimeType")),
+            size = obj.get("size")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0,
+            kind = jsonString(obj.get("kind")).ifBlank { AgentAttachmentKind.FILE.id },
+        )
     }
 
     private fun deleteAgentRun(runId: String, logId: Long?, sessionId: Long?) {
@@ -949,13 +957,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun addAttachmentFiles(files: List<File>) {
-        val added = files
-            .filter { it.isFile }
-            .map {
-                AgentAttachmentSupport.normalize(
-                    AgentAttachmentState(name = it.name, path = it.absolutePath, size = it.length())
-                )
-            }
+        val added = normalizeAttachmentFiles(files)
         if (added.isEmpty()) return
         added.forEach(::addAttachment)
     }
@@ -1531,6 +1533,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         message.id,
         message.content,
         compactAppendMessageCreatedAt(message.createdAt),
+        message.attachmentSnapshots
+            .mapNotNull(::readAttachmentSnapshot)
+            .map(AgentAttachmentState::toBrowserAttachment),
     )
 
     private fun drainPendingAppendMessages(item: ChatQueueItem): List<AppendMessage> {
@@ -1544,21 +1549,119 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         item.pendingAppendMessages.clear()
     }
 
-    private fun appendToQueueItem(messageId: String, text: String) {
+    private fun appendToQueueItem(messageId: String, text: String, attachments: List<AgentAttachmentState>) {
         val content = text.trim()
-        require(content.isNotEmpty()) { "追加消息不能为空" }
-        val queueItem: ChatQueueItem
+        require(content.isNotEmpty() || attachments.isNotEmpty()) { "追加消息和附件不能同时为空" }
+        val queueItem = synchronized(queueLock) {
+            requireActiveAppendTarget(messageId)
+        }
+        val agent = requireNotNull(AgentService.agentById(queueItem.agentId)) { "当前 Agent 不存在" }
+        val modalities = resolveModelModalities(agent)
+        val appendMessage = AppendMessage(
+            content = content,
+            createdAt = messageTimeNow(),
+            attachments = attachments.map { AgentAttachmentSupport.toUserContent(it, modalities) },
+            attachmentSnapshots = attachments.map(AgentAttachmentSupport::snapshotOf),
+        )
         val displayMessages = synchronized(queueLock) {
-            queueItem = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) { "进行中的消息不存在" }
-            require(queueItem.status == ChatQueueStatus.PROCESSING) { "只有进行中的消息可以追加" }
-            require(queueItem.acceptingAppendMessages) { "本轮模型回复已结束，不能继续追加" }
-            queueItem.pendingAppendMessages.add(AppendMessage(content = content, createdAt = messageTimeNow()))
+            require(requireActiveAppendTarget(messageId) === queueItem) { "进行中的消息已变化" }
+            queueItem.pendingAppendMessages.add(appendMessage)
             (queueItem.injectedAppendMessages + queueItem.pendingAppendMessages).toList()
         }
         queueItem.userCard?.setAppendMessages(displayMessages.map(::toBrowserAppendMessage))
         refreshQueuePanel()
         syncBrowserState()
     }
+
+    private fun requireActiveAppendTarget(messageId: String): ChatQueueItem {
+        val queueItem = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) { "进行中的消息不存在" }
+        require(queueItem.status == ChatQueueStatus.PROCESSING) { "只有进行中的消息可以追加" }
+        require(queueItem.acceptingAppendMessages) { "本轮模型回复已结束，不能继续追加" }
+        return queueItem
+    }
+
+    private fun startChooseAppendAttachments(): Map<String, String> {
+        val taskId = createAppendAttachmentTask()
+        // 使用 2022.3 已提供的回调式 FileChooser API。同步重载会一直占用 EDT 直到选择器关闭，
+        // windowed JCEF 场景下可能与原生文件选择器的窗口消息循环互相等待。
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed || Disposer.isDisposed(this)) {
+                failAppendAttachmentTask(taskId, "当前项目已关闭")
+                return@invokeLater
+            }
+            runCatching {
+                val descriptor = FileChooserDescriptor(true, false, false, false, false, true)
+                    .withTitle("选择追加附件")
+                FileChooser.chooseFiles(descriptor, project, chatBrowser.component, null) { selectedFiles ->
+                    val files = selectedFiles
+                        .mapNotNull { it.takeIf { file -> !file.isDirectory } }
+                        .map { File(it.path) }
+                    completeAppendAttachmentTaskInBackground(taskId, files)
+                }
+            }.onFailure { failAppendAttachmentTask(taskId, it.message ?: "打开附件选择器失败") }
+        }
+        return mapOf("taskId" to taskId)
+    }
+
+    private fun startPasteAppendAttachments(): Map<String, String> {
+        val taskId = createAppendAttachmentTask()
+        // 系统剪贴板读取、Transferable 解码和图片写入都可能阻塞，不能运行在 EDT/JCEF handler 上。
+        AgentExecutors.shared.submit {
+            runCatching {
+                val transferable = systemClipboardContents()
+                    ?: throw IllegalStateException("无法读取系统剪贴板")
+                pasteAppendAttachments(transferable)
+            }.onSuccess { completeAppendAttachmentTask(taskId, it) }
+                .onFailure { failAppendAttachmentTask(taskId, it.message ?: "粘贴附件失败") }
+        }
+        return mapOf("taskId" to taskId)
+    }
+
+    private fun createAppendAttachmentTask(): String = UUID.randomUUID().toString().also { taskId ->
+        appendAttachmentTasks[taskId] = AppendAttachmentTask.running()
+    }
+
+    private fun completeAppendAttachmentTaskInBackground(taskId: String, files: List<File>) {
+        AgentExecutors.shared.submit {
+            runCatching { normalizeAttachmentFiles(files) }
+                .onSuccess { completeAppendAttachmentTask(taskId, it) }
+                .onFailure { failAppendAttachmentTask(taskId, it.message ?: "读取附件失败") }
+        }
+    }
+
+    private fun completeAppendAttachmentTask(taskId: String, attachments: List<AgentAttachmentState>) {
+        appendAttachmentTasks[taskId] = AppendAttachmentTask.completed(
+            attachments.map(AgentAttachmentState::toBrowserAttachment),
+        )
+    }
+
+    private fun failAppendAttachmentTask(taskId: String, error: String) {
+        appendAttachmentTasks[taskId] = AppendAttachmentTask.failed(error)
+    }
+
+    private fun pollAppendAttachmentTask(taskId: String): Map<String, Any?> {
+        val task = appendAttachmentTasks[taskId]
+            ?: throw IllegalArgumentException("追加附件任务不存在或已结束")
+        if (task.status != AppendAttachmentTask.RUNNING) {
+            appendAttachmentTasks.remove(taskId, task)
+        }
+        return mapOf(
+            "status" to task.status,
+            "attachments" to task.attachments,
+            "error" to task.error,
+        )
+    }
+
+    private fun pasteAppendAttachments(transferable: Transferable): List<AgentAttachmentState> {
+        val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
+        if (files.isNotEmpty()) return normalizeAttachmentFiles(files)
+        imageFromTransferable(transferable)?.let { return listOf(it) }
+        throw IllegalArgumentException("剪贴板中没有可粘贴的图片或文件")
+    }
+
+    private fun normalizeAttachmentFiles(files: List<File>): List<AgentAttachmentState> = files
+        .filter(File::isFile)
+        .map { AgentAttachmentSupport.normalize(AgentAttachmentState(name = it.name, path = it.absolutePath, size = it.length())) }
 
     private fun editPendingQueueItem(messageId: String, prompt: String) {
         val normalizedPrompt = prompt.trim()
@@ -1584,23 +1687,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun stopQueueItem(item: ChatQueueItem) {
         if (item.status != ChatQueueStatus.PROCESSING) return
-        // 停止动作本身也放到后台，避免在 EDT 上触发 OkHttp 关闭/日志写回。
-        ApplicationManager.getApplication().executeOnPooledThread {
-            if (item.runningToolIds.isNotEmpty()) {
-                cancelActiveTool(item)
-            } else {
+        when (AgentQueueStopPolicy.target(item.runningToolIds.isNotEmpty())) {
+            AgentQueueStopPolicy.Target.ACTIVE_TOOLS -> cancelActiveTools(item)
+            AgentQueueStopPolicy.Target.CONVERSATION -> ApplicationManager.getApplication().executeOnPooledThread {
                 cancelModelResponse(item)
             }
         }
     }
 
-    private fun cancelActiveTool(item: ChatQueueItem) {
+    private fun cancelActiveTools(item: ChatQueueItem) {
         item.toolCancelRequested = true
-        item.toolToken.cancel()
-        onUi {
-            markQueueItemCancellationRequested(item)
+        markQueueItemCancellationRequested(item)
+        // 工具取消可能中断阻塞中的 Future；放到后台执行，但不要取消会话 token，
+        // 让 provider 收到“用户手动取消”的工具结果后继续当前对话轮次。
+        ApplicationManager.getApplication().executeOnPooledThread {
+            item.toolToken.cancel()
         }
-        // Keep the conversation alive so the model can receive the cancelled tool result.
     }
 
     private fun cancelModelResponse(item: ChatQueueItem) {
@@ -2669,6 +2771,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     override fun dispose() {
+        appendAttachmentTasks.clear()
         browserStateTimer.stop()
         streamUiTimer.stop()
         agentRunSubscription?.close()
@@ -2714,6 +2817,18 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
             "attachment.open" -> text?.let(::openAttachmentPath)
+            "appendAttachment.choose.start" -> startChooseAppendAttachments()
+            "appendAttachment.paste.start" -> startPasteAppendAttachments()
+            "appendAttachment.poll" -> pollAppendAttachmentTask(
+                payload.get("taskId")?.takeUnless { it.isJsonNull }?.asString
+                    ?: error("缺少追加附件任务 ID"),
+            )
+            "appendAttachment.cancel" -> {
+                val taskId = payload.get("taskId")?.takeUnless { it.isJsonNull }?.asString
+                    ?: error("缺少追加附件任务 ID")
+                appendAttachmentTasks.remove(taskId)
+                Unit
+            }
             "polish.start" -> mapOf(
                 "taskId" to AgentPolishService.start(project, text ?: error("缺少润色内容")),
             )
@@ -2742,10 +2857,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             "queue.append" -> {
                 val messageId = requireNotNull(id) { "缺少队列消息 ID" }
-                val appendText = requireNotNull(text) { "缺少追加消息内容" }
+                val appendText = text.orEmpty()
+                val appendAttachments = payload.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray
+                    ?.mapNotNull(::readAttachmentSnapshot)
+                    .orEmpty()
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed || Disposer.isDisposed(this)) return@invokeLater
-                    appendToQueueItem(messageId, appendText)
+                    appendToQueueItem(messageId, appendText, appendAttachments)
                 }
             }
             "queue.edit" -> {
@@ -3030,6 +3148,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         var userCard: AgentUserMessageCard? = null,
         var assistantCard: AgentAssistantMessageCard? = null,
     )
+
+    private data class AppendAttachmentTask(
+        val status: String,
+        val attachments: List<AgentBrowserAttachment> = emptyList(),
+        val error: String? = null,
+    ) {
+        companion object {
+            const val RUNNING = "running"
+            fun running() = AppendAttachmentTask(RUNNING)
+            fun completed(attachments: List<AgentBrowserAttachment>) =
+                AppendAttachmentTask("completed", attachments)
+            fun failed(error: String) = AppendAttachmentTask("failed", error = error)
+        }
+    }
 
     private data class QueuedToolSnapshot(
         val id: String,
