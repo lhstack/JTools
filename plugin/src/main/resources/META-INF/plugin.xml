@@ -149,8 +149,25 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.2</h2>
+            <h2>🚀 Version v1.1.5.3</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🐛 <b>User Shell Environment Fix:</b> The bash tool previously ran commands through a login shell, which loads <code>.zprofile</code>/<code>.bash_profile</code> but never <code>.zshrc</code>/<code>.bashrc</code>; tools managed by sdkman, nvm, fnm or gvm were therefore missing, or resolved to a global build instead of the version selected by the manager</li>
+                <li>🔄 <b>Resolved Environment Caching:</b> The full user environment is resolved once through an interactive login shell on first command execution and reused afterwards, so rc initialisation is not repeated per command; a failed resolution is not cached and is retried on the next call</li>
+                <li>🧭 <b>Per-Shell Probe Strategy:</b> How the user environment is dumped is now declared by each shell: zsh/bash read their rc files, PowerShell loads <code>$PROFILE</code> for probing while command execution keeps <code>-NoProfile</code>, and cmd plus POSIX sh are not probed because they have no reliable user configuration mechanism</li>
+                <li>♻️ <b>Environment Refresh Parameter:</b> The bash tool accepts a new <code>refresh_env</code> parameter to re-resolve the environment before execution when a command reports command not found, or after the user installs a tool or edits shell configuration, without restarting the IDE</li>
+                <li>📝 <b>Description Responsibility Split:</b> The tool description now covers only tool identity, the shell in use and capability boundaries, while all parameter usage contracts live in their own parameter descriptions</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.3</code> and aligned SDK helper version metadata to <code>1153</code></li>
+                <li>🐛 <b>用户 Shell 环境丢失修复：</b>bash 工具此前以 login shell 执行命令，只加载 <code>.zprofile</code>/<code>.bash_profile</code> 而不读 <code>.zshrc</code>/<code>.bashrc</code>，导致 sdkman、nvm、fnm、gvm 等版本管理器配置的工具找不到，或拿到全局版本而非版本管理器选定的版本</li>
+                <li>🔄 <b>用户环境解析与缓存：</b>首次执行命令时用交互式登录 shell 解析一次完整用户环境并缓存复用，后续命令直接注入，不重复执行 rc 初始化；解析失败不写入缓存，下次调用自动重试</li>
+                <li>🧭 <b>按 Shell 声明探测策略：</b>环境探测方式改由各 shell 自行声明：zsh/bash 读取 rc 文件，PowerShell 加载 <code>$PROFILE</code>（执行命令时仍保持 <code>-NoProfile</code>），cmd 与 POSIX sh 无可靠机制因而不探测</li>
+                <li>♻️ <b>环境刷新参数：</b>bash 工具新增 <code>refresh_env</code> 参数，命令报 command not found 或用户刚安装工具、刚修改 shell 配置时可强制重新解析环境后执行，无需重启 IDE</li>
+                <li>📝 <b>工具描述职责分离：</b>工具描述只说明工具身份、所用 shell 和能力边界，参数使用约定全部下沉到各自的参数描述</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.3</code>，并同步 SDK Helper 版本元数据到 <code>1153</code></li>
+            </ul>
+
+            <h2>🚀 Version v1.1.5.2</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>📎 <b>Append Attachments While Running:</b> The append-message dialog now accepts selected or pasted images and files while a conversation is active; attachments can be sent alone or with text and follow the actual Provider message order into model context and restored history</li>
                 <li>🖼️ <b>Append Attachment Presentation:</b> Appended-message cards show image thumbnails and file metadata, support image preview or opening files in the IDE, and provide attachment deduplication, removal and pre-send validation</li>
@@ -165,7 +182,7 @@
             </ul>
 
             <h2>🚀 Version v1.1.5.1</h2>
-            <p><i>Previous Release / 上一版本</i></p>
+            <p><i>Earlier Release / 更早版本</i></p>
             <ul>
                 <li>💬 <b>Append Messages While Running:</b> Active chat queue items now accept additional user messages without stopping the current model request or creating another queued turn; each append is delivered as an independent user message</li>
                 <li>🔁 <b>Correct Loop Continuation:</b> A provider loop now continues when either tool calls or pending append messages exist, so a tool-free model response no longer terminates before queued appends are delivered</li>
