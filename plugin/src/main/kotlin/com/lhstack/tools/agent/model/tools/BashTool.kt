@@ -23,6 +23,9 @@ import java.util.concurrent.TimeUnit
  * cwd 省略时用 workspace 根目录；timeout 默认 30s，硬上限 300s。
  * 支持超时与取消：超时/取消时销毁进程树并在 stderr 追加提示，success=false。
  *
+ * 环境变量由 [ShellEnvironment] 提供：登录 shell 不读 .zshrc/.bashrc，而版本管理器
+ * 多数安装在那里，因此单靠 -lc 会丢失用户级工具。详见 ShellEnvironment 注释。
+ *
  * 与 awake 差异：Rust 用 setsid + SIGKILL 杀进程组，Kotlin 用 Process.destroyForcibly
  * 递归销毁（JDK9 descendants）。shell 选择照抄 selected_shell 的 zsh>bash>sh。
  */
@@ -34,9 +37,10 @@ class BashTool(
 
     override fun definition(prompt: String): ToolDefinition {
         val shell = SelectedShell.current()
+        val envHint = shell.envProbe?.let { "（${it.sourceLabel}）" } ?: "（当前 shell 无用户配置可加载）"
         return ToolDefinition(
             name = NAME,
-            description = "使用 ${shell.label} 执行命令并返回 stdout、stderr 和退出码。省略 cwd 时使用系统默认工作目录。输出上限约 8KB，超过后只返回前 8KB 并在 stderr 说明已截断（进程会被终止），完整输出请用 head/tail/grep 缩小或重定向到文件再分段读取。命令改动文件后若要用 read_project_files 读取，请把 refresh_vfs 设为 true 刷新 IDE 缓存。",
+            description = "在本机通过 ${shell.label} 执行 Shell 命令的工具，返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，因此可直接使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止，输出超过约 8KB 时会截断并终止进程。",
             parameters = JsonParser.parseString(
                 """
                 {
@@ -44,19 +48,23 @@ class BashTool(
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "必填。要执行的 Shell 命令；除非必须，否则使用相对路径。"
+                            "description": "必填。要执行的 Shell 命令。除非必须，否则使用相对路径。输出可能很大时先用 head/tail/grep 缩小，或重定向到文件后分段读取。"
                         },
                         "cwd": {
                             "type": "string",
-                            "description": "可选。工作目录；省略时使用系统默认工作目录。"
+                            "description": "可选。命令的工作目录。省略时使用系统默认工作目录。"
                         },
                         "timeout_secs": {
                             "type": "integer",
-                            "description": "可选。超时秒数，默认30，最大300。"
+                            "description": "可选。超时秒数，默认 30，最大 300。超时会终止整个进程树，并在 stderr 说明已超时。"
                         },
                         "refresh_vfs": {
                             "type": "boolean",
-                            "description": "可选。默认false。命令改动了工作区文件且随后要用 read_project_files 等基于 IDE VFS 的工具读取时，设为 true 刷新 IDE 缓存；纯查询命令保持 false 以免影响性能。"
+                            "description": "可选。默认 false。命令改动了工作区文件、且随后要用 read_project_files 等基于 IDE VFS 的工具读取时设为 true，刷新 IDE 缓存。纯查询命令保持 false 以免影响性能。"
+                        },
+                        "refresh_env": {
+                            "type": "boolean",
+                            "description": "可选。默认 false。用户 shell 环境在首次执行时解析并缓存，后续复用。当命令报 command not found 但该工具应当已安装，或用户提到刚安装工具、刚改过 shell 配置时，设为 true 重新解析环境后再执行本命令。"
                         }
                     },
                     "required": ["command"]
@@ -87,11 +95,16 @@ class BashTool(
             ?.asLong?.takeIf { it > 0 }?.coerceIn(1, 300) ?: 30
         val refreshVfs = obj.get("refresh_vfs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
             ?.asBoolean ?: false
+        val refreshEnv = obj.get("refresh_env")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
+            ?.asBoolean ?: false
 
         val shell = SelectedShell.current()
         val builder = ProcessBuilder(shell.program, *shell.args, command)
             .directory(cwd)
             .redirectErrorStream(false)
+        // 先应用用户 shell 环境（含 rc 文件里的 PATH 与版本管理器设置），再叠加调用方传入的
+        // envVars，保证显式配置优先级高于推导出的用户环境。
+        builder.environment().putAll(if (refreshEnv) ShellEnvironment.refresh() else ShellEnvironment.current())
         builder.environment().putAll(envVars)
 
         val process = builder.start()
@@ -229,6 +242,31 @@ class BashTool(
     }
 }
 
+/**
+ * 用户环境探测策略。各 shell 的用户配置机制不同，因此由 shell 自己声明如何倒出
+ * 完整用户环境，而不是在解析侧写死假设。
+ *
+ * @param args 探测用的 shell 参数，需能加载用户配置文件
+ * @param dumpCommand 把环境变量以 NUL 分隔的 KEY=VALUE 写到 stdout 的命令
+ * @param sourceLabel 用户配置来源描述，仅用于日志与诊断
+ */
+data class ShellEnvProbe(
+    val args: Array<String>,
+    val dumpCommand: String,
+    val sourceLabel: String,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ShellEnvProbe) return false
+        return args.contentEquals(other.args) &&
+            dumpCommand == other.dumpCommand &&
+            sourceLabel == other.sourceLabel
+    }
+
+    override fun hashCode(): Int =
+        31 * (31 * args.contentHashCode() + dumpCommand.hashCode()) + sourceLabel.hashCode()
+}
+
 /** 选中的 shell。照抄 awake 的 selected_shell：zsh > bash > sh（Windows: pwsh > powershell > cmd）。 */
 data class SelectedShell(
     val label: String,
@@ -236,26 +274,72 @@ data class SelectedShell(
     val args: Array<String>,
     /** 子进程 stdout/stderr 的实际编码：Windows 用系统 native 编码（代码页，如 GBK），Unix 用 UTF-8。 */
     val outputCharset: Charset,
+    /**
+     * 用户环境探测策略；null 表示该 shell 没有可靠的用户配置可加载。
+     * 执行命令仍用 [args]，探测只在首次或显式刷新时发生。
+     */
+    val envProbe: ShellEnvProbe? = null,
 ) {
     companion object {
+        /** zsh：版本管理器几乎都写在 .zshrc，而 login 模式不读它，必须叠加 -i。 */
+        private val ZSH_PROBE = ShellEnvProbe(
+            args = arrayOf("-ilc"),
+            dumpCommand = "env -0",
+            sourceLabel = ".zshenv/.zprofile/.zshrc",
+        )
+
+        /** bash：同理，.bashrc 仅在交互式下加载。 */
+        private val BASH_PROBE = ShellEnvProbe(
+            args = arrayOf("-ilc"),
+            dumpCommand = "env -0",
+            sourceLabel = ".bash_profile/.bashrc",
+        )
+
+        /**
+         * PowerShell：执行命令时用 -NoProfile 保证确定性与启动速度，但用户安装的工具
+         * 往往写在 $PROFILE 里。探测时改为加载 profile，并按 NUL 分隔输出环境变量。
+         */
+        private val PWSH_PROBE = ShellEnvProbe(
+            args = arrayOf("-NonInteractive", "-Command"),
+            dumpCommand = "[Console]::Out.Write(((Get-ChildItem env:)." +
+                "ForEach-Object { \"\$(\$_.Name)=\$(\$_.Value)\" } -join \"`0\"))",
+            sourceLabel = "\$PROFILE",
+        )
+
         fun current(): SelectedShell {
             val os = System.getProperty("os.name").lowercase()
             if (os.contains("win")) {
                 val winCharset = systemNativeCharset()
                 if (commandInPath("pwsh")) {
-                    return SelectedShell("pwsh", "pwsh", arrayOf("-NoProfile", "-NonInteractive", "-Command"), winCharset)
+                    return SelectedShell(
+                        "pwsh",
+                        "pwsh",
+                        arrayOf("-NoProfile", "-NonInteractive", "-Command"),
+                        winCharset,
+                        envProbe = PWSH_PROBE,
+                    )
                 }
                 if (commandInPath("powershell")) {
-                    return SelectedShell("powershell", "powershell", arrayOf("-NoProfile", "-NonInteractive", "-Command"), winCharset)
+                    return SelectedShell(
+                        "powershell",
+                        "powershell",
+                        arrayOf("-NoProfile", "-NonInteractive", "-Command"),
+                        winCharset,
+                        envProbe = PWSH_PROBE,
+                    )
                 }
+                // cmd 没有用户级启动脚本机制（AutoRun 注册表项不可靠，也不应依赖）。
                 return SelectedShell("cmd", "cmd", arrayOf("/C"), winCharset)
             }
             if (commandInPath("zsh")) {
-                return SelectedShell("zsh", "zsh", arrayOf("-lc"), Charsets.UTF_8)
+                return SelectedShell("zsh", "zsh", arrayOf("-lc"), Charsets.UTF_8, envProbe = ZSH_PROBE)
             }
             if (commandInPath("bash")) {
-                return SelectedShell("bash", "bash", arrayOf("-lc"), Charsets.UTF_8)
+                return SelectedShell("bash", "bash", arrayOf("-lc"), Charsets.UTF_8, envProbe = BASH_PROBE)
             }
+            // POSIX sh 不读 .zshrc/.bashrc：其交互式启动文件由 $ENV 指定且默认不存在，
+            // 加 -i 只会引入 "no job control" 噪音而拿不到任何额外环境；
+            // 且降到 sh 意味着系统连 zsh/bash 都没有，本身不会有用户级工具链。
             return SelectedShell("sh", "sh", arrayOf("-lc"), Charsets.UTF_8)
         }
 
