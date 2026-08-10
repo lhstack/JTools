@@ -45,6 +45,17 @@
 
     <change-notes>
         <![CDATA[
+            <h2>Version v1.1.0.10</h2>
+            <ul>
+                <li>修复 macOS/Linux 下 bash 工具只启动 login shell、不读取 .zshrc/.bashrc，导致 sdkman、nvm、fnm、gvm 等用户环境中的命令找不到，或解析到全局版本而非版本管理器选定版本的问题。</li>
+                <li>首次执行命令时，通过对应 shell 的用户配置加载机制解析完整环境并缓存复用，后续命令直接注入环境变量，不再重复执行 rc/profile 初始化；解析失败不写缓存，下次调用自动重试。</li>
+                <li>环境探测策略按 shell 分层：zsh/bash 通过交互式登录模式读取 rc，PowerShell 探测时加载 $PROFILE、实际执行仍保持 -NoProfile；cmd 与 POSIX sh 无可靠用户配置机制，不执行环境探测。</li>
+                <li>bash 工具新增 refresh_env 参数；用户刚安装命令行工具或修改 shell 配置后，可强制重新解析用户环境并立即执行当前命令，无需重启 IDE。</li>
+                <li>调整 bash 工具描述职责：工具描述仅说明使用的 shell、返回值与能力边界；工作目录、超时、VFS 刷新和环境刷新等使用规则下沉到对应参数描述。</li>
+                <li>保持兼容 IntelliJ Platform 2022.3～2025.1，不引入高版本平台专属 API。</li>
+                <li>同步版本号到 v1.1.0.10，SDK Helper 版本元数据更新为 1110。</li>
+            </ul>
+
             <h2>Version v1.1.0.9</h2>
             <ul>
                 <li>进行中的对话支持在追加消息弹窗中选择或粘贴图片与文件；附件可独立发送，也可与文字组合发送，并按真实 Provider 消息顺序进入模型上下文和会话历史。</li>
