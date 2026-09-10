@@ -3,8 +3,8 @@ package com.lhstack.tools.agent.model.tools
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime

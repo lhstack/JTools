@@ -1,12 +1,181 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, Close, Delete, EditPen, MagicStick, Paperclip, Plus, Refresh, VideoPause } from '@element-plus/icons-vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown, ArrowUp, Close, Cpu, Delete, EditPen, MagicStick, MoreFilled, Paperclip, Plus, Refresh, Setting, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, api, invoke } from '../bridge/jcefBridge'
-import ChatMessage from '../components/chat/ChatMessage.vue'
+import { consumeMessageTask, messageTasksForSession, replaceMessageTasks } from '../realtime/messageTaskStore.js'
+import ConversationTimeline from '../components/chat/ConversationTimeline.vue'
+import MessageTaskPanel from '../components/chat/MessageTaskPanel.vue'
+import ModelParamsForm from '../components/model/ModelParamsForm.vue'
+import { isImageAttachment, attachmentUrl, loadAttachmentPreview } from '../components/chat/attachmentUtils.js'
+import { effectiveModelApi, promptCacheKeyFor, visibleAdditionalParamsText } from '../modelParams.js'
+import {
+  defaultContextWindow,
+  defaultMaxHistoryMessages,
+  defaultModalities,
+  executionParamsWithDefaults,
+  modelParamsWithDefaults,
+  modelStreamValue,
+  pruneEmptyParams,
+  sanitizeModelParamsForApi,
+} from '../modelParamSchema.js'
+import { assignReactive, optionValue, parseJsonObject } from '../modelSettings.js'
+import {
+  modelReasoningLevel,
+  modelThinkingConfig,
+  reasoningLabel,
+  reasoningOptionsFor,
+  thinkingConfigForType,
+  validateReasoningOverride,
+} from '../reasoningSettings.js'
+
+
+const currentSession = computed(() => s.currentSession || null)
+const providers = computed(() => s.providers || [])
+const prompts = computed(() => s.prompts || [])
+const environments = computed(() => s.environments || [])
+const selectedProviderId = ref(null)
+const selectedModelId = ref(null)
+const selectedPromptId = ref(null)
+const reasoningLevel = ref(null)
+const reasoningConfig = ref(null)
+const modelSettingsPopoverVisible = ref(false)
+const reasoningPopoverVisible = ref(false)
+const moreMenuVisible = ref(false)
+const modelSettingsMenu = ref(null)
+const reasoningSettingsMenu = ref(null)
+const settingsSelectExpanded = ref(false)
+const advancedParamsVisible = ref(false)
+const advancedParamsSaving = ref(false)
+const contextVisible = ref(false)
+const context = computed(() => s.context || { estimated_tokens: 0, context_window: null, percent: null, compaction_status: 'idle', compaction_agent_configured: false })
+const runtimeSkills = computed(() => Array.isArray(s.skills) ? s.skills : [])
+const skillsHint = computed(() => {
+  const skills = runtimeSkills.value
+  if (!skills.length) return '未启用技能'
+  if (skills.length <= 2) return skills.map((item) => item.name).join('、')
+  return `${skills.slice(0, 2).map((item) => item.name).join('、')} 等 ${skills.length} 个`
+})
+
+const compactionInProgress = computed(() => context.value.compaction_status === 'running')
+const sessionRunning = computed(() => tasks.value.some((item) => ['pending', 'processing'].includes(item.status)))
+const contextHint = computed(() => {
+  if (compactionInProgress.value) return '压缩中'
+  const tokens = Number(context.value.estimated_tokens || 0).toLocaleString()
+  const window = context.value.context_window ? ` / ${Number(context.value.context_window).toLocaleString()}` : ' / 未设置上限'
+  return `${tokens}${window}`
+})
+const sessionMetrics = computed(() => {
+  const items = events.value
+  const turnIds = new Set(items.map((event) => event.turn_id).filter(Boolean))
+  const times = items.map((event) => parseEventTime(event.updated_at || event.created_at)).filter((value) => Number.isFinite(value))
+  const durationMs = times.length >= 2 ? Math.max(0, Math.max(...times) - Math.min(...times)) : (times.length === 1 ? 0 : null)
+  const usage = context.value.token_usage && typeof context.value.token_usage === 'object' ? context.value.token_usage : {}
+  const total = totalTokenUsage(usage)
+  return {
+    turns: turnIds.size,
+    blocks: items.length,
+    tools: items.filter((event) => event.event_type === 'tool_call').length,
+    duration: formatDuration(durationMs),
+    total: total > 0 ? total : null,
+    usageRows: flattenUsageRows(usage),
+  }
+})
+function parseEventTime(value) {
+  if (!value) return null
+  const date = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? null : date.getTime()
+}
+function formatDuration(milliseconds) {
+  if (milliseconds == null) return '—'
+  const seconds = Math.max(0, Math.round(milliseconds / 1000))
+  const minutes = Math.floor(seconds / 60)
+  const remain = seconds % 60
+  if (minutes <= 0) return `${remain}s`
+  return `${minutes}m ${remain}s`
+}
+function totalTokenUsage(usage) {
+  const rows = flattenUsageRows(usage)
+  return rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0)
+}
+function flattenUsageRows(usage, prefix = '') {
+  if (!usage || typeof usage !== 'object') return []
+  const rows = []
+  Object.entries(usage).forEach(([key, value]) => {
+    const next = prefix ? `${prefix}.${key}` : key
+    if (value && typeof value === 'object' && !Array.isArray(value)) rows.push(...flattenUsageRows(value, next))
+    else if (value != null && value !== '') rows.push({ key: next, value })
+  })
+  return rows
+}
+const sessionModelParams = reactive({
+  api: '',
+  context_window: null,
+  max_history_messages: null,
+  modalities: [],
+  model_params: {},
+  execution_params: {},
+  additional_params_text: '',
+})
+const activeProvider = computed(() => providers.value.find((item) => Number(item.id) === Number(selectedProviderId.value)) || null)
+const availableModels = computed(() => activeProvider.value?.models || [])
+const activeModel = computed(() => availableModels.value.find((item) => Number(item.id) === Number(selectedModelId.value)) || null)
+const selectedOpenAiCompatible = computed(() =>
+  (activeProvider.value?.provider_config?.openai_provider_type || currentSession.value?.model_snapshot?.openai_provider_type) === 'compatible'
+)
+const codingEffectiveApi = computed(() =>
+  effectiveModelApi(
+    sessionModelParams.api || activeModel.value?.api || currentSession.value?.model_snapshot?.api,
+    activeProvider.value?.api || currentSession.value?.model_snapshot?.api || 'completions',
+  )
+)
+const promptCacheKeyDefault = computed(() => promptCacheKeyFor({
+  api: codingEffectiveApi.value,
+  providerId: selectedProviderId.value,
+  modelId: selectedModelId.value,
+  environmentId: currentSession.value?.coding_environment_id || 'none',
+}).replace('awake-claw:', 'jtools:'))
+const modelSettingsLabel = computed(() => {
+  if (!activeProvider.value || !activeModel.value) return '模型'
+  return `${activeProvider.value.name} / ${activeModel.value.display_name || activeModel.value.alias}`
+})
+const reasoningOptions = computed(() => reasoningOptionsFor(activeProvider.value, activeModel.value))
+const activeThinkingType = computed({
+  get: () => reasoningConfig.value?.type || null,
+  set: (value) => {
+    reasoningConfig.value = thinkingConfigForType(value, activeModel.value, reasoningConfig.value)
+  },
+})
+const reasoningSettingsLabel = computed(() => {
+  if (activeProvider.value?.kind === 'anthropic') {
+    const config = reasoningConfig.value
+    const state = !config || config.type === 'disabled' ? '关闭' : config.type === 'adaptive' ? '自适应' : '开启'
+    const display = config?.display === 'summarized' ? '摘要' : '省略'
+    const effort = reasoningLevel.value ? reasoningLabel(reasoningLevel.value) : '继承模型'
+    return `${state} · ${display} · ${effort}`
+  }
+  const level = reasoningLevel.value
+  if (!level || level === 'none') return '推理关闭'
+  return `推理 ${reasoningLabel(level)}`
+})
+
+watch(
+  () => [currentSession.value?.id, currentSession.value?.provider_id, currentSession.value?.model_id, currentSession.value?.prompt_id, currentSession.value?.reasoning_level, currentSession.value?.reasoning_config],
+  () => {
+    selectedProviderId.value = currentSession.value?.provider_id || null
+    selectedModelId.value = currentSession.value?.model_id || null
+    selectedPromptId.value = currentSession.value?.prompt_id || null
+    reasoningLevel.value = currentSession.value?.reasoning_level || modelReasoningLevel(activeModel.value)
+    reasoningConfig.value = activeProvider.value?.kind === 'anthropic'
+      ? (currentSession.value?.reasoning_config || modelThinkingConfig(activeModel.value))
+      : null
+  },
+  { immediate: true },
+)
 
 const prompt = ref('')
 const messageList = ref(null)
+const autoFollowConversation = ref(true)
 const sending = ref(false)
 const composerExpanded = ref(false)
 const dragging = ref(false)
@@ -31,15 +200,22 @@ const polishActive = ref(0)
 const polishTaskId = ref('')
 const POLISH_POLL_INTERVAL = 600
 let polishPollTimer = null
-const MESSAGE_CARD_POOL_SIZE = 10
-const MESSAGE_CACHE_PREFIX = 'jtools:chat-messages:v1:'
 const SELECTED_SESSION_CACHE_KEY = 'jtools:selected-session:v1'
-const MESSAGE_CACHE_LIMIT = 200
-const MESSAGE_CACHE_JSON_LIMIT = 2 * 1000 * 1000
-const RECYCLE_EDGE_THRESHOLD = 72
-const messageWindowStart = ref(0)
-const recyclerAdjusting = ref(false)
 const drafts = computed(() => s.drafts || [])
+const draftPreviewUrls = reactive({})
+watch(
+  drafts,
+  (items) => {
+    items.filter((item) => isImageAttachment(item) && (item.path || item.id) && !draftPreviewUrls[item.id]).forEach(async (item) => {
+      const url = await loadAttachmentPreview(item, s.currentSessionId)
+      if (url) draftPreviewUrls[item.id] = url
+    })
+  },
+  { immediate: true, deep: true },
+)
+function draftPreviewSrc(item) {
+  return item?.previewUrl || draftPreviewUrls[item?.id] || ''
+}
 const fileContextEnabled = computed(() => !!s.fileContextEnabled)
 const fileContextLabel = computed(() => s.fileContextLabel || '文件上下文')
 const fileContextChip = computed(() => (fileContextEnabled.value ? s.fileContextChip : null) || null)
@@ -82,50 +258,61 @@ async function toggleFileContext() {
 async function closeFileContextChip() {
   await invoke('fileContext.toggle', { enabled: false })
 }
-const queue = computed(() => s.queue || [])
-const messageWindowMaxStart = computed(() => Math.max(0, s.messages.length - MESSAGE_CARD_POOL_SIZE))
-const visibleMessages = computed(() => s.messages.slice(
-  messageWindowStart.value,
-  Math.min(s.messages.length, messageWindowStart.value + MESSAGE_CARD_POOL_SIZE)
-))
+const events = computed(() => s.events || [])
+const tasks = computed(() => messageTasksForSession(s.currentSessionId))
+const processingTask = computed(() => tasks.value.find((item) => item.status === 'processing') || null)
 const previewSrc = ref('')
 const previewVisible = ref(false)
 function openAttachment(att) {
-  if (att.kind === 'image' && att.previewUrl) {
-    previewSrc.value = att.previewUrl
-    previewVisible.value = true
-  } else {
-    invoke('attachment.open', { text: att.path })
+  previewAttachment(att)
+}
+
+async function previewAttachment(att) {
+  if (!att) return
+  if (isImageAttachment(att)) {
+    const url = att.previewUrl || att.url || await loadAttachmentPreview(att, s.currentSessionId)
+    if (url) {
+      previewSrc.value = url
+      previewVisible.value = true
+      return
+    }
   }
+  if (att.id && s.currentSessionId) {
+    await invoke('attachment.openById', { sessionId: String(s.currentSessionId), id: String(att.id) })
+    return
+  }
+  if (att.path) invoke('attachment.open', { text: att.path })
 }
 
 watch(
   () => s.historyRevision,
   (revision, previous) => {
     if (!revision || revision === previous) return
-    persistMessages(s.currentSessionId, s.messages)
-    messageWindowStart.value = messageWindowMaxStart.value
-    scrollMessagesToBottom()
+    followIncomingConversation()
   },
   { flush: 'post' }
 )
 
 watch(
   () => s.inputRestore?.sequence,
-  (sequence) => {
-    if (sequence) prompt.value = s.inputRestore.text || ''
+  async (sequence) => {
+    if (!sequence) return
+    prompt.value = s.inputRestore.text || ''
+    const attachments = Array.isArray(s.inputRestore.attachments) ? s.inputRestore.attachments : []
+    try {
+      await invoke('draft.restore', { attachments })
+    } catch (error) {
+      ElMessage.error(error?.message || String(error) || '恢复附件失败')
+    }
   }
 )
 
 watch(
-  () => [s.currentSessionId, s.messages.length],
-  ([sessionId, length], previous = []) => {
-    const sessionChanged = sessionId !== previous[0]
-    const appended = !sessionChanged && length > (previous[1] || 0)
+  () => [s.currentSessionId, events.value.length],
+  ([sessionId], previous = []) => {
     persistSelectedSession(sessionId)
-    persistMessages(sessionId, s.messages)
-    if (sessionChanged || appended || messageWindowStart.value > messageWindowMaxStart.value) {
-      messageWindowStart.value = messageWindowMaxStart.value
+    if (sessionId !== previous[0]) {
+      autoFollowConversation.value = true
       scrollMessagesToBottom()
     }
   },
@@ -133,20 +320,11 @@ watch(
 )
 
 watch(
-  () => s.messages.map((item) => [
-    item.id,
-    item.content,
-    item.reasoning,
-    item.generating,
-    item.actorLabel,
-    item.appendMessages?.map((message) => `${message.id}:${message.content}:${message.createdAt}`).join('|'),
-    item.tools?.map((tool) => `${tool.id}:${tool.finished}:${tool.failed}`).join('|')
-  ]),
+  () => events.value.map((item) => [item.id, item.status, item.revision, item.summary]),
   () => {
-    persistMessages(s.currentSessionId, s.messages)
-    if (messageWindowStart.value === messageWindowMaxStart.value) scrollMessagesToBottom()
+    followIncomingConversation()
   },
-  { deep: true, flush: 'post' }
+  { flush: 'post' }
 )
 
 function persistSelectedSession(sessionId) {
@@ -158,90 +336,375 @@ function persistSelectedSession(sessionId) {
   }
 }
 
-function messageCacheKey(sessionId) {
-  return `${MESSAGE_CACHE_PREFIX}${sessionId}`
+function shouldFollowConversation() {
+  const element = messageList.value
+  if (!element) return true
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 96
 }
 
-function normalizeCachedMessages(value) {
-  if (!Array.isArray(value)) return []
-  const values = new Map()
-  value.forEach((item) => {
-    if (item?.id && item.persisted === true) values.set(String(item.id), item)
-  })
-  return [...values.values()]
-}
-
-function persistMessages(sessionId, messages) {
-  if (!sessionId) return
-  try {
-    let cached = normalizeCachedMessages(messages).slice(-MESSAGE_CACHE_LIMIT)
-    let text = JSON.stringify(cached)
-    while (cached.length > 1 && text.length > MESSAGE_CACHE_JSON_LIMIT) {
-      cached = cached.slice(Math.max(1, Math.floor(cached.length / 4)))
-      text = JSON.stringify(cached)
-    }
-    if (!cached.length) localStorage.removeItem(messageCacheKey(sessionId))
-    else if (text.length <= MESSAGE_CACHE_JSON_LIMIT) localStorage.setItem(messageCacheKey(sessionId), text)
-  } catch {
-    // Browser cache only accelerates display and is not the conversation source of truth.
-  }
+function handleConversationScroll() {
+  autoFollowConversation.value = shouldFollowConversation()
 }
 
 function scrollMessagesToBottom() {
-  nextTick(() => requestAnimationFrame(() => {
+  nextTick(() => {
     const element = messageList.value
-    if (element) element.scrollTop = element.scrollHeight
-  }))
+    if (!element) return
+    element.scrollTop = element.scrollHeight
+    requestAnimationFrame(() => {
+      if (messageList.value === element) element.scrollTop = element.scrollHeight
+    })
+  })
 }
 
-async function preserveMessageAnchor(anchorId, mutate) {
-  const element = messageList.value
-  const selector = `[data-message-id="${CSS.escape(String(anchorId || ''))}"]`
-  const before = element?.querySelector(selector)?.getBoundingClientRect().top
-  recyclerAdjusting.value = true
-  mutate()
-  await nextTick()
-  const after = element?.querySelector(selector)?.getBoundingClientRect().top
-  if (element && before != null && after != null) element.scrollTop += after - before
-  requestAnimationFrame(() => { recyclerAdjusting.value = false })
+function followIncomingConversation() {
+  if (!(autoFollowConversation.value || shouldFollowConversation())) return
+  autoFollowConversation.value = true
+  scrollMessagesToBottom()
 }
 
-function moveMessageWindow(step) {
-  const next = Math.max(0, Math.min(messageWindowMaxStart.value, messageWindowStart.value + step))
-  if (next === messageWindowStart.value) return
-  const anchorId = visibleMessages.value[step < 0 ? 0 : Math.min(1, visibleMessages.value.length - 1)]?.id
-  preserveMessageAnchor(anchorId, () => { messageWindowStart.value = next })
+function eventAttachmentUrl(attachment, sessionId = s.currentSessionId) {
+  return attachmentUrl(attachment, sessionId)
 }
 
-function handleMessageScroll() {
-  if (recyclerAdjusting.value) return
-  const element = messageList.value
-  if (!element) return
-  if (element.scrollTop <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value > 0) moveMessageWindow(-1)
-  else if (element.scrollHeight - element.scrollTop - element.clientHeight <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value < messageWindowMaxStart.value) moveMessageWindow(1)
+async function loadEventDetail(eventId) {
+  return api('timeline.event', { id: String(eventId) })
 }
 
-function handleMessageWheel(event) {
-  const element = messageList.value
-  if (!element || recyclerAdjusting.value) return
-  if (event.deltaY < 0 && element.scrollTop <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value > 0) {
-    event.preventDefault()
-    moveMessageWindow(-1)
-  } else if (event.deltaY > 0 && element.scrollHeight - element.scrollTop - element.clientHeight <= RECYCLE_EDGE_THRESHOLD && messageWindowStart.value < messageWindowMaxStart.value) {
-    event.preventDefault()
-    moveMessageWindow(1)
+function onEventLoaded(detail) {
+  if (!detail?.id) return
+  const next = [...(s.events || [])]
+  const index = next.findIndex((item) => Number(item.id) === Number(detail.id))
+  if (index >= 0) next[index] = { ...next[index], ...detail }
+  else next.push(detail)
+  s.events = next
+}
+
+function deleteTurn(turn) {
+  const turnId = turn?.turnId || turn?.turn_id
+  if (!turnId) return
+  invoke('timeline.deleteTurn', { turnId })
+}
+
+async function uploadTaskAttachments() {
+  return await api('appendAttachment.choose')
+}
+
+async function pasteTaskAttachments() {
+  return await api('appendAttachment.paste')
+}
+
+const cancellingTaskIds = new Set()
+
+async function cancelProcessing(task) {
+  const key = String(task?.id || '')
+  if (!key || cancellingTaskIds.has(key)) return
+  cancellingTaskIds.add(key)
+  try {
+    await invoke('queue.stop', { id: key })
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '取消失败')
+  } finally {
+    cancellingTaskIds.delete(key)
   }
 }
 
+async function cancelQueued(task) {
+  const key = String(task?.id || '')
+  if (!key || cancellingTaskIds.has(key)) return
+  cancellingTaskIds.add(key)
+  try {
+    await invoke('queue.stop', { id: key })
+    consumeMessageTask({
+      type: 'message_task',
+      id: task.id,
+      session_id: s.currentSessionId,
+      status: 'cancelled',
+      deleted: true,
+    })
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '取消失败')
+    loadMessageTasks().catch(() => {})
+  } finally {
+    cancellingTaskIds.delete(key)
+  }
+}
+
+async function updateQueued({ task, content, attachments }) {
+  await invoke('queue.edit', { id: String(task.id), text: content, attachments: attachments || [] })
+}
+
+async function appendToTurn({ task, content, attachments }) {
+  await invoke('queue.append', { turnId: task.turn_id, text: content, attachments: attachments || [] })
+}
+
+
+function snapshotSource() {
+  const snapshot = currentSession.value?.model_snapshot || {}
+  const model = activeModel.value
+  const provider = activeProvider.value
+  if (
+    snapshot
+    && Number(snapshot.id) === Number(selectedModelId.value)
+    && Number(snapshot.provider_id) === Number(selectedProviderId.value)
+  ) {
+    return snapshot
+  }
+  if (!model || !provider) return snapshot
+  return {
+    ...snapshot,
+    provider_id: provider.id,
+    provider_label: provider.name,
+    id: model.id,
+    model_label: model.alias,
+    display_name: model.display_name || null,
+    provider_kind: provider.kind,
+    openai_provider_type: provider.provider_config?.openai_provider_type || 'official',
+    model_id: model.model_id,
+    api: provider.kind === 'anthropic' ? '' : effectiveModelApi(model.api, provider.api || 'completions'),
+    anthropic_version: provider.anthropic_version || null,
+    model_params: model.model_params,
+    execution_params: model.execution_params,
+    additional_params: model.additional_params,
+    context_window: model.context_window ?? snapshot.context_window,
+    max_history_messages: snapshot.max_history_messages ?? currentSession.value?.max_history_rounds,
+    modalities: model.modalities || snapshot.modalities,
+  }
+}
+
+function applyPromptCacheKeyDefault(previousDefault = '') {
+  sessionModelParams.model_params ||= {}
+  const current = sessionModelParams.model_params.prompt_cache_key
+  if (!current || current === previousDefault) {
+    sessionModelParams.model_params.prompt_cache_key = promptCacheKeyDefault.value
+  }
+}
+
+function hydrateSessionModelParams(snapshot) {
+  const providerKind = snapshot?.provider_kind || activeProvider.value?.kind || ''
+  const api = snapshot?.api || activeModel.value?.api || activeProvider.value?.api || 'completions'
+  assignReactive(sessionModelParams, {
+    api: snapshot?.api || '',
+    context_window: defaultContextWindow(snapshot?.context_window),
+    max_history_messages: defaultMaxHistoryMessages(snapshot?.max_history_messages ?? currentSession.value?.max_history_rounds),
+    modalities: defaultModalities(snapshot?.modalities),
+    model_params: modelParamsWithDefaults(providerKind, api, snapshot?.model_params),
+    execution_params: executionParamsWithDefaults(snapshot?.execution_params),
+    additional_params_text: visibleAdditionalParamsText(snapshot?.additional_params),
+  })
+  applyPromptCacheKeyDefault()
+}
+
+function sessionModelSnapshotFromParams() {
+  applyPromptCacheKeyDefault()
+  const snapshot = JSON.parse(JSON.stringify(snapshotSource()))
+  const providerKind = snapshot.provider_kind || activeProvider.value?.kind || ''
+  if (providerKind === 'anthropic') {
+    delete snapshot.api
+  } else {
+    snapshot.api = optionValue(sessionModelParams.api) || snapshot.api || 'completions'
+  }
+  const compatible = selectedOpenAiCompatible.value || snapshot.openai_provider_type === 'compatible'
+  const sanitized = sanitizeModelParamsForApi(
+    providerKind,
+    snapshot.api || 'completions',
+    sessionModelParams.model_params,
+    compatible,
+  )
+  snapshot.model_params = pruneEmptyParams(
+    modelParamsWithDefaults(providerKind, snapshot.api || 'completions', sanitized),
+  ) || null
+  snapshot.execution_params = pruneEmptyParams(
+    executionParamsWithDefaults(sessionModelParams.execution_params),
+  ) || null
+  snapshot.stream = modelStreamValue(snapshot.model_params) ?? true
+  snapshot.additional_params = parseJsonObject(sessionModelParams.additional_params_text)
+  snapshot.context_window = defaultContextWindow(sessionModelParams.context_window)
+  snapshot.max_history_messages = defaultMaxHistoryMessages(sessionModelParams.max_history_messages)
+  snapshot.modalities = defaultModalities(sessionModelParams.modalities)
+  return snapshot
+}
+
+async function persistModelSettings({ snapshot = null } = {}) {
+  if (!currentSession.value || !selectedProviderId.value || !selectedModelId.value) {
+    throw new Error('请先选择供应商和模型')
+  }
+  const modelChanged = Number(selectedProviderId.value) !== Number(currentSession.value.provider_id)
+    || Number(selectedModelId.value) !== Number(currentSession.value.model_id)
+  const settings = {
+    provider_id: selectedProviderId.value,
+    model_id: selectedModelId.value,
+    prompt_id: selectedPromptId.value,
+    reasoning_level: reasoningLevel.value,
+    reasoning_config: activeProvider.value?.kind === 'anthropic' ? reasoningConfig.value : null,
+    model_snapshot: snapshot || (modelChanged ? null : currentSession.value.model_snapshot),
+    max_history_rounds: snapshot?.max_history_messages ?? currentSession.value.max_history_rounds,
+  }
+  await api('session.modelSettings.save', settings)
+}
+
+function handleProviderChange() {
+  selectedModelId.value = availableModels.value[0]?.id || null
+  resetActiveReasoning()
+}
+
+function handleActiveModelChange() {
+  resetActiveReasoning()
+}
+
+function resetActiveReasoning() {
+  reasoningLevel.value = modelReasoningLevel(activeModel.value)
+  reasoningConfig.value = activeProvider.value?.kind === 'anthropic' ? modelThinkingConfig(activeModel.value) : null
+}
+
+function openModelSettings() {
+  reasoningPopoverVisible.value = false
+  moreMenuVisible.value = false
+  modelSettingsPopoverVisible.value = true
+}
+
+function openReasoningSettings() {
+  modelSettingsPopoverVisible.value = false
+  moreMenuVisible.value = false
+  reasoningPopoverVisible.value = true
+}
+
+function handleSettingsSelectVisible(visible) {
+  settingsSelectExpanded.value = visible
+}
+
+function handleSettingsOutsidePointerDown(event) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (moreMenuVisible.value && !target.closest('.chat-more-popper, .chat-top')) {
+    moreMenuVisible.value = false
+  }
+  if (!modelSettingsPopoverVisible.value && !reasoningPopoverVisible.value) return
+  if (target.closest('.model-settings-trigger, .reasoning-settings-trigger')) return
+  if (target.closest('.coding-settings-popper, .el-select__popper')) return
+  if (modelSettingsMenu.value?.contains(target) || reasoningSettingsMenu.value?.contains(target)) return
+  if (settingsSelectExpanded.value) return
+  modelSettingsPopoverVisible.value = false
+  reasoningPopoverVisible.value = false
+}
+
+function saveModelSettings() {
+  persistModelSettings().then(() => {
+    modelSettingsPopoverVisible.value = false
+  }).catch((error) => ElMessage.error(error.message || String(error)))
+}
+
+function saveReasoningSettings() {
+  try {
+    validateReasoningOverride(activeProvider.value, reasoningConfig.value)
+    persistModelSettings().then(() => {
+      reasoningPopoverVisible.value = false
+    }).catch((error) => ElMessage.error(error.message || String(error)))
+  } catch (error) {
+    ElMessage.error(error.message)
+  }
+}
+
+function openAdvancedParams() {
+  if (!currentSession.value) return
+  modelSettingsPopoverVisible.value = false
+  reasoningPopoverVisible.value = false
+  moreMenuVisible.value = false
+  hydrateSessionModelParams(snapshotSource())
+  advancedParamsVisible.value = true
+}
+
+async function saveAdvancedParams() {
+  if (!currentSession.value || !selectedProviderId.value || !selectedModelId.value) return
+  advancedParamsSaving.value = true
+  try {
+    await persistModelSettings({ snapshot: sessionModelSnapshotFromParams() })
+    advancedParamsVisible.value = false
+    ElMessage.success('高级参数已保存，下一轮请求生效')
+  } catch (error) {
+    ElMessage.error(error.message || String(error))
+  } finally {
+    advancedParamsSaving.value = false
+  }
+}
+
+function formatContextPercent(percent) {
+  const value = Number(percent || 0)
+  return Number.isFinite(value) ? `${value.toFixed(value >= 10 ? 0 : 1)}%` : '0%'
+}
+
+async function openContextDialog() {
+  if (!s.currentSessionId) return
+  try {
+    const snapshot = await api('context.get')
+    Object.assign(s, { context: snapshot })
+  } catch (error) {
+    ElMessage.error(error.message || String(error))
+  }
+  contextVisible.value = true
+}
+
+async function compactContext() {
+  if (!s.currentSessionId || compactionInProgress.value || sessionRunning.value) return
+  if (!context.value.compaction_agent_configured) {
+    ElMessage.error('未配置上下文压缩 Agent（coding.compaction_agent_id）')
+    return
+  }
+  try {
+    const result = await api('context.compact')
+    if (result) Object.assign(s, { context: result })
+    ElMessage.success('已开始压缩上下文')
+  } catch (error) {
+    ElMessage.error(error.message || String(error))
+    try {
+      const snapshot = await api('context.get')
+      Object.assign(s, { context: snapshot })
+    } catch (_) {}
+  }
+}
+
+async function loadMessageTasks(sessionId = s.currentSessionId) {
+  if (!sessionId) {
+    replaceMessageTasks(sessionId, [])
+    return
+  }
+  const data = await api('session.tasks', { id: String(sessionId) })
+  if (Number(sessionId) === Number(s.currentSessionId)) replaceMessageTasks(sessionId, data?.tasks || [])
+}
 
 async function send() {
   if (sending.value) return
+  if (compactionInProgress.value) {
+    ElMessage.warning('上下文正在压缩，请等待压缩结果')
+    return
+  }
   const text = prompt.value
   if (!text.trim() && !drafts.value.length) return
+  if (!s.currentSessionId) {
+    ElMessage.warning('请先创建编码环境和会话')
+    return
+  }
+  const sessionId = s.currentSessionId
+  const attachmentItems = drafts.value.map((item) => ({ ...item }))
   sending.value = true
+  autoFollowConversation.value = true
+  scrollMessagesToBottom()
   try {
-    await invoke('message.send', { text })
+    const result = await api('message.send', { text })
     prompt.value = ''
+    const consumed = consumeMessageTask({
+      ...result,
+      type: 'message_task',
+      id: result?.id,
+      session_id: result?.session_id || sessionId,
+      status: result?.status || 'pending',
+      content: result?.content ?? text,
+      attachments: result?.attachments,
+      attachment_items: result?.attachment_items || attachmentItems,
+    })
+    if (!consumed) await loadMessageTasks(sessionId)
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '发送失败')
   } finally {
     sending.value = false
   }
@@ -324,10 +787,15 @@ function applyPolishResult() {
   closePolish()
 }
 
-onUnmounted(clearPolishPoll)
+onMounted(() => document.addEventListener('pointerdown', handleSettingsOutsidePointerDown, true))
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', handleSettingsOutsidePointerDown, true)
+  clearPolishPoll()
+})
+
 
 function openAppendDialog(item) {
-  if (!item.appendable) return
+  if (!item || item.status !== 'processing') return
   appendTarget.value = item
   appendPrompt.value = ''
   appendAttachments.value = []
@@ -344,13 +812,22 @@ async function chooseAppendAttachments() {
   mergeAppendAttachments(await api('appendAttachment.choose'))
 }
 
-async function pasteAppendAttachments(event) {
-  if (event?.clipboardData) {
-    const hasFiles = [...event.clipboardData.items].some((item) => item.kind === 'file')
-    if (!hasFiles) return
-    event.preventDefault()
-  }
-  mergeAppendAttachments(await api('appendAttachment.paste'))
+function pasteAppendAttachments(event) {
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  const text = String(event?.clipboardData?.getData('text') || '')
+  window.setTimeout(() => {
+    api('appendAttachment.paste').then((items) => {
+      const attachments = Array.isArray(items) ? items : (items?.attachments || [])
+      if (attachments.length) {
+        mergeAppendAttachments(attachments)
+        return
+      }
+      if (text) appendPrompt.value = `${appendPrompt.value}${appendPrompt.value ? '\n' : ''}${text}`
+    }).catch((error) => {
+      ElMessage.error(error?.message || String(error) || '粘贴附件失败')
+    })
+  }, 0)
 }
 
 function removeAppendAttachment(id) {
@@ -369,9 +846,9 @@ async function saveAppendMessage() {
   appendSaving.value = true
   try {
     await api('queue.append', {
-      id: appendTarget.value.id,
+      turnId: appendTarget.value.turn_id || appendTarget.value.turnId,
       text,
-      attachments: appendAttachments.value.map(({ id, name, path, mimeType, size, kind }) => ({ id, name, path, mimeType, size, kind })),
+      attachments: appendAttachments.value.map((item) => item.id),
     })
     appendDialogVisible.value = false
     closeAppendDialog()
@@ -416,28 +893,33 @@ function openSessionDialog() {
 }
 
 async function createSession() {
- const name = sessionName.value.trim()
- if (!name || creatingSession.value) return
- creatingSession.value = true
- try {
-  await invoke('session.new', { name, sessionType: sessionType.value })
-  sessionDialogVisible.value = false
- } finally {
-  creatingSession.value = false
- }
+  const name = sessionName.value.trim()
+  if (!name || creatingSession.value) return
+  creatingSession.value = true
+  try {
+    await invoke('session.new', { name, sessionType: sessionType.value })
+    sessionDialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '创建会话失败')
+  } finally {
+    creatingSession.value = false
+  }
 }
 
 function open(page) {
   invoke('window.open', { text: page })
 }
 
+watch(() => s.currentSessionId, (sessionId) => {
+  loadMessageTasks(sessionId).catch(() => {})
+}, { immediate: true })
+
 async function refreshCache() {
   try {
-    const sessionId = s.currentSessionId
-    localStorage.removeItem(messageCacheKey(sessionId))
     await invoke('cache.refresh')
-  } catch {
-    // The host reports refresh failures through the existing command channel.
+    await loadMessageTasks()
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '刷新失败')
   }
 }
 
@@ -470,72 +952,45 @@ function drop(event) {
     @drop="drop"
   >
     <header class="chat-top">
-      <span>会话：</span>
       <el-select :model-value="s.currentSessionId" @change="id => invoke('session.select', { id })">
         <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="`${item.sessionType === 'global' ? '[全局]' : '[项目]'} ${item.name}`" />
       </el-select>
       <el-button :icon="Plus" text @click="openSessionDialog" />
-      <el-button :icon="Refresh" text title="刷新消息缓存" @click="refreshCache" />
- <el-button :icon="Delete" text @click="clear" />
-      <el-button text @click="open('sessions')">管理</el-button>
-      <el-button text @click="open('logs')">日志</el-button>
+      <el-button :icon="Refresh" text title="刷新会话" @click="refreshCache" />
+      <el-button :icon="Delete" text title="清空会话" @click="clear" />
+      <el-button text title="会话管理" @click="open('sessions')">会话</el-button>
+      <el-popover :visible="moreMenuVisible" placement="bottom-end" :width="168" trigger="manual" popper-class="chat-more-popper">
+        <template #reference>
+          <el-button text :icon="MoreFilled" title="更多" @click="moreMenuVisible = !moreMenuVisible" />
+        </template>
+        <div class="chat-more-menu">
+          <button type="button" @click="moreMenuVisible = false; open('catalog')">模型管理</button>
+          <button type="button" @click="moreMenuVisible = false; open('agents')">Agent</button>
+          <button type="button" @click="moreMenuVisible = false; open('prompts')">提示词</button>
+          <button type="button" @click="moreMenuVisible = false; open('skills')">技能</button>
+          <button type="button" @click="moreMenuVisible = false; open('environments')">环境管理</button>
+          <button type="button" @click="moreMenuVisible = false; open('settings')">设置</button>
+          <button type="button" @click="moreMenuVisible = false; open('logs')">日志</button>
+        </div>
+      </el-popover>
     </header>
 
-    <section ref="messageList" class="message-list" @scroll.passive="handleMessageScroll" @wheel="handleMessageWheel">
-      <el-empty v-if="!s.messages.length" description="开始一段新的对话" />
-      <ChatMessage v-for="item in visibleMessages" :key="item.id" :data-message-id="item.id" :item="item" />
+    <section ref="messageList" class="message-list" @scroll="handleConversationScroll">
+      <el-empty v-if="!s.currentSessionId" :image-size="72" description="请先在右上角创建会话。如果还没有编码环境，请打开「环境管理」新建一个。" />
+      <el-empty v-else-if="!events.length" :image-size="72" description="开始一段新的对话" />
+      <ConversationTimeline
+        v-else
+        :events="events"
+        :session-id="s.currentSessionId"
+        :message-tasks="tasks"
+        :attachment-url="eventAttachmentUrl"
+        :load-event-detail="loadEventDetail"
+        @delete-turn="deleteTurn"
+        @event-loaded="onEventLoaded"
+      />
     </section>
 
     <footer class="composer">
-      <section v-if="queue.length" class="queue-panel" aria-label="消息队列">
-        <div class="queue-strip">
-          <article
-            v-for="item in queue"
-            :key="item.id"
-            class="queue-item"
-            :class="{ processing: item.processing }"
-          >
-            <span class="queue-state">{{ item.processing ? '进行中' : '排队中' }}</span>
-            <div class="queue-copy">
-              <strong :title="item.title">{{ queuePreview(item.title) }}</strong>
-              <small :title="item.prompt || '附件消息'">{{ queuePreview(item.prompt || '附件消息') }}</small>
-            </div>
-            <div class="queue-actions">
-              <el-button
-                v-if="item.appendable"
-                :icon="Plus"
-                text
-                circle
-                size="small"
-                :title="item.pendingAppendCount ? `追加消息（${item.pendingAppendCount} 条待投递）` : '追加消息'"
-                aria-label="追加消息"
-                @click="openAppendDialog(item)"
-              />
-              <el-button
-                v-if="item.editable"
-                :icon="EditPen"
-                text
-                circle
-                size="small"
-                title="编辑排队消息"
-                aria-label="编辑排队消息"
-                @click="openQueueEdit(item)"
-              />
-              <el-button
-                :icon="item.processing ? VideoPause : Close"
-                :type="item.processing ? 'danger' : 'default'"
-                text
-                circle
-                size="small"
-                :title="item.processing ? '停止消息' : '取消排队消息'"
-                :aria-label="item.processing ? '停止消息' : '取消排队消息'"
-                @click="stopQueueItem(item)"
-              />
-            </div>
-          </article>
-        </div>
-      </section>
-
                   <div v-if="drafts.length || fileContextChip" class="draft-strip">
         <el-tooltip
           v-if="fileContextChip"
@@ -558,7 +1013,7 @@ function drop(event) {
           </div>
         </el-tooltip>
 <div v-for="item in drafts" :key="item.id" class="draft-chip">
-          <span v-if="item.kind==='image'&&item.previewUrl" class="draft-thumb" @click="openAttachment(item)"><img :src="item.previewUrl" :alt="item.name"/></span>
+          <span v-if="isImageAttachment(item) && draftPreviewSrc(item)" class="draft-thumb" @click="openAttachment(item)"><img :src="draftPreviewSrc(item)" :alt="item.name"/></span>
           <span v-else class="draft-icon" @click="openAttachment(item)">▤</span>
           <div @click="openAttachment(item)">
             <b>{{ item.name }}</b>
@@ -568,84 +1023,185 @@ function drop(event) {
         </div>
       </div>
 
-      <div class="composer-actions">
-        <span class="hint">Cmd/Ctrl+Enter 发送，Enter 换行；支持连续发送进入队列</span>
-        <span>Agent：</span>
-        <el-select :model-value="s.currentAgentId" @change="id => invoke('agent.select', { id })">
-          <el-option v-for="item in s.agents" :key="item.id" :value="item.id" :label="item.name" />
-        </el-select>
-        <el-button :icon="Paperclip" text title="添加附件" @click="invoke('attachment.choose')" />
-        <el-tooltip
-          :content="fileContextTitleHtml"
-          placement="top"
-          :show-after="200"
-          :hide-after="0"
-          popper-class="file-context-tooltip"
-          raw-content
-        >
+      <MessageTaskPanel
+        v-if="s.currentSessionId"
+        :tasks="tasks"
+        :session-id="s.currentSessionId"
+        :upload-attachments="uploadTaskAttachments"
+        :paste-attachments="pasteTaskAttachments"
+        :attachment-url="eventAttachmentUrl"
+        :is-image-attachment="isImageAttachment"
+        @cancel-processing="cancelProcessing"
+        @cancel-queued="cancelQueued"
+        @update-queued="updateQueued"
+        @append-request="openAppendDialog"
+        @preview="previewAttachment"
+      />
+      <div class="composer-box">
+        <div class="composer-input" :class="{ expanded: composerExpanded }">
           <el-button
-            text
-            class="file-context-btn"
-            :class="{ active: fileContextEnabled }"
-            :type="fileContextEnabled ? 'primary' : 'default'"
-            aria-label="文件上下文"
-            @click="toggleFileContext"
-          >
-            <span class="file-context-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <g stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4.35 2.25h5.05L11.65 4.5v9.25H4.35c-.75 0-1.35-.6-1.35-1.35V3.6c0-.75.6-1.35 1.35-1.35Z"/>
-                  <path d="M9.25 2.35V4.8h2.3"/>
-                  <path d="M6.05 7.55 4.95 8.85 6.05 10.15"/>
-                  <path d="M9.95 7.55 11.05 8.85 9.95 10.15"/>
-                  <path d="M8.55 7.2 7.45 10.5"/>
-                </g>
-              </svg>
-            </span>
-          </el-button>
-        </el-tooltip>
-        <el-button text @click="open('catalog')">模型</el-button>
-        <el-button text @click="open('prompts')">提示词</el-button>
-        <el-button text @click="open('agents')">Agent</el-button>
-        <el-button text @click="open('skills')">技能</el-button>
-        <el-button text @click="open('settings')">设置</el-button>
+            class="composer-expand"
+            :icon="composerExpanded ? ArrowDown : ArrowUp"
+            circle
+            plain
+            :title="composerExpanded ? '收起输入框' : '展开输入框'"
+            @click="composerExpanded = !composerExpanded"
+          />
+          <el-input
+            v-model="prompt"
+            type="textarea"
+            resize="none"
+            :rows="composerExpanded ? 10 : 4"
+            placeholder="输入消息…"
+            @paste="paste"
+            @keydown.meta.enter.prevent="send"
+            @keydown.ctrl.enter.prevent="send"
+          />
+        </div>
+        <div class="composer-foot">
+          <div class="model-controls">
+            <el-button circle size="small" :icon="Paperclip" title="添加附件" @click="invoke('attachment.choose')" />
+            <el-tooltip
+              :content="fileContextTitleHtml"
+              placement="top"
+              :show-after="200"
+              :hide-after="0"
+              popper-class="file-context-tooltip"
+              raw-content
+            >
+              <el-button
+                circle
+                size="small"
+                text
+                class="file-context-btn"
+                :class="{ active: fileContextEnabled }"
+                :type="fileContextEnabled ? 'primary' : 'default'"
+                aria-label="文件上下文"
+                @click="toggleFileContext"
+              >
+                <span class="file-context-icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <g stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4.35 2.25h5.05L11.65 4.5v9.25H4.35c-.75 0-1.35-.6-1.35-1.35V3.6c0-.75.6-1.35 1.35-1.35Z"/>
+                      <path d="M9.25 2.35V4.8h2.3"/>
+                      <path d="M6.05 7.55 4.95 8.85 6.05 10.15"/>
+                      <path d="M9.95 7.55 11.05 8.85 9.95 10.15"/>
+                      <path d="M8.55 7.2 7.45 10.5"/>
+                    </g>
+                  </svg>
+                </span>
+              </el-button>
+            </el-tooltip>
+            <el-popover :visible="modelSettingsPopoverVisible" title="模型设置" placement="top-start" :width="300" trigger="manual" popper-class="coding-settings-popper">
+              <template #reference>
+                <el-button class="model-settings-trigger" text :icon="Setting" :title="modelSettingsLabel" @click="openModelSettings">
+                  <span>{{ modelSettingsLabel }}</span>
+                </el-button>
+              </template>
+              <div ref="modelSettingsMenu" class="model-settings-menu">
+                <label>编码环境
+                  <el-select :model-value="s.currentEnvironmentId" placeholder="请先创建编码环境" @change="id => invoke('environment.select', { id })" @visible-change="handleSettingsSelectVisible">
+                    <el-option v-for="item in environments" :key="item.id" :value="item.id" :label="item.name" />
+                  </el-select>
+                </label>
+                <label>供应商
+                  <el-select v-model="selectedProviderId" @change="handleProviderChange" @visible-change="handleSettingsSelectVisible">
+                    <el-option v-for="item in providers" :key="item.id" :value="item.id" :label="item.name" />
+                  </el-select>
+                </label>
+                <label>模型
+                  <el-select v-model="selectedModelId" @change="handleActiveModelChange" @visible-change="handleSettingsSelectVisible">
+                    <el-option v-for="item in availableModels" :key="item.id" :value="item.id" :label="item.display_name || item.alias" />
+                  </el-select>
+                </label>
+                <label>提示词
+                  <el-select v-model="selectedPromptId" clearable placeholder="不使用额外提示词" @visible-change="handleSettingsSelectVisible">
+                    <el-option v-for="item in prompts" :key="item.id" :value="item.id" :label="item.name" />
+                  </el-select>
+                </label>
+                <div class="reasoning-settings-actions">
+                  <el-button size="small" @click="openAdvancedParams">高级参数</el-button>
+                  <el-button size="small" type="primary" :disabled="!selectedModelId" @click="saveModelSettings">完成</el-button>
+                </div>
+              </div>
+            </el-popover>
+            <el-popover :visible="reasoningPopoverVisible" title="推理设置" placement="top-start" :width="300" trigger="manual" popper-class="coding-settings-popper">
+              <template #reference>
+                <el-button class="reasoning-settings-trigger" text :icon="Cpu" :title="reasoningSettingsLabel" @click="openReasoningSettings">
+                  <span>{{ reasoningSettingsLabel }}</span>
+                </el-button>
+              </template>
+              <div ref="reasoningSettingsMenu" class="model-settings-menu reasoning-settings-menu">
+                <template v-if="activeProvider?.kind === 'anthropic'">
+                  <label>思考
+                    <el-select v-model="activeThinkingType" clearable placeholder="继承模型" @visible-change="handleSettingsSelectVisible">
+                      <el-option label="关闭" value="disabled" />
+                      <el-option label="开启" value="enabled" />
+                      <el-option label="自适应" value="adaptive" />
+                    </el-select>
+                  </label>
+                  <label>推理级别
+                    <el-select v-model="reasoningLevel" clearable placeholder="继承模型" @visible-change="handleSettingsSelectVisible">
+                      <el-option v-for="option in reasoningOptions" :key="option.value" :label="option.label" :value="option.value" />
+                    </el-select>
+                  </label>
+                  <label v-if="['enabled','adaptive'].includes(reasoningConfig?.type)">Token 预算
+                    <el-input-number v-model="reasoningConfig.budget_tokens" :min="1024" :step="1024" controls-position="right" />
+                  </label>
+                  <label v-if="['enabled','adaptive'].includes(reasoningConfig?.type)">展示
+                    <el-select v-model="reasoningConfig.display" placeholder="选择展示方式" @visible-change="handleSettingsSelectVisible">
+                      <el-option label="摘要" value="summarized" />
+                      <el-option label="省略" value="omitted" />
+                    </el-select>
+                  </label>
+                </template>
+                <label v-else>推理强度
+                  <el-select v-model="reasoningLevel" clearable placeholder="继承模型设置" @visible-change="handleSettingsSelectVisible">
+                    <el-option v-for="option in reasoningOptions" :key="option.value" :label="option.label" :value="option.value" />
+                  </el-select>
+                </label>
+                <div class="reasoning-settings-actions">
+                  <el-button size="small" @click="openAdvancedParams">高级参数</el-button>
+                  <el-button size="small" type="primary" @click="saveReasoningSettings">完成</el-button>
+                </div>
+              </div>
+            </el-popover>
+          </div>
+          <div class="send-controls">
+            <el-button
+              v-if="polishAvailable"
+              size="small"
+              :icon="MagicStick"
+              :disabled="sending || compactionInProgress || !prompt.trim()"
+              :title="compactionInProgress ? '上下文正在压缩' : `使用 ${polishAgentName} 润色输入内容`"
+              @click="startPolish"
+            >润色</el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :loading="sending || compactionInProgress"
+              :disabled="sending || compactionInProgress || (!prompt.trim() && !drafts.length)"
+              :title="compactionInProgress ? '上下文正在压缩，请等待压缩结果' : '发送'"
+              @click="send"
+            >发送</el-button>
+          </div>
+        </div>
       </div>
-      <div class="composer-input" :class="{ expanded: composerExpanded }">
-        <el-button
-          class="composer-expand"
-          :icon="composerExpanded ? ArrowDown : ArrowUp"
-          circle
-          plain
-          :title="composerExpanded ? '收起输入框' : '展开输入框'"
-          @click="composerExpanded = !composerExpanded"
-        />
-        <el-input
-          v-model="prompt"
-          type="textarea"
-          resize="none"
-          :rows="composerExpanded ? 10 : 4"
-          placeholder="输入消息…"
-          @paste="paste"
-          @keydown.meta.enter.prevent="send"
-          @keydown.ctrl.enter.prevent="send"
-        />
-        <el-button
-          v-if="polishAvailable"
-          class="composer-polish"
-          size="small"
-          :icon="MagicStick"
-          :disabled="sending || !prompt.trim()"
-          :title="`使用 ${polishAgentName} 润色输入内容`"
-          @click="startPolish"
-        >润色</el-button>
-        <el-button
-          class="composer-send"
-          type="primary"
-          size="small"
-          :loading="sending"
-          :disabled="sending || (!prompt.trim() && !drafts.length)"
-          @click="send"
-        >发送</el-button>
+      <div v-if="events.length" class="conversation-metrics">
+        <span>{{ sessionMetrics.turns }} 轮 · {{ sessionMetrics.blocks }} 步</span>
+        <span>总耗时 {{ sessionMetrics.duration }} · 工具 {{ sessionMetrics.tools }} 次</span>
+        <button class="context-metric" type="button" :disabled="!s.currentSessionId" @click="openContextDialog">
+          上下文 {{ contextHint }}
+        </button>
+        <el-tooltip v-if="sessionMetrics.total != null || sessionMetrics.usageRows.length" placement="top">
+          <template #content>
+            <div class="token-usage-tooltip">
+              <strong>Token 用量</strong>
+              <span v-for="row in sessionMetrics.usageRows" :key="row.key"><span>{{ row.key }}</span><b>{{ row.value }}</b></span>
+            </div>
+          </template>
+          <span class="token-summary">{{ sessionMetrics.total != null ? `${Number(sessionMetrics.total).toLocaleString()} tok` : '用量' }}</span>
+        </el-tooltip>
       </div>
     </footer>
 
@@ -654,10 +1210,13 @@ function drop(event) {
     <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
   <el-dialog
     v-model="appendDialogVisible"
+    class="append-message-dialog"
     title="追加消息"
     width="560px"
-    append-to-body
+    :append-to-body="false"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    align-center
     @closed="closeAppendDialog"
   >
     <el-input
@@ -737,6 +1296,49 @@ function drop(event) {
         @click="applyPolishResult"
       >应用到输入框</el-button>
     </template>
+  </el-dialog>
+  <el-dialog v-model="contextVisible" title="上下文管理" width="560px" append-to-body>
+    <div class="context-overview">
+      <el-progress type="dashboard" :percentage="Number(context.percent || 0)" :format="formatContextPercent" :width="120" />
+      <div>
+        <h3>{{ Number(context.estimated_tokens || 0).toLocaleString() }} tokens</h3>
+        <p>下一轮模型请求的有效上下文估算</p>
+        <p v-if="!context.compaction_agent_configured" class="context-warning">未配置压缩 Agent，无法手动压缩。</p>
+        <p v-else-if="sessionRunning" class="context-warning">会话运行中，请先等待当前任务结束。</p>
+      </div>
+    </div>
+    <template #footer>
+      <el-button @click="contextVisible = false">关闭</el-button>
+      <el-button
+        type="primary"
+        :loading="compactionInProgress"
+        :disabled="!context.compaction_agent_configured || sessionRunning || compactionInProgress"
+        @click="compactContext"
+      >压缩上下文</el-button>
+    </template>
+  </el-dialog>
+  <el-dialog v-model="advancedParamsVisible" title="高级参数" width="860px" append-to-body :close-on-click-modal="false">
+    <el-form label-position="top" class="advanced-params-form">
+      <ModelParamsForm
+        v-model:additional-params-text="sessionModelParams.additional_params_text"
+        :provider-kind="activeProvider?.kind || currentSession?.model_snapshot?.provider_kind || ''"
+        :api-type="codingEffectiveApi"
+        :model-params="sessionModelParams.model_params"
+        :execution-params="sessionModelParams.execution_params"
+        :openai-compatible="selectedOpenAiCompatible"
+        :session-params="sessionModelParams"
+        show-session-runtime
+        hide-reasoning-fields
+        catalog-aligned
+      />
+    </el-form>
+    <template #footer>
+      <el-button @click="advancedParamsVisible = false">取消</el-button>
+      <el-button type="primary" :loading="advancedParamsSaving" :disabled="!selectedModelId" @click="saveAdvancedParams">保存</el-button>
+    </template>
+  </el-dialog>
+  <el-dialog v-model="previewVisible" title="图片预览" width="min(900px, 92vw)" append-to-body>
+    <img v-if="previewSrc" :src="previewSrc" alt="preview" style="display:block;width:100%;max-height:80vh;object-fit:contain" />
   </el-dialog>
   <el-dialog v-model="sessionDialogVisible" title="新建会话" width="440px" append-to-body>
   <el-form label-position="top" @submit.prevent="createSession">

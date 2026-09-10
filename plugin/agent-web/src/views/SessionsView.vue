@@ -5,23 +5,32 @@ import { api } from '../bridge/jcefBridge'
 import PageShell from '../components/common/PageShell.vue'
 
 const rows = ref([])
+const environments = ref([])
 const createVisible = ref(false)
 const sessionType = ref('project')
 const sessionName = ref('')
+const environmentId = ref(null)
 const creating = ref(false)
-const load = () => api('sessions.list').then(value => rows.value = value)
+const load = async () => {
+  const [sessionRows, catalog] = await Promise.all([api('sessions.list'), api('environments.catalog')])
+  rows.value = sessionRows
+  environments.value = catalog.environments || []
+  if (!environmentId.value) environmentId.value = environments.value[0]?.id || null
+}
 
 function openCreate() {
   sessionType.value = 'project'
   sessionName.value = ''
+  environmentId.value = environments.value[0]?.id || null
   createVisible.value = true
 }
 
 async function create() {
   if (creating.value) return
+  if (!environmentId.value) throw new Error('请选择编码环境')
   creating.value = true
   try {
-    await api('session.create', { title: sessionName.value.trim(), sessionType: sessionType.value })
+    await api('session.create', { title: sessionName.value.trim(), sessionType: sessionType.value, codingEnvironmentId: environmentId.value })
     createVisible.value = false
     await load()
   } finally {
@@ -55,7 +64,7 @@ onMounted(load)
       <el-table-column prop="projectPath" label="关联项目" min-width="220">
         <template #default="{ row }">{{ row.sessionType === 'global' ? '所有项目' : row.projectPath }}</template>
       </el-table-column>
-      <el-table-column prop="agentId" label="Agent" width="90" />
+      <el-table-column prop="agentId" label="环境/Agent" width="120" />
       <el-table-column prop="updatedAt" label="更新时间" width="180" />
       <el-table-column width="160">
         <template #default="{ row }">

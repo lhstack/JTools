@@ -6,10 +6,6 @@ import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
-import com.lhstack.tools.agent.model.llm.DocumentSourceKind
-import com.lhstack.tools.agent.model.llm.Image
-import com.lhstack.tools.agent.model.llm.ImageDetail
-
 /**
  * 模型客户端公共 helper。完全照抄 awake-claw src/service/model_provider.rs 里
  * 被 openai / anthropic 复用的 pub(super) fn。
@@ -78,30 +74,6 @@ object ModelHttpSupport {
                 value.asJsonArray.forEach { removeNullObjectFields(it) }
             }
         }
-    }
-
-    /** 照抄 image_url。 */
-    fun imageUrl(image: Image): String = image.tryIntoUrl()
-
-    /** 照抄 image_base64_parts：Anthropic 图片必须是 base64 且带 media_type。 */
-    fun imageBase64Parts(image: Image): Pair<String, String> {
-        val mediaType = image.mediaType
-            ?: throw IllegalStateException("Anthropic image requires media_type")
-        val source = image.data
-        if (source !is DocumentSourceKind.Base64) {
-            throw IllegalStateException("Anthropic image requires base64 data")
-        }
-        return mediaType.toMimeType() to source.data
-    }
-
-    /** 照抄 source_data：四种来源都取内部字符串。 */
-    fun sourceData(source: DocumentSourceKind): String = source.data
-
-    /** 照抄 image_detail。 */
-    fun imageDetail(detail: ImageDetail): String = when (detail) {
-        ImageDetail.Auto -> "auto"
-        ImageDetail.Low -> "low"
-        ImageDetail.High -> "high"
     }
 
     /** 照抄 take_optional：从 map 移除并按目标类型反序列化。这里返回原始 JsonElement，由调用方解释。 */

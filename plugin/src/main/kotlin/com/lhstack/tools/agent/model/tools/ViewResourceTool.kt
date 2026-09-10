@@ -7,8 +7,8 @@ import com.google.gson.JsonParser
 import com.lhstack.tools.agent.AgentAttachmentState
 import com.lhstack.tools.agent.AgentAttachmentSupport
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 import com.lhstack.tools.agent.model.provider.AgentRuntime
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
@@ -61,7 +61,7 @@ class ViewResourceTool(
                 triggerId = files.joinToString(",") { workspaceTools.displayPath(it) },
                 workspace = workspaceTools.canonicalRoot().absolutePath,
                 skillsRootDir = skillsRootDir,
-                attachments = attachments.map { AgentAttachmentSupport.toUserContent(it, modalities) },
+                attachments = attachments.flatMap { AgentAttachmentSupport.toUserContents(it, modalities) },
                 attachmentSnapshots = attachments.map { AgentAttachmentSupport.snapshotOf(it) },
                 cancel = cancel,
                 toolCancel = cancel,

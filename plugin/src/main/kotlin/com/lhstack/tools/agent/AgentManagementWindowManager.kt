@@ -124,6 +124,7 @@ internal class AgentManagementWindowManager(
             "prompts" to "提示词管理",
             "agents" to "Agent 管理",
             "skills" to "Skills 管理",
+            "environments" to "编码环境",
             "settings" to "全局设置",
         )
     }

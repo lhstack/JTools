@@ -92,14 +92,96 @@ object AgentSchema {
         );
         """.trimIndent(),
         """
-        create table if not exists chat_sessions (
+        create table if not exists message_sessions (
             id integer primary key autoincrement,
-            title text,
-            agent_id integer,
-            session_type text not null default 'global',
-            project_path text,
+            session_type text not null check (session_type in ('common', 'coding')),
+            title text not null,
+            config text not null check (json_valid(config)),
             created_at text not null default (CURRENT_TIMESTAMP),
             updated_at text not null default (CURRENT_TIMESTAMP)
+        );
+        """.trimIndent(),
+        """
+        create table if not exists message_events (
+            id integer primary key autoincrement,
+            parent_event_id integer references message_events(id) on delete restrict,
+            session_id integer not null references message_sessions(id) on delete cascade,
+            turn_id text not null,
+            status text not null check (status in ('running', 'completed', 'failed', 'cancelled')),
+            event_type text not null,
+            event_id text not null,
+            summary text not null,
+            context text not null check (json_valid(context)),
+            revision integer not null default 1,
+            created_at text not null default (CURRENT_TIMESTAMP),
+            updated_at text not null default (CURRENT_TIMESTAMP)
+        );
+        """.trimIndent(),
+        "create unique index if not exists idx_message_events_identity on message_events(session_id, turn_id, ifnull(parent_event_id, 0), event_type, event_id);",
+        "create index if not exists idx_message_events_session_id_id on message_events(session_id, id);",
+        "create index if not exists idx_message_events_session_turn_id on message_events(session_id, turn_id, id);",
+        """
+        create table if not exists message_processing_tasks (
+            id integer primary key autoincrement,
+            session_id integer not null references message_sessions(id) on delete cascade,
+            turn_id text not null,
+            status text not null check (status in ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+            execution_config text not null check (json_valid(execution_config)),
+            error text,
+            created_at text not null default (CURRENT_TIMESTAMP),
+            claimed_at text,
+            completed_at text,
+            unique(session_id, turn_id)
+        );
+        """.trimIndent(),
+        "create index if not exists idx_message_processing_tasks_status on message_processing_tasks(status, id);",
+        """
+        create table if not exists context_compactions (
+            id integer primary key autoincrement,
+            session_type text not null check (session_type in ('common', 'coding')),
+            session_id integer not null references message_sessions(id) on delete cascade,
+            agent_id integer not null references agents(id) on delete restrict,
+            status text not null check (status in ('running', 'completed', 'failed')),
+            estimated_tokens_before integer not null check (estimated_tokens_before >= 0),
+            estimated_tokens_after integer,
+            summary text not null default '',
+            model_log_id integer references model_request_logs(id) on delete set null,
+            error text,
+            created_at text not null default (CURRENT_TIMESTAMP),
+            completed_at text
+        );
+        """.trimIndent(),
+        "create index if not exists idx_context_compactions_session on context_compactions(session_type, session_id, id);",
+        "create unique index if not exists idx_context_compactions_running on context_compactions(session_id) where status = 'running';",
+        """
+        create table if not exists message_append_items (
+            id integer primary key autoincrement,
+            session_id integer not null,
+            turn_id text not null,
+            message_event_id integer references message_events(id) on delete set null,
+            sequence integer not null,
+            content text not null,
+            attachments text not null check (json_valid(attachments)),
+            status text not null check (status in ('pending', 'claimed', 'delivered', 'cancelled')),
+            created_at text not null default (CURRENT_TIMESTAMP),
+            claimed_at text,
+            delivered_at text,
+            unique(session_id, turn_id, sequence)
+        );
+        """.trimIndent(),
+        "create index if not exists idx_message_append_items_turn_status on message_append_items(session_id, turn_id, status, id);",
+        """
+        create table if not exists message_attachments (
+            id integer primary key autoincrement,
+            session_id integer not null references message_sessions(id) on delete cascade,
+            file_name text not null,
+            content_type text not null,
+            size integer not null,
+            path text not null,
+            kind text not null,
+            text_preview text,
+            metadata text not null check (json_valid(metadata)),
+            created_at text not null default (CURRENT_TIMESTAMP)
         );
         """.trimIndent(),
         """
@@ -127,6 +209,15 @@ object AgentSchema {
         "create index if not exists idx_model_request_logs_source_id on model_request_logs(source_id);",
         "create index if not exists idx_model_request_logs_agent_id on model_request_logs(agent_id);",
         "create index if not exists idx_model_request_logs_status on model_request_logs(status);",
-        "update model_request_logs set source_type = 'agent' where source_type = '' and source_id like '%:%';"
+        """
+        create table if not exists coding_environments (
+            id integer primary key autoincrement,
+            name text not null unique,
+            enabled integer not null default 1,
+            config text not null,
+            created_at text not null default (CURRENT_TIMESTAMP),
+            updated_at text not null default (CURRENT_TIMESTAMP)
+        );
+        """.trimIndent(),
     )
 }

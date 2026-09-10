@@ -23,3 +23,23 @@ data class AgentAttachmentState(
     var size: Long = 0,
     var kind: String = AgentAttachmentKind.FILE.id,
 )
+
+internal data class AgentBrowserAttachment(
+    @com.google.gson.annotations.SerializedName("id") val id: String,
+    @com.google.gson.annotations.SerializedName("name") val name: String,
+    @com.google.gson.annotations.SerializedName("path") val path: String,
+    @com.google.gson.annotations.SerializedName("mimeType") val mimeType: String,
+    @com.google.gson.annotations.SerializedName("size") val size: Long,
+    @com.google.gson.annotations.SerializedName("kind") val kind: String,
+    @com.google.gson.annotations.SerializedName("previewUrl") val previewUrl: String? = null,
+)
+
+internal fun AgentAttachmentState.toBrowserAttachment() = AgentBrowserAttachment(
+    id, name, path, mimeType, size, kind,
+)
+
+internal fun imagePreviewUrl(attachment: AgentAttachmentState): String? = runCatching {
+    val bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(attachment.path))
+    "data:${attachment.mimeType.ifBlank { "image/png" }};base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
+}.getOrNull()
+

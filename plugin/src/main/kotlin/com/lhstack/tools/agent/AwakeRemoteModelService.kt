@@ -5,8 +5,8 @@ import com.lhstack.tools.db.entity.ProviderEntity
 import com.lhstack.tools.agent.model.http.ModelHttpClientFactory
 import com.lhstack.tools.agent.model.params.ModelParams
 import com.lhstack.tools.agent.model.params.ProviderKind
-import com.lhstack.tools.agent.model.provider.ModelProvider
-import com.lhstack.tools.agent.model.provider.RemoteModelsRequest
+import com.lhstack.tools.llm.provider.ModelProvider
+import com.lhstack.tools.llm.provider.RemoteModelsRequest
 
 /**
  * awake-claw 供应商远端模型列表的 Swing 入口。

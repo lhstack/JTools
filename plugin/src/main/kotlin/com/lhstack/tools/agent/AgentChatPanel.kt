@@ -1,24 +1,34 @@
 package com.lhstack.tools.agent
 
+import com.lhstack.tools.agent.coding.CodingAttachmentStore
+import com.lhstack.tools.agent.coding.CodingRuntimeSupport
+import com.lhstack.tools.agent.coding.CodingSessionSupport
+import com.lhstack.tools.agent.coding.ContextCompactionService
+import com.lhstack.tools.agent.coding.MessageProcessor
+import com.lhstack.tools.agent.coding.MessageTaskStatus
+import com.lhstack.tools.agent.coding.toBrowserJson
+import com.lhstack.tools.db.service.MessageStoreService
+
 import com.lhstack.tools.concurrent.AgentExecutors
 import com.google.gson.annotations.SerializedName
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
-import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.intellij.icons.AllIcons
+import com.google.gson.JsonParser
+import com.google.gson.JsonArray
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.ui.LafManagerListener
+import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.SelectionEvent
@@ -35,44 +45,27 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
-import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.Message
-import com.lhstack.tools.agent.model.llm.ProviderToolCall
-import com.lhstack.tools.agent.model.llm.ToolResult
-import com.lhstack.tools.agent.model.llm.ToolResultContent
 import com.lhstack.tools.agent.model.log.ModelLogService
-import com.lhstack.tools.agent.model.tools.UpdateAgentDistillationTool
-import com.lhstack.tools.agent.model.log.ModelRequestException
-import com.lhstack.tools.agent.model.provider.AgentRuntime
-import com.lhstack.tools.agent.model.provider.AppendMessage
-import com.lhstack.tools.agent.model.provider.AppendMessageChannel
-import com.lhstack.tools.agent.model.provider.AssistantOutputPolicy
-import com.lhstack.tools.agent.model.provider.ModelStreamSink
-import com.lhstack.tools.agent.model.provider.ToolEventSink
-import com.lhstack.tools.const.Icons
 import com.lhstack.tools.db.service.AgentRecord
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.ChatSessionRecord
 import com.lhstack.tools.db.service.ChatSessionService
+import com.lhstack.tools.db.service.CodingEnvironmentService
 import com.lhstack.tools.db.service.SettingService
 import com.lhstack.tools.db.service.ChatSessionType
 import com.lhstack.tools.db.service.CatalogService
-import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.ext.errorNotify
 import com.lhstack.tools.ext.infoNotify
-import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.ui.awt.RelativePoint
-import org.jdesktop.swingx.VerticalLayout
 import java.awt.BorderLayout
 import java.awt.Color
-import java.awt.Component
 import java.awt.Dimension
+import java.awt.Component
 import java.awt.FlowLayout
 import java.awt.GraphicsEnvironment
 import java.awt.Image
@@ -120,7 +113,7 @@ import javax.swing.text.DefaultEditorKit
 import javax.swing.text.JTextComponent
 
 /**
- * Agent 对话面板。对话完全基于 Agent 发起：会话绑定一个 Agent，发送时经 AgentRuntime
+ * Agent 对话面板。对话发送走 MessageProcessor；Agent 运行/润色仍复用 AgentRuntime
  * 执行，历史以 model_request_logs 为唯一数据源。面板只负责编排 UI 与调用运行时，
  * 不持有任何模型/供应商状态，也不做任何旧结构兼容。
  */
@@ -146,29 +139,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val chatBrowser: AgentChatBrowser by lazy { AgentChatBrowser(gson, ::handleBrowserCommand, onDropFiles = ::addAttachmentFiles) }
     private val managementWindows by lazy { AgentManagementWindowManager(project, gson, ::refreshManagementData) }
 
-    private val messageContainer = JPanel(VerticalLayout(8))
-    private val chatScroll = JBScrollPane(messageContainer)
     private val inputArea = JBTextArea(3, 0)
-    private val inputCenterPanel = JPanel(BorderLayout(0, 6)).apply { isOpaque = false }
-    private val queueStrip = JPanel().apply {
-        isOpaque = false
-        layout = BoxLayout(this, BoxLayout.X_AXIS)
-    }
-    private val queueScroll = JBScrollPane(queueStrip).apply {
-        border = JBUI.Borders.empty()
-        isOpaque = false
-        viewport.isOpaque = false
-        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
-        verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
-        preferredSize = Dimension(0, JBUI.scale(40))
-        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(42))
-    }
-    private val queuePanel = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        isVisible = false
-        add(queueScroll, BorderLayout.CENTER)
-    }
-
     private val draftAttachments = mutableListOf<AgentAttachmentState>()
     private val draftAttachmentStrip = JPanel().apply {
         isOpaque = false
@@ -178,42 +149,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         isVisible = false
     }
 
-    private val statusLabel = JLabel()
-    private val inputHintLabel = JLabel(AgentInputShortcutSupport.inputHint())
     private val sessionSelector = ComboBox<ChatSessionRecord>()
     private val agentSelector = ComboBox<AgentRecord>()
 
-    private val actionToolbars = mutableListOf<ActionToolbar>()
-    private val actionEnabledState = mutableMapOf<AnAction, Boolean>()
-
-
-    private val queueOrder = AtomicLong(0)
-    private val queueLock = Any()
-    private val chatQueue = mutableListOf<ChatQueueItem>()
     private var currentSessionId: Long? = null
-    private var renderedSessionId: Long? = null
     private var inputRestoreSequence = 0L
     private var historyRevision = 0L
     private var browserInputRestore: AgentBrowserInputRestore? = null
     private var updatingSessionSelection = false
     private var updatingAgentSelection = false
 
-    private var currentTurnView: AssistantTurnView? = null
-    private val messageCards = mutableListOf<AgentChatCard>()
-    private var agentRunSubscription: AutoCloseable? = null
+    private val browserEvents = mutableListOf<JsonObject>()
+    private val browserTasks = mutableListOf<JsonObject>()
     private var agentRunDeliverySubscription: AutoCloseable? = null
     private val browserStateTimer = javax.swing.Timer(40) { syncBrowserStateNow() }.apply { isRepeats = false }
-
-    private val newSessionAction = createAction("新建会话", Icons.agentSessionNewIcon()) { chooseAndCreateSession() }
-    private val clearAction = createAction("清空当前会话", Icons.agentSessionClearIcon()) { clearCurrentSession() }
-    private val sessionManageAction = createAction("会话管理", Icons.agentSessionManageIcon()) { openSessionManager() }
-    private val modelLogAction = createAction("模型日志", Icons.agentModelLogIcon()) { openModelLogDialog() }
-    private val modelManageAction = createAction("供应商与模型", Icons.agentModelIcon()) { openModelManager() }
-    private val promptManageAction = createAction("提示词管理", Icons.agentPromptIcon()) { openPromptManager() }
-    private val agentManageAction = createAction("Agent 管理", Icons.agentManageIcon()) { openAgentManager() }
-    private val skillManageAction = createAction("Skills 管理", Icons.agentSkillsIcon()) { openSkillManager() }
-    private val globalConfigAction = createAction("全局配置", Icons.agentGlobalConfigIcon()) { openGlobalConfigManager() }
-    private val attachmentAction = createAction("添加附件", Icons.agentAttachmentIcon()) { chooseAttachments() }
 
     init {
         setupSessionSelector()
@@ -240,48 +189,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             this,
         )
         agentRunDeliverySubscription = AgentRunService.subscribeDeliveries(currentProjectPath(), ::enqueueAgentRunDelivery)
+        MessageProcessor.addListener(::onMessageRuntimeEvent)
         loadInitialData()
     }
 
     // -------- 选择器与输入初始化 --------
-
-    private fun setupChatContainer() {
-        messageContainer.background = UIUtil.getPanelBackground()
-        messageContainer.isOpaque = true
-        chatScroll.border = JBUI.Borders.customLine(JBColor.border(), 1)
-        chatScroll.viewport.background = UIUtil.getPanelBackground()
-        chatScroll.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-        chatScroll.verticalScrollBar.unitIncrement = 16
-        chatScroll.viewport.addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) = Unit
-        })
-    }
-
-    private fun setupInputArea() {
-        val defaultPasteAction = inputArea.actionMap.get(DefaultEditorKit.pasteAction)
-        inputArea.lineWrap = true
-        inputArea.wrapStyleWord = true
-        inputArea.margin = JBUI.insets(6)
-        inputArea.background = UIUtil.getTextFieldBackground()
-        inputArea.isOpaque = true
-        inputArea.inputMap.put(AgentInputShortcutSupport.sendKeyStroke(), "sendMessage")
-        inputArea.actionMap.put("sendMessage", object : javax.swing.AbstractAction() {
-            override fun actionPerformed(e: ActionEvent) = sendMessage()
-        })
-        bindPasteAttachment(inputArea) { text ->
-            if (text.isNotEmpty()) {
-                inputArea.replaceSelection(text)
-                return@bindPasteAttachment
-            }
-            defaultPasteAction?.actionPerformed(
-                ActionEvent(inputArea, ActionEvent.ACTION_PERFORMED, DefaultEditorKit.pasteAction)
-            )
-        }
-        inputArea.transferHandler = object : TransferHandler() {
-            override fun canImport(support: TransferSupport): Boolean = canImportAttachment(support.transferable)
-            override fun importData(support: TransferSupport): Boolean = importAttachmentTransferable(support.transferable)
-        }
-    }
 
     private fun setupSessionSelector() {
         sessionSelector.isEditable = false
@@ -301,7 +213,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         agentSelector.addActionListener {
             if (updatingAgentSelection) return@addActionListener
             val agent = agentSelector.selectedItem as? AgentRecord ?: return@addActionListener
-            bindCurrentSessionAgent(agent)
         }
     }
 
@@ -311,7 +222,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         refreshAgentSelector(null)
         val sessions = visibleSessions()
         if (sessions.isEmpty()) {
-            createSession(ChatSessionType.PROJECT)
+            showEmptySessionState()
         } else {
             val targetId = resolveRestoredSessionId(sessions) ?: sessions.first().id
             currentSessionId = targetId
@@ -321,6 +232,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun refreshAgentSelector(selectedId: Long?) {
+        if (!ApplicationManager.getApplication().isDispatchThread) {
+            onUiWait { refreshAgentSelector(selectedId) }
+            return
+        }
         updatingAgentSelection = true
         agentSelector.removeAllItems()
         AgentService.listAgents().forEach { agentSelector.addItem(it) }
@@ -333,6 +248,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun refreshSessionSelector(sessions: List<ChatSessionRecord>) {
+        if (!ApplicationManager.getApplication().isDispatchThread) {
+            onUiWait { refreshSessionSelector(sessions) }
+            return
+        }
         updatingSessionSelection = true
         sessionSelector.removeAllItems()
         sessions.forEach { sessionSelector.addItem(it) }
@@ -390,12 +309,24 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun createSession(sessionType: ChatSessionType, title: String = AUTO_TITLE) {
-        val agent = agentSelector.selectedItem as? AgentRecord
+        val environment = requireSelectedEnvironment()
+        val current = currentSessionId?.let(ChatSessionService::sessionById)
+        val fallback = CatalogService.listProvidersWithModels()
+            .asSequence()
+            .mapNotNull { item -> item.models.firstOrNull { it.enabled == 1 }?.let { item.provider.id to it.id } }
+            .firstOrNull()
         val record = ChatSessionService.createSession(
-            title,
-            agent?.id,
-            sessionType,
-            currentProjectPath().takeIf { sessionType == ChatSessionType.PROJECT },
+            title = title,
+            codingEnvironmentId = environment.id,
+            sessionType = sessionType,
+            workspacePath = if (sessionType == ChatSessionType.GLOBAL) {
+                CodingSessionSupport.globalWorkspacePath()
+            } else {
+                currentProjectPath()
+            },
+            providerId = current?.providerId ?: fallback?.first,
+            modelId = current?.modelId ?: fallback?.second,
+            promptId = current?.promptId,
         )
         currentSessionId = record.id
         refreshSessionSelector(visibleSessions())
@@ -409,25 +340,25 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         updatingSessionSelection = true
         selectSessionItem(record.id)
         updatingSessionSelection = false
-        refreshAgentSelector(record.agentId)
-        renderSessionHistory(record)
-        refreshQueuePanel()
-        updateActiveStopButton()
+        reloadBrowserConversation(record.id)
         updateStatus()
     }
 
     private fun selectSessionItem(sessionId: Long) {
+        if (!ApplicationManager.getApplication().isDispatchThread) {
+            onUiWait { selectSessionItem(sessionId) }
+            return
+        }
         val target = (0 until sessionSelector.itemCount)
             .map { sessionSelector.getItemAt(it) }
             .firstOrNull { it.id == sessionId }
         if (target != null) sessionSelector.selectedItem = target
     }
 
-    private fun bindCurrentSessionAgent(agent: AgentRecord) {
+    private fun bindCurrentSessionEnvironment(environmentId: Long) {
         val sessionId = currentSessionId ?: return
-        val agentId = agent.id ?: return
-        ChatSessionService.updateSessionAgent(sessionId, agentId)
-        ChatSessionService.sessionById(sessionId)?.let(::renderSessionHistory)
+        ChatSessionService.updateSessionCodingEnvironment(sessionId, environmentId)
+        reloadBrowserConversation(sessionId)
         updateStatus()
     }
 
@@ -438,39 +369,19 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             project, "确定清空当前会话的全部对话记录？", "清空会话", Messages.getQuestionIcon()
         )
         if (confirm != Messages.YES) return
-        discardQueueItemsForSession(sessionId)
-        ModelLogService.deleteChatTurnsForSession(record.id)
-        renderSessionHistory(record)
+        MessageStoreService.clearSession(record.id)
+        reloadBrowserConversation(record.id)
     }
 
     private fun refreshBrowserMessageCache() {
         val sessionId = currentSessionId ?: return
-        val record = ChatSessionService.sessionById(sessionId) ?: return
-        discardUnpersistedQueueItemsForRefresh(sessionId)
-        renderSessionHistory(record)
-    }
-
-    private fun discardUnpersistedQueueItemsForRefresh(sessionId: Long) {
-        val removed = synchronized(queueLock) {
-            val items = chatQueue.filter {
-                it.sessionId == sessionId &&
-                    it.status != ChatQueueStatus.PENDING &&
-                    it.status != ChatQueueStatus.PROCESSING &&
-                    it.persistedLogId == null
-            }
-            chatQueue.removeAll(items.toSet())
-            items
-        }
-        removed.forEach(::discardQueueCards)
-        if (removed.isNotEmpty()) refreshQueuePanel()
+        reloadBrowserConversation(sessionId)
     }
 
     private fun clearCurrentSessionFromBrowser() {
         val sessionId = currentSessionId ?: return
-        val record = ChatSessionService.sessionById(sessionId) ?: return
-        discardQueueItemsForSession(sessionId)
-        ModelLogService.deleteChatTurnsForSession(record.id)
-        renderSessionHistory(record)
+        MessageStoreService.clearSession(sessionId)
+        reloadBrowserConversation(sessionId)
     }
 
     private fun renameSession(record: ChatSessionRecord) {
@@ -487,14 +398,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             project, "确定删除会话 ${record.title}？其对话记录也会一并删除。", "删除会话", Messages.getQuestionIcon()
         )
         if (confirm != Messages.YES) return
-        discardQueueItemsForSession(record.id)
-        ModelLogService.deleteChatTurnsForSession(record.id)
         ChatSessionService.deleteSession(record.id)
         val remaining = visibleSessions()
         if (remaining.isEmpty()) {
-            currentSessionId = null
-            rememberActiveSession(null)
-            createSession(ChatSessionType.PROJECT)
+            showEmptySessionState()
         } else {
             val targetId = remaining.first().id
             currentSessionId = targetId
@@ -503,325 +410,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    // -------- 会话历史渲染（数据源：model_request_logs）--------
-
-    private fun renderSessionHistory(record: ChatSessionRecord) {
-        renderedSessionId = record.id
-        historyRevision++
-        agentRunSubscription?.close()
-        agentRunSubscription = AgentRunService.subscribe(record.id, ::updateAgentRunCard)
-        messageCards.clear()
-        clearStreamingRefs()
-        val entries = buildSessionRenderEntries(record.id)
-        entries.forEach { entry ->
-            when (entry) {
-                is SessionRenderEntry.History -> renderTurn(record.id, record.agentId, entry.turn)
-                is SessionRenderEntry.AgentRun -> updateAgentRunCard(entry.run)
-                is SessionRenderEntry.Queue -> renderQueuedItem(entry.item)
-            }
-        }
-        AgentRunService.list(record.id).forEach(::updateAgentRunCard)
-        syncBrowserState()
-    }
-
-    private fun buildSessionRenderEntries(sessionId: Long): List<SessionRenderEntry> {
-        val queued = synchronized(queueLock) {
-            chatQueue
-                .filter { it.sessionId == sessionId && it.shouldRenderInHistory() }
-                .map { SessionRenderEntry.Queue(it, queuedRenderOrder(it)) }
-        }
-        val queuedClientOrders = queued.mapTo(mutableSetOf()) { it.item.order }
-        val history = ModelLogService.listChatTurnsForSession(sessionId)
-            .asSequence()
-            .filter { it.messageType != "agent_run" }
-            .filter(ChatTurnHistoryPolicy::shouldInclude)
-            .filterNot { chatTurnClientOrder(it) in queuedClientOrders }
-            .map { SessionRenderEntry.History(it, it.logId) }
-            .toList()
-        val agentRuns = AgentRunService.history(sessionId).map { run ->
-            SessionRenderEntry.AgentRun(run, run.logId ?: Long.MAX_VALUE / 3)
-        }
-        return (history + agentRuns + queued)
-            .sortedWith(compareBy<SessionRenderEntry> { it.order }.thenBy { it.tieBreaker })
-    }
-
-    private fun queuedRenderOrder(item: ChatQueueItem): Long = Long.MAX_VALUE / 4 + item.order
-
-    private fun chatTurnClientOrder(turn: ModelLogService.ChatTurn): Long? {
-        val snapshot = jsonObject(turn.requestData, "request_snapshot")
-        return snapshot?.get("client_message_order")
-            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
-            ?.asLong
-    }
-
-    private fun renderTurn(sessionId: Long, currentAgentId: Long?, turn: ModelLogService.ChatTurn) {
-        renderTurnUserBubble(sessionId, turn)
-        val structured = jsonObject(turn.responseData, "structured_response")
-        if (structured != null) {
-            val response = jsonString(structured.get("response"))
-            val reasoning = reasoningText(structured)
-            val hasTools = hasToolCalls(structured)
-            if (response.isNotBlank() || reasoning.isNotBlank() || hasTools) {
-                val turnView = createAssistantTurnView(
-                    sessionId,
-                    onDelete = { deleteChatTurn(turn.logId) },
-                    toolDetailLoader = { callId -> loadPersistedToolDetail(turn.logId, callId) },
-                    cardId = "turn-${turn.logId}-assistant",
-                    actorLabel = assistantActorLabel(turn.agentId, currentAgentId),
-                )
-                if (response.isNotBlank()) setAssistantTurnResponse(turnView, response)
-                if (reasoning.isNotBlank()) setAssistantTurnReasoning(turnView, reasoning, collapsedByDefault = false)
-                renderTurnToolCalls(structured, turnView)
-                turnView.card.finish(turn.assistantMessageAt, usageText(structured), usageDetails(structured))
-                return
-            }
-        }
-        if (turn.status == "failed" && !turn.errorData.isNullOrBlank()) {
-            val turnView = createAssistantTurnView(
-                sessionId,
-                onDelete = { deleteChatTurn(turn.logId) },
-                cardId = "turn-${turn.logId}-assistant",
-                actorLabel = assistantActorLabel(turn.agentId, currentAgentId),
-            )
-            turnView.card.setResponse("错误：${turn.errorData}")
-            turnView.card.finish(turn.assistantMessageAt, null)
-        }
-    }
-
-    private fun renderTurnUserBubble(sessionId: Long, turn: ModelLogService.ChatTurn) {
-        if (turn.messageType == "agent_distillation") return
-        val snapshot = jsonObject(turn.requestData, "request_snapshot") ?: return
-        val prompt = jsonString(snapshot.get("prompt_message"))
-        val attachments = readAttachmentSnapshots(snapshot)
-        val structured = jsonObject(turn.responseData, "structured_response")
-        val appendMessages = readAppendMessages(structured)
-        if (prompt.isBlank() && attachments.isEmpty()) return
-        appendMessage(
-            sessionId,
-            ROLE_USER,
-            prompt,
-            collapsible = false,
-            collapsedByDefault = false,
-            attachments = attachments,
-            onDelete = null,
-            createdAt = turn.userMessageAt,
-            cardId = "turn-${turn.logId}-user",
-            persisted = true,
-            actorLabel = userActorLabel(snapshot),
-            appendMessages = appendMessages,
-        )
-    }
-
-    private fun readAppendMessages(structured: JsonObject?): List<AgentBrowserAppendMessage> =
-        structured?.get("append_messages")?.takeIf { it.isJsonArray }?.asJsonArray?.mapNotNull { element ->
-            val value = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-            val content = jsonString(value.get("content"))
-            val attachments = value.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray
-                ?.mapNotNull(::readAttachmentSnapshot)
-                .orEmpty()
-            if (content.isBlank() && attachments.isEmpty()) return@mapNotNull null
-            AgentBrowserAppendMessage(
-                jsonString(value.get("id")).ifBlank { UUID.randomUUID().toString() },
-                content,
-                compactAppendMessageCreatedAt(jsonString(value.get("created_at"))),
-                attachments.map(AgentAttachmentState::toBrowserAttachment),
-            )
-        }.orEmpty()
-
-    private fun userActorLabel(snapshot: JsonObject): String? {
-        val sourceRunId = jsonString(snapshot.get("source_agent_run_id"))
-        if (sourceRunId.isBlank()) return null
-        val sourceAgentName = jsonString(snapshot.get("source_agent_name"))
-        return sourceAgentLabel(sourceAgentName, "发送")
-    }
-
-    private fun sourceAgentLabel(agentName: String, action: String): String {
-        val displayName = agentName.trim().ifBlank { "子 Agent" }
-        val suffix = if (displayName.endsWith("Agent", ignoreCase = true)) "" else " Agent"
-        return "$displayName$suffix $action"
-    }
-
-    private fun assistantActorLabel(agentId: Long?, currentAgentId: Long?): String? {
-        if (agentId == null || agentId == currentAgentId) return null
-        val agentName = AgentService.agentById(agentId)?.name ?: "Agent #$agentId"
-        return sourceAgentLabel(agentName, "回复")
-    }
-
-    private fun deleteChatTurn(logId: Long) {
-        ModelLogService.deleteChatTurn(logId)
-        currentSessionId?.let { refreshCurrentSessionHistoryIfVisible(it) }
-        project.infoNotify("对话", "消息已删除")
-    }
-
-    private fun reasoningText(structured: JsonObject): String {
-        val reasoning = structured.get("reasoning")?.takeIf { it.isJsonArray }?.asJsonArray ?: return ""
-        return reasoning.mapNotNull { jsonString(it).takeIf { s -> s.isNotBlank() } }.joinToString("\n\n").trim()
-    }
-
-    private fun hasToolCalls(structured: JsonObject): Boolean =
-        structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray?.isEmpty == false
-
-    private fun usageText(structured: JsonObject): String? {
-        val usage = structured.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
-        val total = usageNumber(usage, "total_tokens").takeIf { it > 0 }
-            ?: (usageNumber(usage, "input_tokens").takeIf { it > 0 } ?: usageNumber(usage, "prompt_tokens"))
-                .saturatingAdd(usageNumber(usage, "output_tokens").takeIf { it > 0 } ?: usageNumber(usage, "completion_tokens"))
-                .saturatingAdd(usageNumber(usage, "cache_creation_input_tokens"))
-                .saturatingAdd(usageNumber(usage, "cache_read_input_tokens"))
-        return if (total > 0) formatTokenUsage(total) else null
-    }
-
-    private fun usageDetails(structured: JsonObject): List<AgentBrowserUsageItem> {
-        val usage = structured.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject ?: return emptyList()
-        return flattenUsageDetails(usage)
-    }
-
-    private fun flattenUsageDetails(value: JsonElement, prefix: String = ""): List<AgentBrowserUsageItem> {
-        if (!value.isJsonObject) return emptyList()
-        return value.asJsonObject.entrySet().flatMap { (key, entry) ->
-            val path = if (prefix.isEmpty()) key else "$prefix.$key"
-            when {
-                entry.isJsonObject -> flattenUsageDetails(entry, path)
-                entry.isJsonPrimitive && entry.asJsonPrimitive.isNumber ->
-                    listOf(AgentBrowserUsageItem(path, entry.asLong))
-                else -> emptyList()
-            }
-        }
-    }
-
-    private fun usageNumber(usage: JsonObject, key: String): Long =
-        usage.get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong ?: 0L
-
-    private fun Long.saturatingAdd(other: Long): Long =
-        if (other > 0 && Long.MAX_VALUE - this < other) Long.MAX_VALUE else this + other
-
-    private fun formatTokenUsage(value: Long): String = when {
-        value >= 1_000_000 -> "${String.format("%.1f", value / 1_000_000.0).removeSuffix(".0")}m"
-        value >= 1_000 -> "${String.format("%.1f", value / 1_000.0).removeSuffix(".0")}k"
-        else -> "$value tokens"
-    }
-
-    private fun renderTurnToolCalls(structured: JsonObject, turnView: AssistantTurnView) {
-        syncToolCalls(structured, turnView.card, includeDetail = false)
-    }
-
-    private fun syncToolCalls(
-        structured: JsonObject,
-        card: AgentAssistantMessageCard,
-        includeDetail: Boolean = true,
-    ) {
-        val calls = structured.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray ?: return
-        if (calls.isEmpty) return
-        val results = structured.get("tool_results")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
-        val resultByCallId = mutableMapOf<String, String>()
-        results.forEach { element ->
-            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
-            val callId = jsonString(obj.get("internal_call_id"))
-            if (callId.isNotBlank()) resultByCallId[callId] = jsonString(obj.get("result"))
-        }
-        calls.forEachIndexed { index, element ->
-            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEachIndexed
-            val callId = jsonString(obj.get("internal_call_id")).ifBlank { "tool-$index" }
-            val name = jsonString(obj.get("tool_name"))
-            val args = if (includeDetail) {
-                obj.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
-            } else {
-                ""
-            }
-            card.ensureTool(callId, name, args)
-            if (resultByCallId.containsKey(callId)) {
-                card.updateToolResult(callId, if (includeDetail) resultByCallId[callId].orEmpty() else resultStatusText(resultByCallId[callId].orEmpty()))
-            }
-        }
-    }
-
-    private fun resultStatusText(result: String): String =
-        if (result.startsWith("工具调用失败:")) result.substringBefore('\n') else ""
-
-    private fun loadPersistedToolDetail(logId: Long, callId: String): AgentBrowserToolDetail? {
-        val structured = ModelLogService.modelLogById(logId)
-            ?.responseData
-            ?.getAsJsonObject("structured_response")
-            ?: return null
-        val call = structured.getAsJsonArray("tool_calls")
-            ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
-            ?.firstOrNull { jsonString(it.get("internal_call_id")) == callId }
-            ?: return null
-        val result = structured.getAsJsonArray("tool_results")
-            ?.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
-            ?.firstOrNull { jsonString(it.get("internal_call_id")) == callId }
-        val args = call.get("args")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
-        return toolDetail(args, jsonString(result?.get("result")))
-    }
-
-    private fun readAttachmentSnapshots(snapshot: JsonObject): List<AgentAttachmentState> {
-        val array = snapshot.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
-        return array.mapNotNull(::readAttachmentSnapshot)
-    }
-
-    private fun readAttachmentSnapshot(element: JsonElement): AgentAttachmentState? {
-        val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return null
-        return AgentAttachmentState(
-            id = jsonString(obj.get("id")).ifBlank { UUID.randomUUID().toString() },
-            name = jsonString(obj.get("name")),
-            path = jsonString(obj.get("path")),
-            mimeType = jsonString(obj.get("mimeType")),
-            size = obj.get("size")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0,
-            kind = jsonString(obj.get("kind")).ifBlank { AgentAttachmentKind.FILE.id },
-        )
-    }
-
-    private fun deleteAgentRun(runId: String, logId: Long?, sessionId: Long?) {
-        AgentRunService.delete(runId, logId)
-        messageCards.removeAll { it.id == "agent-run-$runId" }
-        syncBrowserState()
-        sessionId?.let(::refreshCurrentSessionHistoryIfVisible)
-    }
-
-    private fun updateAgentRunCard(snapshot: AgentRunSnapshot) {
-        if (snapshot.sessionId != renderedSessionId) return
-        val id = "agent-run-${snapshot.runId}"
-        val card = messageCards.filterIsInstance<AgentRunMessageCard>().firstOrNull { it.id == id }
-            ?: AgentRunMessageCard(
-                snapshot.runId,
-                snapshot.agentId,
-                snapshot.agentName,
-                snapshot.receiver,
-                onDelete = { deleteAgentRun(snapshot.runId, snapshot.logId, snapshot.sessionId) },
-                toolDetailLoader = AgentRunService::toolDetail,
-            ).also {
-                it.onChanged = ::syncBrowserState
-                messageCards.add(it)
-            }
-        card.update(snapshot)
-        syncBrowserState()
-    }
-
-    private fun jsonObject(parent: JsonObject?, key: String): JsonObject? {
-        val element = parent?.get(key) ?: return null
-        return element.takeIf { it.isJsonObject }?.asJsonObject
-    }
-
-    private fun jsonString(element: JsonElement?): String =
-        element?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
-
     // -------- 附件草稿 --------
 
     private fun pasteAttachmentsFromClipboard() {
-        val transferable = systemClipboardContents() ?: CopyPasteManager.getInstance().contents ?: return
-        if (importAttachmentTransferable(transferable)) return
-        clipboardText(transferable).takeIf { AgentAttachmentClipboardSupport.parseFiles(it).isNotEmpty() }
-            ?.let { addAttachmentFiles(AgentAttachmentClipboardSupport.parseFiles(it)) }
+        onUiWait {
+            val transferable = systemClipboardContents() ?: CopyPasteManager.getInstance().contents ?: return@onUiWait
+            if (importAttachmentTransferable(transferable)) return@onUiWait
+            clipboardText(transferable).takeIf { AgentAttachmentClipboardSupport.parseFiles(it).isNotEmpty() }
+                ?.let { addAttachmentFiles(AgentAttachmentClipboardSupport.parseFiles(it)) }
+        }
     }
 
     /** 弹出文件选择器，支持多选，加入草稿附件。 */
     private fun chooseAttachments() {
-        val descriptor = FileChooserDescriptor(true, false, false, false, false, true)
-            .withTitle("选择附件")
-        val files = FileChooser.chooseFiles(descriptor, project, null)
-            .mapNotNull { it.takeIf { vf -> !vf.isDirectory } }
-            .map { File(it.path) }
-        addAttachmentFiles(files)
+        onUiWait {
+            val descriptor = FileChooserDescriptor(true, false, false, false, false, true)
+                .withTitle("选择附件")
+            val files = FileChooser.chooseFiles(descriptor, project, null)
+                .mapNotNull { it.takeIf { vf -> !vf.isDirectory } }
+                .map { File(it.path) }
+            addAttachmentFiles(files)
+        }
     }
 
     /**
@@ -961,6 +570,27 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         added.forEach(::addAttachment)
     }
 
+    private fun restoreDraftAttachments(payload: JsonObject) {
+        val items = payload.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray ?: com.google.gson.JsonArray()
+        draftAttachments.clear()
+        items.forEach { item ->
+            val obj = item.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
+            draftAttachments += AgentAttachmentState(
+                id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asString ?: java.util.UUID.randomUUID().toString(),
+                name = obj.get("file_name")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?: obj.get("name")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?: "",
+                path = obj.get("path")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+                mimeType = obj.get("content_type")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?: obj.get("mimeType")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?: "",
+                size = obj.get("size")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+                kind = obj.get("kind")?.takeIf { it.isJsonPrimitive }?.asString ?: AgentAttachmentKind.FILE.id,
+            )
+        }
+        refreshDraftAttachmentStrip()
+    }
+
     private fun addAttachment(attachment: AgentAttachmentState) {
         draftAttachments.removeAll { it.path.isNotBlank() && it.path == attachment.path }
         draftAttachments.add(attachment)
@@ -996,1237 +626,194 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         draftAttachmentPanel.repaint()
         draftAttachmentPanel.parent?.revalidate()
         draftAttachmentPanel.parent?.repaint()
-        syncBrowserState()
+        chatBrowser.patchState(com.google.gson.JsonObject().apply {
+            add("drafts", com.google.gson.Gson().toJsonTree(draftAttachments.map { it.toBrowserAttachment() }).asJsonArray)
+        })
     }
 
     // -------- 发送与运行 --------
 
     private fun ensureCurrentSessionForSend(): ChatSessionRecord {
         currentSessionId?.let { ChatSessionService.visibleSessionById(it, currentProjectPath()) }?.let { return it }
-        val agentId = (agentSelector.selectedItem as? AgentRecord)?.id
-            ?: AgentService.listAgents().firstOrNull { it.enabled }?.id
-        val record = ChatSessionService.createSession(
-            AUTO_TITLE,
-            agentId,
-            ChatSessionType.PROJECT,
-            currentProjectPath(),
-        )
-        currentSessionId = record.id
-        refreshSessionSelector(visibleSessions())
-        switchSession(record.id)
-        return record
+        throw IllegalStateException("请先创建编码环境和会话")
     }
 
-    private fun sendMessage() {
-        val record = ensureCurrentSessionForSend()
-        val agent = resolveSessionAgent(record) ?: return
-        val rawPrompt = inputArea.text.trim()
-        val attachments = draftAttachments.toList()
-        if (rawPrompt.isEmpty() && attachments.isEmpty()) return
-
-        val prompt = if (AgentEditorFileContextSupport.isEnabled(currentProjectPath())) {
-            AgentEditorFileContextSupport.prependToPrompt(
-                rawPrompt,
-                AgentEditorFileContextSupport.collectAll(project),
-            )
+    private fun sendMessage(): com.google.gson.JsonObject {
+        val prompt = inputArea.text.trim()
+        val fileContext = if (AgentEditorFileContextSupport.isEnabled(currentProjectPath())) {
+            AgentEditorFileContextSupport.collectAll(project)
         } else {
-            rawPrompt
+            emptyList()
         }
-        if (prompt.isEmpty() && attachments.isEmpty()) return
-
-        enqueueChatMessage(record, agent, prompt, attachments)
+        val promptWithContext = AgentEditorFileContextSupport.prependToPrompt(prompt, fileContext)
+        if (promptWithContext.isEmpty() && draftAttachments.isEmpty()) {
+            throw IllegalArgumentException("请输入消息或添加附件")
+        }
+        val record = ensureCurrentSessionForSend()
+        val attachmentIds = draftAttachments.map { CodingAttachmentStore.persist(record.id, it) }
+        val task = MessageProcessor.enqueue(record.id, promptWithContext, attachmentIds)
         inputArea.text = ""
         clearDraftAttachments()
-        maybeAutoRenameSession(record, rawPrompt)
+        return task
     }
 
     private fun enqueueAgentRunDelivery(delivery: AgentRunDelivery) {
-        val record = ChatSessionService.visibleSessionById(delivery.sessionId, currentProjectPath()) ?: return
-        val agent = resolveSessionAgent(record) ?: return
-        enqueueChatMessage(
-            record,
-            agent,
-            delivery.content,
-            emptyList(),
-            delivery.runId,
-            delivery.agentId,
-            delivery.agentName,
-        )
-        AgentRunService.markDeliveryAccepted(delivery.runId)
-    }
-
-    private fun enqueueChatMessage(
-        record: ChatSessionRecord,
-        agent: AgentRecord,
-        prompt: String,
-        attachments: List<AgentAttachmentState>,
-        sourceAgentRunId: String? = null,
-        sourceAgentId: Long? = null,
-        sourceAgentName: String? = null,
-    ) {
-        val item = ChatQueueItem(
-            messageId = UUID.randomUUID().toString(),
-            sessionId = record.id,
-            agentId = agent.id ?: return,
-            prompt = prompt,
-            order = queueOrder.incrementAndGet(),
-            attachments = attachments,
-            sourceAgentRunId = sourceAgentRunId,
-            sourceAgentId = sourceAgentId,
-            sourceAgentName = sourceAgentName,
-            userMessageAt = messageTimeNow(),
-        )
-        synchronized(queueLock) { chatQueue.add(item) }
-        refreshQueuePanel()
-        processQueue()
-    }
-
-    private fun processQueue() {
-        val items = nextRunnableQueueItems()
-        items.forEach { item ->
-            onUi { startQueueItemUi(item) }
-            AgentExecutors.shared.submit { runQueueItem(item) }
-        }
-    }
-
-    private fun nextRunnableQueueItems(): List<ChatQueueItem> = synchronized(queueLock) {
-        val processingSessionIds = chatQueue
-            .asSequence()
-            .filter { it.status == ChatQueueStatus.PROCESSING }
-            .map { it.sessionId }
-            .toMutableSet()
-        chatQueue
-            .filter { it.status == ChatQueueStatus.PENDING && processingSessionIds.add(it.sessionId) }
-            .onEach { it.status = ChatQueueStatus.PROCESSING }
-    }
-
-    private fun runQueueItem(item: ChatQueueItem) {
-        val record = ChatSessionService.sessionById(item.sessionId)
-        val agent = AgentService.agentById(item.agentId)
-        if (record == null || agent == null || !agent.enabled) {
-            finishQueueItemError(item, "队列任务关联的会话或 Agent 已不存在")
-            return
-        }
-        val history = buildHistory(record)
-        val result = try {
-            AgentRuntime.execute(buildQueueRequest(item, agent, record, history))
-        } catch (e: Throwable) {
-            val requestError = e as? ModelRequestException
-            if (!isQueueItemActive(item)) {
-                // Stop/delete already removed the queue item and its persisted
-                // log. A late cancellation exception must not recreate history.
-                requestError?.logId?.let(ModelLogService::deleteChatTurn)
-            } else if (item.token.isCancelled()) {
-                finishQueueItemCancelled(
-                    item,
-                    requestError?.logId,
-                    requestError?.partialResponse,
-                    requestError?.assistantMessageAt,
-                )
-            } else if (requestError?.partialResponse != null) {
-                finishQueueItemPartialFailure(item, requestError)
-            } else {
-                finishQueueItemError(item, e.message ?: "调用失败", requestError?.logId)
-            }
-            return
-        }
-        if (!isQueueItemActive(item)) {
-            if (hasAssistantOutput(item, result.value)) {
-                item.persistedLogId = result.logId
-                onUi { refreshCurrentSessionHistoryIfVisible(item.sessionId) }
-            } else {
-                ModelLogService.deleteChatTurn(result.logId)
-            }
-            return
-        }
-        finishQueueItemSuccess(item, result)
-    }
-
-    private fun buildQueueRequest(
-        item: ChatQueueItem,
-        agent: AgentRecord,
-        record: ChatSessionRecord,
-        history: List<Message>,
-    ): AgentRuntime.Request {
-        val streamSink = object : ModelStreamSink {
-            override fun onResponseDelta(text: String) = onUi { appendStreamingText(item, ROLE_ASSISTANT, text) }
-            override fun onReasoningDelta(text: String) = onUi { appendStreamingText(item, ROLE_REASONING, text) }
-        }
-        val eventSink = object : ToolEventSink {
-            override fun onToolCall(call: ProviderToolCall) = onUi { renderToolCallEvent(item, call) }
-            override fun onToolResult(result: ToolResult) = onUi { renderToolResultEvent(item, result) }
-        }
-        val modalities = resolveModelModalities(agent)
-        val attachmentContents = item.attachments.map { AgentAttachmentSupport.toUserContent(it, modalities) }
-        val attachmentSnapshots = item.attachments.map { AgentAttachmentSupport.snapshotOf(it) }
-        return AgentRuntime.Request(
-            agentId = agent.id ?: item.agentId,
-            prompt = item.prompt,
-            triggerType = "chat",
-            triggerId = record.id.toString(),
-            workspace = resolveWorkspace(),
-            sessionId = record.id,
-            skillsRootDir = ResourceConfigService.skillsRootDir(),
-            history = history,
-            attachments = attachmentContents,
-            attachmentSnapshots = attachmentSnapshots,
-            streamSink = streamSink,
-            eventSink = eventSink,
-            cancel = item.token,
-            toolCancel = item.toolToken,
-            clientMessageOrder = item.order,
-            userMessageAt = item.userMessageAt,
-            onLogCreated = { logId -> item.persistedLogId = logId },
-            appendMessageChannel = appendMessageChannel(item),
-            project = project,
-            requestMetadata = item.sourceAgentRunId?.let { runId ->
-                JsonObject().apply {
-                    addProperty("source_agent_run_id", runId)
-                    item.sourceAgentId?.let { addProperty("source_agent_id", it) }
-                    item.sourceAgentName?.let { addProperty("source_agent_name", it) }
-                }
-            },
-        )
-    }
-
-    /** 读取 Agent 绑定模型声明的多模态能力（image/audio/video/text）。 */
-    private fun resolveModelModalities(agent: AgentRecord): Set<String> {
-        val modelId = agent.modelId ?: return emptySet()
-        val model = CatalogService.modelById(modelId) ?: return emptySet()
-        return runCatching {
-            com.google.gson.JsonParser.parseString(model.modalities)
-                .asJsonArray.mapNotNull { it.takeIf(com.google.gson.JsonElement::isJsonPrimitive)?.asString }
-                .toSet()
-        }.getOrDefault(emptySet())
-    }
-
-    private fun scheduleSessionDistillation(sessionId: Long, sourceAgentId: Long) {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            runSessionDistillation(sessionId, sourceAgentId)
-        }
-    }
-
-    private fun runSessionDistillation(sessionId: Long, sourceAgentId: Long) {
-        val sourceAgent = AgentService.agentById(sourceAgentId) ?: return
-        val config = sourceAgent.distillConfig
-        if (!config.enabled) return
-        val distillAgentId = config.agentId ?: run {
-            onUi { project.errorNotify("Agent 蒸馏", "${sourceAgent.name} 已启用蒸馏，但未配置蒸馏 Agent") }
-            return
-        }
-        val distillAgent = AgentService.agentById(distillAgentId) ?: run {
-            onUi { project.errorNotify("Agent 蒸馏", "蒸馏 Agent `$distillAgentId` 不存在") }
-            return
-        }
-        if (!distillAgent.enabled) {
-            onUi { project.errorNotify("Agent 蒸馏", "蒸馏 Agent ${distillAgent.name} 已停用") }
-            return
-        }
-        val session = ChatSessionService.sessionById(sessionId) ?: return
-        val sourceId = ChatSessionService.sessionSourceId(sourceAgentId, sessionId)
-        val logs = ModelLogService.listCompletedLogsForSource(
-            sourceType = ChatSessionService.SESSION_SOURCE_TYPE,
-            sourceId = sourceId,
-            afterId = config.lastDistilledModelLogId,
-            messageTypes = config.effectiveMessageTypes(),
-        )
-        if (logs.size < config.minMessages) return
-        val maxSourceLogId = logs.maxOf { it.id }
         try {
-            val personaDraft = java.util.concurrent.atomic.AtomicReference<com.lhstack.tools.db.config.AgentPersonaConfig?>()
-            AgentRuntime.execute(
-                distillAgent,
-                AgentRuntime.Request(
-                    agentId = distillAgent.id ?: distillAgentId,
-                    prompt = buildSessionDistillationPrompt(sourceAgent, session, logs, config.extraPrompt),
-                    triggerType = "distillation",
-                    triggerId = sessionId.toString(),
-                    workspace = resolveWorkspace(),
-                    sessionId = sessionId,
-                    skillsRootDir = ResourceConfigService.skillsRootDir(),
-                    extraTools = listOf(UpdateAgentDistillationTool(personaDraft, sourceAgent.extConfig.persona)),
-                    logSourceType = ChatSessionService.SESSION_SOURCE_TYPE,
-                    logSourceId = sourceId,
-                    logMessageType = "agent_distillation",
-                    logPromptMessage = null,
-                    project = project,
-                )
-            )
-            val distilledPersona = personaDraft.get()
-                ?: throw IllegalStateException("蒸馏模型未调用 update_agent_distillation 工具提交 Agent 长期配置")
-            AgentService.updateDistilledPersona(sourceAgentId, distilledPersona, maxSourceLogId)
-            onUi { refreshCurrentSessionHistoryIfVisible(sessionId) }
-        } catch (e: Throwable) {
-            onUi {
-                refreshCurrentSessionHistoryIfVisible(sessionId)
-                project.errorNotify("Agent 蒸馏", e.message ?: "蒸馏失败")
+            MessageProcessor.enqueue(delivery.sessionId, delivery.content)
+            AgentRunService.markDeliveryAccepted(delivery.runId)
+        } catch (error: Throwable) {
+            project.errorNotify("对话", error.message ?: "无法接收 Agent 运行投递")
+        }
+    }
+
+    private fun persistChosenAttachments(): List<JsonObject> {
+        val sessionId = currentSessionId ?: throw IllegalStateException("没有选中会话")
+        val files = onUiWait {
+            val descriptor = FileChooserDescriptor(true, false, false, false, false, true).withTitle("选择附件")
+            FileChooser.chooseFiles(descriptor, project, null)
+                .mapNotNull { it.takeIf { vf -> !vf.isDirectory } }
+                .map { File(it.path) }
+        }
+        return persistAttachmentFiles(sessionId, files)
+    }
+
+    private fun persistPastedAttachments(): List<JsonObject> {
+        val sessionId = currentSessionId ?: throw IllegalStateException("没有选中会话")
+        val transferable = onUiWait { systemClipboardContents() ?: CopyPasteManager.getInstance().contents } ?: return emptyList()
+        val files = AgentAttachmentClipboardSupport.extractFiles(transferable).toMutableList()
+        if (files.isEmpty()) {
+            imageFromTransferable(transferable)?.path?.takeIf { it.isNotBlank() }?.let { files += File(it) }
+        }
+        if (files.isEmpty()) {
+            files += AgentAttachmentClipboardSupport.parseFiles(clipboardText(transferable))
+        }
+        return persistAttachmentFiles(sessionId, files)
+    }
+
+    private fun persistAttachmentFiles(sessionId: Long, files: List<File>): List<JsonObject> =
+        normalizeAttachmentFiles(files).map { draft ->
+            val id = CodingAttachmentStore.persist(sessionId, draft)
+            val stored = MessageStoreService.listAttachmentsByIds(sessionId, listOf(id)).singleOrNull()
+                ?: throw IllegalStateException("附件 `$id` 写入后无法读取")
+            JsonObject().apply {
+                addProperty("id", stored.id)
+                addProperty("file_name", stored.fileName)
+                addProperty("name", stored.fileName)
+                addProperty("path", stored.path)
+                addProperty("content_type", stored.contentType)
+                addProperty("mimeType", stored.contentType)
+                addProperty("size", stored.size)
+                addProperty("kind", stored.kind)
             }
         }
-    }
 
-    private fun buildSessionDistillationPrompt(
-        sourceAgent: AgentRecord,
-        session: ChatSessionRecord,
-        logs: List<ModelLogService.ModelLogRecord>,
-        extraPrompt: String?,
-    ): String = buildString {
-        val persona = sourceAgent.extConfig.persona
-        appendLine("你是 Agent 能力蒸馏助手。请根据以下 Agent 的历史消息，更新该 Agent 自身的长期专业配置，让它在持续处理同一领域任务时变得更专业。")
-        appendLine()
-        appendLine("内容必须使用简体中文，且应面向 Agent 助手自身，不要写成用户画像、任务流水或系统配置复述。每个字段都必须整理为完整版本，不能只返回新增内容；每个字段必须严格控制在对应最大字符数以内。")
-        appendLine(); appendLine("蒸馏时间信息：")
-        appendLine("- 当前蒸馏时间：${LocalDateTime.now().toString().replace('T', ' ')}")
-        appendLine("- 本次历史消息数量：${logs.size}")
-        appendLine("- 会话：${session.title} (#${session.id})")
-        extraPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            appendLine(); appendLine("用户自定义的附加蒸馏要求："); appendLine(it)
-        }
-        appendLine(); appendLine("目标 Agent：${sourceAgent.name} (#${sourceAgent.id})")
-        appendLine(); appendLine("当前 Agent 长期内容：")
-        appendPersonaForDistillation("专业记忆", persona.memory, persona.memoryMaxChars)
-        appendPersonaForDistillation("工作方法", persona.behaviorHabits, persona.behaviorHabitsMaxChars)
-        appendPersonaForDistillation("角色设定", persona.soul, persona.soulMaxChars)
-        appendPersonaForDistillation("能力画像", persona.profile, persona.profileMaxChars)
-        appendPersonaForDistillation("边界约束", persona.guardrails, persona.guardrailsMaxChars)
-        appendLine("---"); appendLine("历史消息：")
-        logs.forEach { log ->
-            appendLine("## 消息 #${log.id} [${log.messageType.orEmpty()} / ${log.status} / 时间: ${log.createdAt.orEmpty()}]")
-            appendLine("输入："); appendLine(modelLogPrompt(log))
-            val structured = log.responseData.get("structured_response")?.takeIf { it.isJsonObject }?.asJsonObject
-            appendLine("输出：")
-            appendLine(structured?.get("response")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty())
-            log.errorData?.takeIf { it.isNotBlank() }?.let { appendLine("错误："); appendLine(it) }
-            appendLine()
-        }
-        appendLine("---")
-        appendLine("请对比当前长期内容和历史消息，重新整理合并后的完整版本，不要把新内容简单追加到旧内容后面。")
-        appendLine("字段归属：memory 记录长期领域事实、稳定决策和可复用经验；behavior_habits 记录有效工作方法与质量标准；soul 记录稳定职责边界和专业定位；profile 记录专业方向、擅长任务与能力边界；guardrails 记录限制、禁区与安全要求。同一信息只能放入最匹配的一个字段。")
-        appendLine("每条内容必须带时间状态标签并以“- ”开头。主动合并相似条目，删除重复、冲突、过期、临时和低价值内容；某字段无需更新时原样返回，除非确实应该清空。")
-        appendLine("你必须调用 update_agent_distillation 工具提交 memory、behavior_habits、soul、profile、guardrails 的完整内容；如果工具返回 ok=false，必须根据 errors 压缩后重新调用，直到 ok=true。工具成功后，最终回复只输出本次 Agent 蒸馏更新摘要，不得输出 JSON。")
-    }
-
-    private fun StringBuilder.appendPersonaForDistillation(label: String, content: String, maxChars: Int) {
-        appendLine("### $label（当前内容，最大字符数 $maxChars）")
-        appendLine(content)
-        appendLine()
-    }
-
-    private fun startQueueItemUi(item: ChatQueueItem) {
-        ensureQueueUserCard(item)
-        ensureQueueAssistantCard(item)
-        renderQueuedItem(item)
-        refreshQueuePanel()
-        updateActiveStopButton()
-        scrollQueueItemIfVisible(item)
-    }
-
-    private fun finishQueueItemSuccess(item: ChatQueueItem, result: AgentRuntime.ExecutionResult) = onUi {
-        if (!isQueueItemActive(item)) return@onUi
-        item.persistedLogId = result.logId
-        applyFinalAssistantResult(item, result)
-        item.status = ChatQueueStatus.COMPLETED
-        completeQueueItem(item)
-        scheduleSessionDistillation(item.sessionId, item.agentId)
-    }
-
-    private fun finishQueueItemCancelled(
-        item: ChatQueueItem,
-        logId: Long?,
-        partialResponse: JsonObject?,
-        persistedAssistantMessageAt: String?,
-    ) {
-        val response = partialResponse ?: cancelledResponseData(item).takeIf { hasAssistantOutput(item, it) }
-        val assistantMessageAt = when {
-            response == null -> {
-                logId?.let(ModelLogService::deleteChatTurn)
-                null
-            }
-            partialResponse != null -> {
-                // ModelRuntime has already persisted this exact partial response.
-                // Do not write the unwrapped partial object over the persisted
-                // response envelope a second time.
-                persistedAssistantMessageAt
-            }
-            logId != null -> ModelLogService.finishModelLogCancelled(logId, response)
-            else -> null
-        }
-        if (response != null && logId != null) item.persistedLogId = logId
-        onUi {
-            if (response != null) {
-                item.status = ChatQueueStatus.CANCELLED
-                item.persistedLogId = logId
-                applyCancelledAssistantOutput(item, response)
-                ensureQueueAssistantCard(item).finish(assistantMessageAt, null)
-                completeQueueItem(item, refreshHistory = logId != null, remove = true)
-            } else {
-                item.status = ChatQueueStatus.CANCELLED
-                if (currentSessionId == item.sessionId) restoreFailedInput(item)
-                discardQueueCards(item)
-                completeQueueItem(item, refreshHistory = true, remove = true)
-            }
-        }
-    }
-
-
-    private fun applyCancelledAssistantOutput(item: ChatQueueItem, response: JsonObject) {
-        val structured = response.get("structured_response")
-            ?.takeIf { it.isJsonObject }
-            ?.asJsonObject
-            ?: response
-        val responseText = jsonString(structured.get("response"))
-        val reasoning = reasoningText(structured)
-        if (responseText.isNotBlank()) item.responseText = responseText
-        if (reasoning.isNotBlank()) item.reasoningText = reasoning
-        item.hasAssistantOutput = hasAssistantOutput(item, response)
-        val card = ensureQueueAssistantCard(item)
-        if (item.responseText.isNotBlank()) card.setResponse(item.responseText)
-        if (item.reasoningText.isNotBlank()) card.setReasoning(item.reasoningText, expanded = true)
-        syncToolCalls(structured, card)
-    }
-
-    private fun hasAssistantOutput(item: ChatQueueItem, response: JsonObject? = null): Boolean {
-        if (item.responseText.isNotBlank() || item.reasoningText.isNotBlank()) return true
-        if (item.toolCalls.keys.any(item.toolResults::containsKey)) return true
-        return response?.let(AssistantOutputPolicy::hasOutput) == true
-    }
-
-    private fun finishQueueItemPartialFailure(item: ChatQueueItem, error: ModelRequestException) = onUi {
-        if (!isQueueItemActive(item)) return@onUi
-        item.status = ChatQueueStatus.FAILED
-        item.persistedLogId = error.logId
-        val partial = requireNotNull(error.partialResponse)
-        item.responseText = jsonString(partial.get("response")).ifBlank { item.responseText }
-        item.reasoningText = reasoningText(partial).ifBlank { item.reasoningText }
-        val card = ensureQueueAssistantCard(item)
-        card.setResponse(item.responseText)
-        if (item.reasoningText.isNotBlank()) card.setReasoning(item.reasoningText, expanded = true)
-        syncToolCalls(partial, card)
-        card.finish(error.assistantMessageAt, usageText(partial), usageDetails(partial))
-        completeQueueItem(item, refreshHistory = true)
-        project.errorNotify("模型请求中断", "已保留模型输出的部分内容：${error.message}")
-    }
-
-    private fun finishQueueItemError(item: ChatQueueItem, error: String, logId: Long? = null) = onUi {
-        if (!isQueueItemActive(item)) return@onUi
-        item.status = ChatQueueStatus.FAILED
-        if (hasAssistantOutput(item)) {
-            item.persistedLogId = logId
-            ensureQueueAssistantCard(item).finish(null, null)
-            completeQueueItem(item, refreshHistory = logId != null)
-        } else {
-            logId?.let(ModelLogService::deleteChatTurn)
-            discardQueueCards(item)
-            restoreFailedInput(item)
-            completeQueueItem(item, refreshHistory = true)
-        }
-        project.errorNotify("模型请求失败", error)
-    }
-
-    private fun discardQueueCards(item: ChatQueueItem) {
-        item.userCard?.let(messageCards::remove)
-        item.assistantCard?.let(messageCards::remove)
-        item.userCard = null
-        item.assistantCard = null
-    }
-
-    private fun restoreFailedInput(item: ChatQueueItem) {
-        inputArea.text = item.prompt
-        item.attachments.forEach { attachment ->
-            draftAttachments.removeAll { existing -> existing.path.isNotBlank() && existing.path == attachment.path }
-            draftAttachments.add(attachment)
-        }
-        browserInputRestore = AgentBrowserInputRestore(++inputRestoreSequence, item.prompt)
-        refreshDraftAttachmentStrip()
-    }
-
-    private fun completeQueueItem(item: ChatQueueItem, refreshHistory: Boolean = true, remove: Boolean = true) {
-        synchronized(queueLock) {
-            if (remove) {
-                chatQueue.remove(item)
-            }
-        }
-        refreshQueuePanel()
-        updateActiveStopButton()
-        if (refreshHistory) {
-            refreshCurrentSessionHistoryIfVisible(item.sessionId)
-        }
-        processQueue()
-    }
-
-    private fun discardQueueItemsForSession(sessionId: Long) {
-        val removed = synchronized(queueLock) {
-            val items = chatQueue.filter { it.sessionId == sessionId }
-            items.forEach { item ->
-                item.status = ChatQueueStatus.CANCELLED
-                cancelPendingAppendMessages(item)
-                item.token.cancel()
-                item.toolToken.cancel()
-            }
-            chatQueue.removeAll(items.toSet())
-            items
-        }
-        if (removed.isEmpty()) return
-        refreshQueuePanel()
-        updateActiveStopButton()
-        processQueue()
-    }
-
-    private fun cancelQueueItem(item: ChatQueueItem) {
-        val sessionToRefresh = synchronized(queueLock) {
-            when (item.status) {
-                ChatQueueStatus.PENDING -> {
-                    item.status = ChatQueueStatus.CANCELLED
-                    cancelPendingAppendMessages(item)
-                    chatQueue.remove(item)
-                    item.sessionId
-                }
-                ChatQueueStatus.PROCESSING -> {
-                    item.conversationCancelRequested = true
-                    cancelPendingAppendMessages(item)
-                    item.token.cancel()
-                    null
-                }
+    private fun payloadAttachmentIds(payload: JsonObject): List<Long> {
+        val value = payload.get("attachments") ?: return emptyList()
+        if (!value.isJsonArray) return emptyList()
+        return value.asJsonArray.mapNotNull { item ->
+            when {
+                item.isJsonPrimitive && item.asJsonPrimitive.isNumber -> item.asLong
+                item.isJsonPrimitive && item.asJsonPrimitive.isString -> item.asString.toLongOrNull()
+                item.isJsonObject -> item.asJsonObject.get("id")?.takeIf { it.isJsonPrimitive }?.asString?.toLongOrNull()
+                    ?: item.asJsonObject.get("id")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
                 else -> null
             }
         }
-        refreshQueuePanel()
-        sessionToRefresh?.let { refreshCurrentSessionHistoryIfVisible(it) }
-        processQueue()
     }
 
-    private fun appendMessageChannel(item: ChatQueueItem): AppendMessageChannel = object : AppendMessageChannel {
-        override fun fetch(): List<AppendMessage> = synchronized(queueLock) {
-            if (item.token.isCancelled()) return@synchronized emptyList()
-            drainPendingAppendMessages(item)
-        }
-
-        override fun fetchPendingOrClose(): List<AppendMessage>? = synchronized(queueLock) {
-            if (item.token.isCancelled()) {
-                cancelPendingAppendMessages(item)
-                return@synchronized null
-            }
-            val messages = drainPendingAppendMessages(item)
-            if (messages.isNotEmpty()) return@synchronized messages
-            item.acceptingAppendMessages = false
-            null
-        }
-
-        override fun onInjected(messages: List<AppendMessage>, round: Int) {
-            if (messages.isEmpty()) return
-            val displayMessages = synchronized(queueLock) {
-                item.injectedAppendMessages.addAll(messages)
-                (item.injectedAppendMessages + item.pendingAppendMessages).toList()
-            }
-            onUi {
-                item.userCard?.setAppendMessages(displayMessages.map(::toBrowserAppendMessage))
-                syncBrowserState()
-            }
+    private fun onUi(action: () -> Unit) {
+        ApplicationManager.getApplication().invokeLater {
+            if (!disposed) action()
         }
     }
 
-    private fun toBrowserAppendMessage(message: AppendMessage): AgentBrowserAppendMessage = AgentBrowserAppendMessage(
-        message.id,
-        message.content,
-        compactAppendMessageCreatedAt(message.createdAt),
-        message.attachmentSnapshots
-            .mapNotNull(::readAttachmentSnapshot)
-            .map(AgentAttachmentState::toBrowserAttachment),
-    )
-
-    private fun drainPendingAppendMessages(item: ChatQueueItem): List<AppendMessage> {
-        val messages = item.pendingAppendMessages.toList()
-        item.pendingAppendMessages.clear()
-        return messages
-    }
-
-    private fun cancelPendingAppendMessages(item: ChatQueueItem) {
-        item.acceptingAppendMessages = false
-        item.pendingAppendMessages.clear()
-    }
-
-    private fun appendToQueueItem(messageId: String, text: String, attachments: List<AgentAttachmentState>) {
-        val content = text.trim()
-        require(content.isNotEmpty() || attachments.isNotEmpty()) { "追加消息和附件不能同时为空" }
-        val queueItem = synchronized(queueLock) {
-            requireActiveAppendTarget(messageId)
+    private fun <T> onUiWait(action: () -> T): T {
+        val application = ApplicationManager.getApplication()
+        if (application.isDispatchThread) return action()
+        val result = java.util.concurrent.atomic.AtomicReference<T>()
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+        application.invokeAndWait {
+            runCatching(action).onSuccess(result::set).onFailure(failure::set)
         }
-        val agent = requireNotNull(AgentService.agentById(queueItem.agentId)) { "当前 Agent 不存在" }
-        val modalities = resolveModelModalities(agent)
-        val appendMessage = AppendMessage(
-            content = content,
-            createdAt = messageTimeNow(),
-            attachments = attachments.map { AgentAttachmentSupport.toUserContent(it, modalities) },
-            attachmentSnapshots = attachments.map(AgentAttachmentSupport::snapshotOf),
-        )
-        val displayMessages = synchronized(queueLock) {
-            require(requireActiveAppendTarget(messageId) === queueItem) { "进行中的消息已变化" }
-            queueItem.pendingAppendMessages.add(appendMessage)
-            (queueItem.injectedAppendMessages + queueItem.pendingAppendMessages).toList()
-        }
-        queueItem.userCard?.setAppendMessages(displayMessages.map(::toBrowserAppendMessage))
-        refreshQueuePanel()
-        syncBrowserState()
-    }
-
-    private fun requireActiveAppendTarget(messageId: String): ChatQueueItem {
-        val queueItem = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) { "进行中的消息不存在" }
-        require(queueItem.status == ChatQueueStatus.PROCESSING) { "只有进行中的消息可以追加" }
-        require(queueItem.acceptingAppendMessages) { "本轮模型回复已结束，不能继续追加" }
-        return queueItem
-    }
-
-    private fun chooseAppendAttachments(): List<AgentAttachmentState> {
-        val descriptor = FileChooserDescriptor(true, false, false, false, false, true)
-            .withTitle("选择追加附件")
-        return FileChooser.chooseFiles(descriptor, project, null)
-            .mapNotNull { it.takeIf { file -> !file.isDirectory } }
-            .map { File(it.path) }
-            .let(::normalizeAttachmentFiles)
-    }
-
-    private fun pasteAppendAttachments(): List<AgentAttachmentState> {
-        val transferable = systemClipboardContents() ?: CopyPasteManager.getInstance().contents ?: return emptyList()
-        val files = AgentAttachmentClipboardSupport.extractFiles(transferable)
-        if (files.isNotEmpty()) return normalizeAttachmentFiles(files)
-        imageFromTransferable(transferable)?.let { return listOf(it) }
-        return emptyList()
+        failure.get()?.let { throw it }
+        @Suppress("UNCHECKED_CAST")
+        return result.get()
     }
 
     private fun normalizeAttachmentFiles(files: List<File>): List<AgentAttachmentState> = files
         .filter(File::isFile)
         .map { AgentAttachmentSupport.normalize(AgentAttachmentState(name = it.name, path = it.absolutePath, size = it.length())) }
 
-    private fun editPendingQueueItem(messageId: String, prompt: String) {
-        val normalizedPrompt = prompt.trim()
-        require(normalizedPrompt.isNotEmpty()) { "队列消息内容不能为空" }
-        val item = synchronized(queueLock) {
-            val queued = requireNotNull(chatQueue.firstOrNull { it.messageId == messageId }) {
-                "队列消息不存在"
-            }
-            require(queued.status == ChatQueueStatus.PENDING) { "只有排队中的消息可以编辑" }
-            queued.prompt = normalizedPrompt
-            queued
-        }
-        refreshQueuePanel()
+    private fun showEmptySessionState() {
+        currentSessionId = null
+        rememberActiveSession(null)
+        browserEvents.clear()
+        browserTasks.clear()
+        historyRevision++
+        refreshSessionSelector(emptyList())
+        syncBrowserState()
     }
 
-    private fun isQueueItemActive(item: ChatQueueItem): Boolean = synchronized(queueLock) {
-        item.status != ChatQueueStatus.CANCELLED && chatQueue.contains(item)
-    }
-
-    private fun stopQueueItem(item: ChatQueueItem) {
-        if (item.status != ChatQueueStatus.PROCESSING) return
-        when (AgentQueueStopPolicy.target(item.runningToolIds.isNotEmpty())) {
-            AgentQueueStopPolicy.Target.ACTIVE_TOOLS -> cancelActiveTools(item)
-            AgentQueueStopPolicy.Target.CONVERSATION -> ApplicationManager.getApplication().executeOnPooledThread {
-                cancelModelResponse(item)
-            }
-        }
-    }
-
-    private fun cancelActiveTools(item: ChatQueueItem) {
-        markActiveToolsCancelled(item)
-        // 工具取消可能中断阻塞中的 Future；放到后台执行，但不要取消会话 token，
-        // 让 provider 收到“用户手动取消”的工具结果后继续当前对话轮次。
-        ApplicationManager.getApplication().executeOnPooledThread {
-            item.toolToken.cancel()
-        }
-    }
-
-    private fun markActiveToolsCancelled(item: ChatQueueItem) {
-        val runningIds = item.runningToolIds.toList()
-        item.canceledToolIds.addAll(runningIds)
-        item.runningToolIds.clear()
-        item.runningToolCount = 0
-        runningIds.forEach { toolId ->
-            item.assistantCard?.updateToolResult(toolId, "用户手动取消")
-        }
-        refreshQueuePanel()
-        updateActiveStopButton()
-    }
-
-    private fun cancelModelResponse(item: ChatQueueItem) {
-        // 热路径只打取消标记 + 发 token 取消；真正收尾由 worker 的 catch 完成。
-        synchronized(queueLock) {
-            item.conversationCancelRequested = true
-            cancelPendingAppendMessages(item)
-        }
-        item.toolToken.cancel()
-        item.token.cancel()
-        if (!hasAssistantOutput(item)) {
-            val logId = item.persistedLogId
-            synchronized(queueLock) {
-                item.status = ChatQueueStatus.CANCELLED
-                chatQueue.remove(item)
-            }
-            onUi {
-                if (project.isDisposed || disposed) return@onUi
-                logId?.let(ModelLogService::deleteChatTurn)
-                discardQueueCards(item)
-                refreshQueuePanel()
-                updateActiveStopButton()
-                refreshCurrentSessionHistoryIfVisible(item.sessionId)
-                processQueue()
-            }
-        } else {
-            // 已有输出：不要在这里碰历史/卡片；只刷新队列状态，等 worker 走取消收尾。
-            refreshQueuePanel()
-        }
-    }
-
-    private fun updateActiveStopButton() = Unit
-
-    private fun hasActiveQueue(): Boolean = synchronized(queueLock) {
-        chatQueue.any { it.status == ChatQueueStatus.PENDING || it.status == ChatQueueStatus.PROCESSING }
-    }
-
-    private fun refreshCurrentSessionHistoryIfVisible(sessionId: Long) {
-        if (currentSessionId != sessionId) return
-        val record = ChatSessionService.sessionById(sessionId) ?: return
-        renderSessionHistory(record)
-    }
-
-    private fun resolveSessionAgent(record: ChatSessionRecord): AgentRecord? {
-        val agentId = record.agentId
-        if (agentId == null) {
-            project.errorNotify("对话", "当前会话未绑定 Agent，请先在上方选择 Agent")
-            return null
-        }
-        val agent = AgentService.agentById(agentId)
-        if (agent == null) {
-            project.errorNotify("对话", "会话绑定的 Agent 已不存在，请重新选择")
-            return null
-        }
-        if (!agent.enabled) {
-            project.errorNotify("对话", "Agent ${agent.name} 已停用")
-            return null
-        }
-        return agent
-    }
-
-    private fun buildHistory(record: ChatSessionRecord): List<Message> {
-        val turns = ModelLogService.listChatTurnsForSession(record.id)
-        val messages = mutableListOf<Message>()
-        turns.filter(ChatTurnHistoryPolicy::shouldInclude).forEach { turn ->
-            val snapshot = jsonObject(turn.requestData, "request_snapshot")
-            val structured = jsonObject(turn.responseData, "structured_response")
-            if (turn.messageType == "agent_run") {
-                if (jsonString(snapshot?.get("agent_run_receiver")) == "user") {
-                    val output = jsonString(structured?.get("response"))
-                    if (output.isNotBlank()) messages.add(Message.assistant(output))
-                }
-                return@forEach
-            }
-            val prompt = jsonString(snapshot?.get("prompt_message"))
-            if (prompt.isNotBlank()) messages.add(Message.user(prompt))
-            appendProviderHistory(messages, structured)
-        }
-        return messages
-    }
-
-    private fun appendProviderHistory(messages: MutableList<Message>, structured: JsonObject?) {
-        ChatTurnHistoryMessages.append(messages, structured)
-    }
-
-    private fun maybeAutoRenameSession(record: ChatSessionRecord, source: String) {
-        if (record.title != AUTO_TITLE) return
-        val title = source.trim().take(20).ifBlank { return }
-        ChatSessionService.renameSession(record.id, title)
-        refreshSessionSelector(visibleSessions())
-    }
-
-    private fun onUi(block: () -> Unit) {
-        ApplicationManager.getApplication().invokeLater(block)
+    private fun requireSelectedEnvironment(): com.lhstack.tools.db.service.CodingEnvironmentRecord {
+        val currentId = currentSessionId?.let(ChatSessionService::sessionById)?.codingEnvironmentId
+        val environments = CodingEnvironmentService.listEnabled()
+        require(environments.isNotEmpty()) { "没有可用编码环境，请先在环境管理中创建" }
+        return environments.firstOrNull { it.id == currentId } ?: environments.first()
     }
 
     private fun resolveWorkspace(): String =
         project.basePath?.replace("\\", "/")?.trim()?.ifBlank { null } ?: System.getProperty("user.dir")
 
-    // -------- 实时消息渲染 --------
 
-    private fun appendStreamingText(item: ChatQueueItem, role: String, text: String) {
-        if (text.isEmpty()) return
-        item.hasAssistantOutput = true
-        val card = ensureQueueAssistantCard(item)
-        when (role) {
-            ROLE_REASONING -> {
-                item.reasoningText += text
-                card.appendReasoning(text)
-            }
-            else -> {
-                item.responseText += text
-                card.appendResponse(text)
-            }
-        }
-        scrollQueueItemIfVisible(item)
-    }
-
-    private fun renderToolCallEvent(item: ChatQueueItem, call: ProviderToolCall) {
-        item.runningToolIds.add(call.id)
-        item.runningToolCount = item.runningToolIds.size
-        item.toolCalls[call.id] = QueuedToolSnapshot(call.id, call.name, call.argsString())
-        ensureQueueAssistantCard(item).ensureTool(call.id, call.name, call.argsString())
-        refreshQueuePanel()
-        updateActiveStopButton()
-        scrollQueueItemIfVisible(item)
-    }
-
-    private fun renderToolResultEvent(item: ChatQueueItem, result: ToolResult) {
-        val text = result.content.filterIsInstance<ToolResultContent.Text>().joinToString("\n") { it.text }
-        if (!item.canceledToolIds.contains(result.id)) {
-            item.toolResults[result.id] = text
-            ensureQueueAssistantCard(item).updateToolResult(result.id, text)
-        }
-        item.runningToolIds.remove(result.id)
-        item.runningToolCount = item.runningToolIds.size
-        if (item.canceledToolIds.remove(result.id) && item.canceledToolIds.isEmpty()) {
-            resetCancelledTools(item)
-        }
-        refreshQueuePanel()
-        updateActiveStopButton()
-    }
-
-    private fun resetCancelledTools(item: ChatQueueItem) {
-        item.toolToken.reset()
-    }
-
-    private fun scrollQueueItemIfVisible(item: ChatQueueItem) {
-        if (renderedSessionId == item.sessionId) syncBrowserState()
-    }
-
-    private fun deleteQueueTurn(item: ChatQueueItem) {
-        synchronized(queueLock) {
-            item.status = ChatQueueStatus.CANCELLED
-            cancelPendingAppendMessages(item)
-            item.token.cancel()
-            item.toolToken.cancel()
-            chatQueue.remove(item)
-        }
-        item.persistedLogId?.let(ModelLogService::deleteChatTurn)
-        discardQueueCards(item)
-        refreshQueuePanel()
-        updateActiveStopButton()
-        refreshCurrentSessionHistoryIfVisible(item.sessionId)
-        processQueue()
-        project.infoNotify("对话", "消息已删除")
-    }
-
-    private fun cancelledResponseData(item: ChatQueueItem): JsonObject = JsonObject().apply {
-        addProperty("retry_count", 0)
-        add("structured_response", JsonObject().apply {
-            add("reasoning", JsonArray().apply {
-                item.reasoningText.trim().takeIf { it.isNotBlank() }?.let { add(it) }
-            })
-            addProperty("response", item.responseText.trim())
-            add("tool_calls", JsonArray().apply {
-                item.toolCalls.values.forEach { tool ->
-                    add(JsonObject().apply {
-                        addProperty("source", "ui_cancelled")
-                        addProperty("tool_name", tool.name)
-                        addProperty("internal_call_id", tool.id)
-                        addProperty("args", tool.args)
-                    })
-                }
-            })
-            add("tool_results", JsonArray().apply {
-                item.toolResults.forEach { (id, result) ->
-                    add(JsonObject().apply {
-                        addProperty("source", "ui_cancelled")
-                        addProperty("internal_call_id", id)
-                        addProperty("result", result)
-                    })
-                }
-            })
-            add("usage", JsonObject())
-            addProperty("cancelled", true)
-        })
-    }
-
-    private fun applyFinalAssistantResult(item: ChatQueueItem, result: AgentRuntime.ExecutionResult) {
-        val card = ensureQueueAssistantCard(item)
-        val response = result.output.ifBlank { jsonString(result.value.get("response")) }
-        item.responseText = response
-        card.setResponse(response)
-        val reasoning = reasoningText(result.value)
-        if (reasoning.isNotBlank()) {
-            item.reasoningText = reasoning
-            card.setReasoning(reasoning, expanded = true)
-        }
-        syncToolCalls(result.value, card)
-        card.finish(result.assistantMessageAt, usageText(result.value), usageDetails(result.value))
-    }
-
-    private fun ensureQueueUserCard(item: ChatQueueItem): AgentUserMessageCard {
-        val existing = item.userCard
-        if (existing != null) return existing
-        val card = AgentUserMessageCard(
-            content = item.prompt,
-            attachments = item.attachments,
-            createdAt = item.userMessageAt,
-            actorLabel = item.sourceAgentRunId?.let {
-                sourceAgentLabel(item.sourceAgentName.orEmpty(), "发送")
-            },
-        )
-        item.userCard = card
-        return card
-    }
-
-    private fun ensureQueueAssistantCard(item: ChatQueueItem): AgentAssistantMessageCard {
-        val existing = item.assistantCard
-        if (existing != null) return existing
-        val card = AgentAssistantMessageCard(
-            showToolDetail = { toolItem, anchor -> showAgentToolDetailPopup(toolItem, anchor) },
-            onDelete = { deleteQueueTurn(item) },
-            onCopyCode = { project.infoNotify("复制", "已复制代码块") },
-            actorLabel = queuedAssistantActorLabel(item),
-        )
-        item.assistantCard = card
-        return card
-    }
-
-    private fun attachQueueCardIfVisible(item: ChatQueueItem, card: AgentChatCard) {
-        if (renderedSessionId != item.sessionId) return
-        addMessageCard(item.sessionId, card)
-    }
-
-    private fun renderQueuedItem(item: ChatQueueItem) {
-        attachQueueCardIfVisible(item, ensureQueueUserCard(item))
-        item.assistantCard?.let { card ->
-            card.setActorLabel(queuedAssistantActorLabel(item))
-            attachQueueCardIfVisible(item, card)
-        }
-    }
-
-    private fun queuedAssistantActorLabel(item: ChatQueueItem): String? {
-        val currentAgentId = ChatSessionService.sessionById(item.sessionId)?.agentId
-        return assistantActorLabel(item.agentId, currentAgentId)
-    }
-
-    private fun ChatQueueItem.shouldRenderInHistory(): Boolean =
-        status == ChatQueueStatus.PROCESSING || userCard != null || assistantCard != null
-
-    private fun clearStreamingRefs() {
-        currentTurnView = null
-    }
-
-    private fun reasoningColor(): Color = JBColor(0x6A6A6A, 0x9A9A9A)
-
-    private fun ensureCurrentAssistantTurnView(sessionId: Long): AssistantTurnView =
-        currentTurnView ?: createAssistantTurnView(sessionId).also { currentTurnView = it }
-
-    private fun createAssistantTurnView(
-        sessionId: Long,
-        onDelete: (() -> Unit)? = null,
-        toolDetailLoader: ((String) -> AgentBrowserToolDetail?)? = null,
-        cardId: String? = null,
-        persisted: Boolean = cardId?.startsWith("turn-") == true,
-        actorLabel: String? = null,
-    ): AssistantTurnView {
-        val card = AgentAssistantMessageCard(
-            showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
-            toolDetailLoader = toolDetailLoader,
-            onDelete = onDelete,
-            onCopyCode = { project.infoNotify("复制", "已复制代码块") },
-            persisted = persisted,
-            actorLabel = actorLabel,
-            id = cardId ?: "assistant-${UUID.randomUUID()}",
-        )
-        addMessageCard(sessionId, card)
-        return AssistantTurnView(card)
-    }
-
-    private fun setAssistantTurnResponse(turnView: AssistantTurnView, content: String) {
-        turnView.card.setResponse(content)
-    }
-
-    private fun setAssistantTurnReasoning(turnView: AssistantTurnView, content: String, collapsedByDefault: Boolean) {
-        turnView.card.setReasoning(content, expanded = !collapsedByDefault)
-    }
-
-    // -------- 消息气泡基础设施 --------
-
-    private fun appendMessage(
-        sessionId: Long,
-        role: String,
-        content: String,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-        attachments: List<AgentAttachmentState> = emptyList(),
-        onDelete: (() -> Unit)? = null,
-        createdAt: String? = null,
-        cardId: String? = null,
-        persisted: Boolean = false,
-        actorLabel: String? = null,
-        appendMessages: List<AgentBrowserAppendMessage> = emptyList(),
-    ) {
-        if (role == ROLE_USER) {
-            addMessageCard(
-                sessionId,
-                AgentUserMessageCard(
-                    content = content,
-                    attachments = attachments,
-                    onDelete = onDelete,
-                    createdAt = createdAt,
-                    persisted = persisted,
-                    actorLabel = actorLabel,
-                    appendMessages = appendMessages,
-                    id = cardId ?: "user-${UUID.randomUUID()}",
-                )
+    private fun previewAttachment(payload: com.google.gson.JsonObject): Map<String, String> {
+        val path = payload.get("path")?.takeUnless { it.isJsonNull }?.asString?.trim().orEmpty()
+        if (path.isNotEmpty()) {
+            val draft = draftAttachments.firstOrNull { it.path == path }
+                ?: AgentAttachmentSupport.normalize(AgentAttachmentState(name = File(path).name, path = path, size = File(path).length()))
+            val mime = draft.mimeType.ifBlank { "application/octet-stream" }
+            val bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(draft.path))
+            return mapOf(
+                "url" to "data:$mime;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}",
+                "fileName" to draft.name,
+                "contentType" to mime,
             )
-            return
         }
-        val card = AgentAssistantMessageCard(
-            showToolDetail = { item, anchor -> showAgentToolDetailPopup(item, anchor) },
-            onDelete = onDelete,
-            onCopyCode = { project.infoNotify("复制", "已复制代码块") },
+        val sessionId = payload.get("sessionId")?.takeUnless { it.isJsonNull }?.asString?.toLongOrNull()
+            ?: error("缺少会话 ID")
+        val attachmentId = payload.get("id")?.takeUnless { it.isJsonNull }?.asString?.toLongOrNull()
+            ?: error("缺少附件 ID")
+        val attachment = MessageStoreService.listAttachmentsByIds(sessionId, listOf(attachmentId)).singleOrNull()
+            ?: error("附件 `$attachmentId` 不存在")
+        val mime = attachment.contentType.ifBlank { "application/octet-stream" }
+        val bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(attachment.path))
+        return mapOf(
+            "url" to "data:$mime;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}",
+            "fileName" to attachment.fileName,
+            "contentType" to mime,
+            "kind" to attachment.kind,
         )
-        card.setResponse(if (role == ROLE_ERROR) "错误：$content" else content)
-        addMessageCard(sessionId, card)
     }
 
-    private fun createMessageBlock(
-        role: String,
-        textColor: Color,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-        fixedHeight: Int? = null,
-    ): MessageBlock {
-        val textPane = createPlainTextArea(textColor)
-        val contentPanel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(textPane, BorderLayout.CENTER)
+    private fun saveCodeBlock(payload: JsonObject): Map<String, Any?> {
+        val content = payload.get("text")?.takeUnless { it.isJsonNull }?.asString
+            ?: error("缺少代码内容")
+        val suggested = CodeBlockSaveSupport.suggestedFileName(
+            payload.get("filename")?.takeUnless { it.isJsonNull }?.asString,
+        )
+        val extension = CodeBlockSaveSupport.extensionOf(suggested) ?: "txt"
+        val fileName = suggested
+        return onUiWait {
+            val descriptor = FileSaverDescriptor("保存代码块", "选择保存位置并设置文件名", extension)
+            descriptor.isForcedToUseIdeaFileChooser = true
+            val wrapper = FileChooserFactory.getInstance()
+                .createSaveFileDialog(descriptor, project)
+                .save(project.guessProjectDir(), fileName)
+            val file = wrapper?.file ?: return@onUiWait mapOf("saved" to false)
+            file.parentFile?.mkdirs()
+            file.writeText(content, Charsets.UTF_8)
+            LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)
+            mapOf("saved" to true, "path" to file.absolutePath)
         }
-        val scrollPane: JScrollPane? = if (collapsible) {
-            JBScrollPane(contentPanel).apply {
-                border = JBUI.Borders.empty()
-                horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-                verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-                isVisible = !collapsedByDefault
-                fixedHeight?.let {
-                    preferredSize = Dimension(0, it)
-                    maximumSize = Dimension(Int.MAX_VALUE, it)
-                }
-            }
-        } else null
-        val header = createBlockHeader(role, collapsible, collapsedByDefault, scrollPane, contentPanel)
-        val body = JPanel(BorderLayout(0, JBUI.scale(4))).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(6, 8)
-            add(header, BorderLayout.NORTH)
-            add(scrollPane ?: contentPanel, BorderLayout.CENTER)
-        }
-        val panel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(body, if (role == ROLE_USER) BorderLayout.EAST else BorderLayout.CENTER)
-        }
-        return MessageBlock(panel, textPane, contentPanel)
-    }
-
-    private fun createBlockHeader(
-        role: String,
-        collapsible: Boolean,
-        collapsedByDefault: Boolean,
-        collapsibleTarget: JComponent?,
-        contentPanel: JComponent,
-    ): JComponent {
-        val userRole = role == ROLE_USER
-        val roleLabel = JLabel(role).apply {
-            foreground = JBColor(0x8A8A8A, 0x9AA0A6)
-            font = font.deriveFont(font.size2D - 1f)
-            horizontalAlignment = if (userRole) SwingConstants.RIGHT else SwingConstants.LEFT
-        }
-        if (!collapsible || collapsibleTarget == null) {
-            return JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(roleLabel, if (userRole) BorderLayout.EAST else BorderLayout.WEST)
-            }
-        }
-        val toggle = JButton(if (collapsedByDefault) "展开" else "收起").apply {
-            isFocusable = false
-            isBorderPainted = false
-            isContentAreaFilled = false
-            margin = JBUI.insets(0, 6)
-            foreground = JBColor(0x4B90FF, 0x4B90FF)
-            addActionListener {
-                collapsibleTarget.isVisible = !collapsibleTarget.isVisible
-                text = if (collapsibleTarget.isVisible) "收起" else "展开"
-                collapsibleTarget.revalidate()
-                collapsibleTarget.repaint()
-            }
-        }
-        return JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(roleLabel, BorderLayout.WEST)
-            add(toggle, BorderLayout.EAST)
-        }
-    }
-
-    private fun createPlainTextArea(textColor: Color): JTextComponent =
-        JBTextArea().apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            isOpaque = false
-            foreground = textColor
-            font = UIUtil.getLabelFont()
-            border = JBUI.Borders.empty()
-        }
-
-    private fun setBlockContent(block: MessageBlock, content: String, immediate: Boolean) {
-        block.rawContent = content
-        block.textComponent.text = content
-    }
-
-    private fun appendBlockContent(block: MessageBlock, text: String) {
-        if (text.isEmpty()) return
-        block.rawContent += text
-        block.textComponent.document.insertString(block.textComponent.document.length, text, null)
-        block.textComponent.caretPosition = block.textComponent.document.length
-        block.contentPanel.revalidate()
-        block.contentPanel.repaint()
-    }
-
-    // -------- 工具卡片基础设施 --------
-
-    private fun createToolListBlock(collapsedByDefault: Boolean): ToolListBlock {
-        val listPanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isVisible = !collapsedByDefault
-        }
-        val headerLabel = JLabel("工具调用").apply {
-            foreground = JBColor(0x8A8A8A, 0x9AA0A6)
-            font = font.deriveFont(font.size2D - 1f)
-        }
-        val toggle = JButton(if (collapsedByDefault) "展开" else "收起").apply {
-            isFocusable = false
-            isBorderPainted = false
-            isContentAreaFilled = false
-            margin = JBUI.insets(0, 6)
-            foreground = JBColor(0x4B90FF, 0x4B90FF)
-            addActionListener {
-                listPanel.isVisible = !listPanel.isVisible
-                text = if (listPanel.isVisible) "收起" else "展开"
-            }
-        }
-        val header = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(headerLabel, BorderLayout.WEST)
-            add(toggle, BorderLayout.EAST)
-        }
-        val panel = JPanel(BorderLayout(0, JBUI.scale(4))).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(6, 8)
-            add(header, BorderLayout.NORTH)
-            add(listPanel, BorderLayout.CENTER)
-        }
-        return ToolListBlock(panel, listPanel, headerLabel)
-    }
-
-    private fun addToolCard(block: ToolListBlock, callId: String, name: String, args: String): ToolCard {
-        val card = ToolCard(id = callId, name = name.ifBlank { "工具" }, args = args)
-        val titleLabel = JLabel().apply {
-            font = font.deriveFont(font.size2D - 1f)
-        }
-        val detailButton = JButton("详情").apply {
-            isFocusable = false
-            isBorderPainted = false
-            isContentAreaFilled = false
-            margin = JBUI.insets(0, 6)
-            foreground = JBColor(0x4B90FF, 0x4B90FF)
-            addActionListener { showToolDetailPopup(card, this) }
-        }
-        val cardPanel = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
-            isOpaque = true
-            background = UIUtil.getTextFieldBackground()
-            border = JBUI.Borders.compound(
-                JBUI.Borders.customLine(JBColor.border(), 1),
-                JBUI.Borders.empty(4, 8),
-            )
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(30))
-            add(titleLabel, BorderLayout.CENTER)
-            add(detailButton, BorderLayout.EAST)
-        }
-        card.titleLabel = titleLabel
-        card.panel = cardPanel
-        block.cards[callId] = card
-        block.listPanel.add(cardPanel)
-        block.listPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-        refreshToolCard(card)
-        block.listPanel.revalidate()
-        block.listPanel.repaint()
-        return card
-    }
-
-    private fun refreshToolCard(card: ToolCard) {
-        card.titleLabel?.text = "[${card.status}] ${card.name}"
-    }
-
-    private fun updateToolBlockSummary(block: ToolListBlock) {
-        val total = block.cards.size
-        val done = block.cards.values.count { it.status == "已完成" }
-        block.headerLabel.text = "工具调用（$done/$total）"
-    }
-
-    private fun showAgentToolDetailPopup(item: AgentToolItem, anchor: JComponent) {
-        val panel = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
-            border = JBUI.Borders.empty(8)
-            preferredSize = Dimension(JBUI.scale(560), JBUI.scale(420))
-            add(createToolJsonSection("入参", item.args), BorderLayout.NORTH)
-            add(createToolJsonSection("出参", item.result), BorderLayout.CENTER)
-        }
-        JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(panel, null)
-            .setResizable(true)
-            .setMovable(true)
-            .setTitle("工具 ${item.name}")
-            .createPopup()
-            .show(RelativePoint(anchor, java.awt.Point(0, anchor.height)))
-    }
-
-    private fun showToolDetailPopup(card: ToolCard, anchor: JComponent) {
-        val panel = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
-            border = JBUI.Borders.empty(8)
-            preferredSize = Dimension(JBUI.scale(560), JBUI.scale(420))
-            add(createToolJsonSection("参数", card.args), BorderLayout.NORTH)
-            add(createToolJsonSection("结果", card.result), BorderLayout.CENTER)
-        }
-        JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(panel, null)
-            .setResizable(true)
-            .setMovable(true)
-            .setTitle("工具 ${card.name}")
-            .createPopup()
-            .show(RelativePoint(anchor, java.awt.Point(0, anchor.height)))
-    }
-
-    private fun createToolJsonSection(title: String, content: String): JComponent {
-        val viewer = createJsonViewer(content)
-        return JPanel(BorderLayout(0, JBUI.scale(4))).apply {
-            isOpaque = false
-            add(JLabel(title), BorderLayout.NORTH)
-            add(JBScrollPane(viewer).apply { preferredSize = Dimension(JBUI.scale(540), JBUI.scale(180)) }, BorderLayout.CENTER)
-        }
-    }
-
-    private fun createJsonViewer(text: String): JBTextArea =
-        JBTextArea(text).apply {
-            isEditable = false
-            lineWrap = false
-            wrapStyleWord = false
-            isOpaque = true
-            font = UIUtil.getLabelFont()
-            border = JBUI.Borders.empty(6)
-            caretPosition = 0
-        }
-
-    // -------- 消息容器编排 --------
-
-    private fun addMessageCard(sessionId: Long, card: AgentChatCard) {
-        if (renderedSessionId != sessionId || messageCards.any { it.id == card.id }) return
-        if (card is AgentAssistantMessageCard) card.onChanged = ::syncBrowserState
-        messageCards.add(card)
-        syncBrowserState()
     }
 
     private fun openAttachment(attachment: AgentAttachmentState) {
@@ -2234,6 +821,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun openAttachmentPath(rawPath: String) {
+        onUiWait { openAttachmentPathOnEdt(rawPath) }
+    }
+
+    private fun openAttachmentPathOnEdt(rawPath: String) {
         val path = rawPath.trim().ifBlank { return }
         val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path) ?: return
         FileEditorManager.getInstance(project).openFile(virtualFile, true)
@@ -2445,7 +1036,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         appendLine("ID: ${record.id}")
         appendLine("来源: ${if (isChatModelLog(record)) "chat" else record.sourceType}")
         appendLine("source_id: ${record.sourceId.orEmpty()}")
-        appendLine("Agent ID: ${record.agentId ?: ""}")
+        appendLine("Agent ID: ${record.agentId}")
         appendLine("消息类型: ${record.messageType.orEmpty()}")
         appendLine("模型: ${listOfNotNull(record.providerName, record.modelName).joinToString(" / ")}")
         appendLine("状态: ${record.status}")
@@ -2522,138 +1113,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         dialog.showAndGet()
     }
 
-    private fun refreshQueuePanel() {
-        syncBrowserState()
-        updateToolbars()
-    }
-
-    // -------- UI 构建 --------
-
-    private fun buildTopBar(): JComponent {
-        val sessionPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
-            isOpaque = false
-            add(JLabel("会话: "))
-            add(sessionSelector)
-            val group = DefaultActionGroup().apply {
-                add(newSessionAction)
-                add(clearAction)
-                add(sessionManageAction)
-                add(modelLogAction)
-            }
-            add(createToolbar("AgentSessionToolbar", group))
-        }
-        return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(6, 8, 0, 8)
-            add(JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
-                isOpaque = false
-                add(sessionPanel)
-            }, BorderLayout.EAST)
-        }
-    }
-
-    private fun buildChatContainer(): JComponent = JPanel(BorderLayout()).apply {
-        border = JBUI.Borders.empty(8, 8, 6, 8)
-        add(chatScroll, BorderLayout.CENTER)
-    }
-
-    private fun buildInputBar(): JComponent {
-        val inputScroll = JBScrollPane(inputArea).apply {
-            border = JBUI.Borders.empty()
-            isOpaque = false
-            viewport.isOpaque = false
-            viewport.background = INPUT_COMPOSER_BACKGROUND
-            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-        }
-        inputHintLabel.foreground = UIUtil.getContextHelpForeground()
-        inputHintLabel.horizontalAlignment = SwingConstants.LEFT
-
-        val agentPanel = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(4, 0, 4, 0)
-            add(JLabel("Agent: "))
-            add(agentSelector)
-            val group = DefaultActionGroup().apply {
-                add(attachmentAction)
-                add(modelManageAction)
-                add(promptManageAction)
-                add(agentManageAction)
-                        add(skillManageAction)
-                add(globalConfigAction)
-            }
-            add(createToolbar("AgentActionToolbar", group))
-        }
-
-        inputCenterPanel.removeAll()
-        inputCenterPanel.add(inputScroll, BorderLayout.CENTER)
-
-        val inputCard = JPanel(BorderLayout()).apply {
-            isOpaque = true
-            background = INPUT_COMPOSER_BACKGROUND
-            add(inputCenterPanel, BorderLayout.CENTER)
-        }
-        updateInputComposerChrome(inputCard, focused = false)
-        inputArea.addFocusListener(object : FocusAdapter() {
-            override fun focusGained(e: FocusEvent) = updateInputComposerChrome(inputCard, focused = true)
-            override fun focusLost(e: FocusEvent) = updateInputComposerChrome(inputCard, focused = false)
-        })
-
-        val topPanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(inputHintLabel, BorderLayout.WEST)
-            })
-            add(queuePanel)
-            add(draftAttachmentPanel)
-            add(agentPanel)
-        }
-
-        return JPanel(BorderLayout(0, JBUI.scale(6))).apply {
-            border = JBUI.Borders.empty(4, 8, 8, 8)
-            isOpaque = false
-            add(topPanel, BorderLayout.NORTH)
-            add(inputCard, BorderLayout.CENTER)
-        }
-    }
-
-    private fun updateInputComposerChrome(card: JPanel, focused: Boolean) {
-        card.background = INPUT_COMPOSER_BACKGROUND
-        inputArea.background = INPUT_COMPOSER_BACKGROUND
-        card.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(
-                if (focused) INPUT_COMPOSER_FOCUS_BORDER else INPUT_COMPOSER_BORDER,
-                JBUI.scale(1),
-                true,
-            ),
-            JBUI.Borders.empty(8, 10),
-        )
-        card.revalidate()
-        card.repaint()
-    }
-
-    // -------- action / toolbar / 状态 --------
-
-    private fun createAction(
-        description: String,
-        icon: javax.swing.Icon,
-        enabledProvider: (() -> Boolean)? = null,
-        action: () -> Unit,
-    ): AnAction = object : AnAction({ description }, AgentToolbarIconSupport.normalize(icon)) {
-        override fun actionPerformed(e: AnActionEvent) = action()
-        override fun update(e: AnActionEvent) {
-            e.presentation.isEnabled = (enabledProvider?.invoke() ?: true) && isActionEnabled(this)
-        }
-    }
-
-    private fun createToolbar(id: String, group: DefaultActionGroup): JComponent {
-        val toolbar = ActionManager.getInstance().createActionToolbar(id, group, true)
-        toolbar.targetComponent = this
-        toolbar.setMinimumButtonSize(AgentToolbarIconSupport.minimumButtonSize)
-        actionToolbars.add(toolbar)
-        return toolbar.component
-    }
-
     private fun simpleRenderer(textProvider: (Any?) -> String): javax.swing.ListCellRenderer<Any?> =
         object : javax.swing.DefaultListCellRenderer() {
             override fun getListCellRendererComponent(
@@ -2672,29 +1131,13 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         comboBox.maximumSize = size
     }
 
-    private fun updateToolbars() = actionToolbars.forEach { it.updateActionsAsync() }
-
-    private fun setActionEnabled(action: AnAction, enabled: Boolean) {
-        actionEnabledState[action] = enabled
-    }
-
-    private fun isActionEnabled(action: AnAction): Boolean = actionEnabledState[action] != false
-
     private fun updateStatus() {
-        val session = currentSessionId?.let { ChatSessionService.sessionById(it) }
-        val agent = session?.agentId?.let { AgentService.agentById(it) }
-        statusLabel.text = when {
-            session == null -> "无会话"
-            agent == null -> "会话: ${session.title}    未绑定 Agent"
-            else -> "会话: ${session.title}    Agent: ${agent.name}"
-        }
         syncBrowserState()
     }
 
     override fun dispose() {
         disposed = true
         browserStateTimer.stop()
-        agentRunSubscription?.close()
         agentRunDeliverySubscription?.close()
         if (chatBrowser.component.parent != null) Disposer.dispose(chatBrowser)
         Disposer.dispose(managementWindows)
@@ -2715,6 +1158,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return when (command.type) {
             "ui.ready" -> syncBrowserState()
             "session.select" -> id?.toLongOrNull()?.let(::switchSession)
+            "session.tasks" -> com.google.gson.JsonObject().apply {
+                val sessionId = id?.toLongOrNull() ?: currentSessionId ?: error("缺少会话 ID")
+                add("tasks", com.google.gson.JsonArray().apply {
+                    MessageStoreService.sessionTasks(sessionId).map(MessageStoreService::sessionTaskJson).forEach(::add)
+                })
+            }
             "session.new" -> createSession(
                 payload.get("sessionType")?.takeUnless { it.isJsonNull }?.asString
                     ?.let(ChatSessionType::from)
@@ -2724,21 +1173,28 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     ?: AUTO_TITLE,
             )
             "session.clear" -> clearCurrentSessionFromBrowser()
+            "session.modelSettings.get" -> currentSessionModelSettings()
+            "session.modelSettings.save" -> saveSessionModelSettings(payload)
+            "context.get" -> currentSessionId?.let(ContextCompactionService::contextStatus) ?: error("没有选中会话")
+            "context.compact" -> currentSessionId?.let(ContextCompactionService::compact) ?: error("没有选中会话")
+            "skills.runtime" -> currentSessionId?.let(ChatSessionService::sessionById)?.agentId?.let(CodingRuntimeSupport::runtimeSkillsJson) ?: com.google.gson.JsonArray()
             "cache.refresh" -> refreshBrowserMessageCache()
-            "agent.select" -> id?.toLongOrNull()?.let { agentId ->
-                AgentService.agentById(agentId)?.let(::bindCurrentSessionAgent)
-                refreshAgentSelector(agentId)
+            "environment.select" -> id?.toLongOrNull()?.let { environmentId ->
+                bindCurrentSessionEnvironment(environmentId)
             }
             "message.send" -> { inputArea.text = text.orEmpty(); sendMessage() }
-            "window.open" -> managementWindows.open(text ?: error("缺少管理页面"))
+            "window.open" -> onUiWait { managementWindows.open(text ?: error("缺少管理页面")) }
             "code.copy" -> CopyPasteManager.getInstance().setContents(StringSelection(text.orEmpty()))
+            "code.save" -> saveCodeBlock(payload)
             "link.open" -> text?.let { BrowserUtil.browse(it) }
             "attachment.choose" -> chooseAttachments()
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
+            "draft.restore" -> restoreDraftAttachments(payload)
             "attachment.open" -> text?.let(::openAttachmentPath)
-            "appendAttachment.choose" -> chooseAppendAttachments().map(AgentAttachmentState::toBrowserAttachment)
-            "appendAttachment.paste" -> pasteAppendAttachments().map(AgentAttachmentState::toBrowserAttachment)
+            "attachment.preview" -> previewAttachment(payload)
+            "appendAttachment.choose" -> persistChosenAttachments()
+            "appendAttachment.paste" -> persistPastedAttachments()
             "polish.start" -> mapOf(
                 "taskId" to AgentPolishService.start(project, text ?: error("缺少润色内容")),
             )
@@ -2757,30 +1213,63 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 syncBrowserState()
                 enabled
             }
-            "queue.stop" -> id?.let { messageId -> synchronized(queueLock) { chatQueue.firstOrNull { it.messageId == messageId } }?.let { if (it.status == ChatQueueStatus.PROCESSING) stopQueueItem(it) else cancelQueueItem(it) } }
-            "queue.append" -> appendToQueueItem(
-                requireNotNull(id) { "缺少队列消息 ID" },
-                text.orEmpty(),
-                payload.get("attachments")?.takeIf { it.isJsonArray }?.asJsonArray
-                    ?.mapNotNull(::readAttachmentSnapshot)
-                    .orEmpty(),
-            )
-            "queue.edit" -> editPendingQueueItem(
-                requireNotNull(id) { "缺少队列消息 ID" },
-                requireNotNull(text) { "缺少队列消息内容" },
-            )
-            "message.delete" -> id?.let { messageId ->
-                messageCards.firstOrNull { it.id == messageId }?.delete()
-                    ?: refreshBrowserMessageCache()
+            "queue.stop" -> currentSessionId?.let { sessionId ->
+                val taskId = id?.toLongOrNull()
+                    ?: return@let MessageProcessor.cancelActiveTaskForSession(sessionId)?.let { target ->
+                        mapOf("cancelled" to true, "target" to target.name.lowercase())
+                    } ?: mapOf("cancelled" to false, "target" to "none")
+                when (MessageStoreService.messageTaskStatus(sessionId, taskId)) {
+                    MessageTaskStatus.PENDING -> if (MessageProcessor.cancelPending(sessionId, taskId)) {
+                        mapOf("cancelled" to true, "deleted" to true, "target" to "queue")
+                    } else {
+                        // pending 在查询与删除之间可能已被 Worker claim，按最新状态重试一次。
+                        val target = MessageProcessor.cancelActiveTask(sessionId, taskId)
+                        mapOf("cancelled" to (target != null), "target" to (target?.name?.lowercase() ?: "none"))
+                    }
+                    MessageTaskStatus.PROCESSING -> {
+                        val target = MessageProcessor.cancelActiveTask(sessionId, taskId)
+                        if (target != null) mapOf("cancelled" to true, "target" to target.name.lowercase())
+                        else mapOf("cancelled" to false, "target" to "completed")
+                    }
+                    MessageTaskStatus.COMPLETED,
+                    MessageTaskStatus.FAILED,
+                    MessageTaskStatus.CANCELLED,
+                    null -> mapOf("cancelled" to false, "target" to "completed")
+                }
             }
-            "tool.detail" -> {
-                val messageId = payload.get("messageId")?.asString ?: error("缺少消息 ID")
-                val callId = payload.get("callId")?.asString ?: error("缺少工具调用 ID")
-                when (val card = messageCards.firstOrNull { it.id == messageId }) {
-                    is AgentAssistantMessageCard -> card.toolDetail(callId)
-                    is AgentRunMessageCard -> card.toolDetail(callId)
-                    else -> null
-                } ?: error("工具调用详情不存在")
+            "queue.append" -> currentSessionId?.let { sessionId ->
+                val turnId = payload.get("turnId")?.takeUnless { it.isJsonNull }?.asString
+                    ?: error("缺少 turnId")
+                MessageProcessor.enqueueAppend(sessionId, turnId, text.orEmpty(), payloadAttachmentIds(payload))
+                reloadBrowserTasks(sessionId)
+            }
+            "queue.edit" -> currentSessionId?.let { sessionId ->
+                val taskId = requireNotNull(id?.toLongOrNull()) { "缺少队列消息 ID" }
+                MessageProcessor.updatePending(sessionId, taskId, requireNotNull(text) { "缺少队列消息内容" }, payloadAttachmentIds(payload))
+                reloadBrowserTasks(sessionId)
+            }
+            "timeline.event" -> {
+                val eventId = requireNotNull(id?.toLongOrNull()) { "缺少事件 ID" }
+                MessageStoreService.messageEvent(eventId, true)?.toBrowserJson()
+            }
+            "timeline.deleteTurn" -> currentSessionId?.let { sessionId ->
+                val turnId = payload.get("turnId")?.takeUnless { it.isJsonNull }?.asString
+                    ?: error("缺少 turnId")
+                MessageProcessor.deleteTurn(sessionId, turnId)
+                reloadBrowserConversation(sessionId)
+            }
+            "attachment.openById" -> {
+                val sessionId = payload.get("sessionId")?.asLong ?: currentSessionId ?: error("缺少会话 ID")
+                val attachmentId = requireNotNull(id?.toLongOrNull()) { "缺少附件 ID" }
+                val attachment = MessageStoreService.listAttachmentsByIds(sessionId, listOf(attachmentId)).firstOrNull()
+                    ?: error("附件不存在")
+                openAttachmentPath(attachment.path)
+            }
+            "message.delete" -> currentSessionId?.let { sessionId ->
+                val turnId = payload.get("turnId")?.takeUnless { it.isJsonNull }?.asString
+                    ?: error("缺少 turnId")
+                MessageProcessor.deleteTurn(sessionId, turnId)
+                reloadBrowserConversation(sessionId)
             }
             else -> handleBrowserManagementCommand(command.type, payload)
         }
@@ -2792,35 +1281,34 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ?: error("缺少润色任务 ID")
 
     private fun refreshManagementData() {
-        refreshAgentSelector(currentSessionId?.let(ChatSessionService::sessionById)?.agentId)
-        refreshSessionSelector(visibleSessions())
-        currentSessionId?.let(::refreshCurrentSessionHistoryIfVisible)
-        syncBrowserState()
+        syncSelectedSessionAfterCatalogChange()
     }
 
     private fun handleBrowserManagementCommand(type: String, payload: JsonObject): Any? =
         AgentBrowserManagement.handle(project, type, payload) {
-            val sessions = visibleSessions()
-            if (sessions.isEmpty()) {
-                currentSessionId = null
-                rememberActiveSession(null)
-                createSession(ChatSessionType.PROJECT)
-            } else {
-                val targetId = when {
-                    currentSessionId != null && sessions.any { it.id == currentSessionId } -> currentSessionId!!
-                    else -> resolveRestoredSessionId(sessions) ?: sessions.first().id
-                }
-                if (currentSessionId != targetId) {
-                    switchSession(targetId)
-                } else {
-                    rememberActiveSession(targetId)
-                    refreshAgentSelector(ChatSessionService.sessionById(targetId)?.agentId)
-                    refreshSessionSelector(sessions)
-                    refreshCurrentSessionHistoryIfVisible(targetId)
-                    syncBrowserState()
-                }
-            }
+            syncSelectedSessionAfterCatalogChange()
         }
+
+    private fun syncSelectedSessionAfterCatalogChange() {
+        val sessions = visibleSessions()
+        if (sessions.isEmpty()) {
+            showEmptySessionState()
+            return
+        }
+        val targetId = when {
+            currentSessionId != null && sessions.any { it.id == currentSessionId } -> currentSessionId!!
+            else -> resolveRestoredSessionId(sessions) ?: sessions.first().id
+        }
+        if (currentSessionId != targetId) {
+            switchSession(targetId)
+        } else {
+            rememberActiveSession(targetId)
+            refreshAgentSelector(ChatSessionService.sessionById(targetId)?.agentId)
+            refreshSessionSelector(sessions)
+            reloadBrowserConversation(targetId)
+            syncBrowserState()
+        }
+    }
 
     private fun currentProjectPath(): String =
         ChatSessionService.normalizeProjectPath(project.basePath ?: resolveWorkspace())
@@ -2864,21 +1352,11 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             AgentBrowserSession(it.id, it.title, it.sessionType.value, it.projectPath)
         }
         val agents = AgentService.listAgents().mapNotNull { agent -> agent.id?.let { AgentBrowserOption(it, agent.name) } }
-        val currentAgentId = currentSessionId?.let(ChatSessionService::sessionById)?.agentId
-        val queue = synchronized(queueLock) {
-            chatQueue.filter { it.status == ChatQueueStatus.PENDING || it.status == ChatQueueStatus.PROCESSING }.map { item ->
-                AgentBrowserQueueItem(
-                    item.messageId,
-                    item.sessionId,
-                    ChatSessionService.sessionById(item.sessionId)?.title ?: "会话 ${item.sessionId}",
-                    item.prompt,
-                    item.status.label,
-                    item.status == ChatQueueStatus.PROCESSING,
-                    item.status == ChatQueueStatus.PENDING,
-                    item.status == ChatQueueStatus.PROCESSING && item.acceptingAppendMessages,
-                    item.pendingAppendMessages.size,
-                )
-            }
+        val currentRecord = currentSessionId?.let(ChatSessionService::sessionById)
+        val currentAgentId = currentRecord?.agentId
+        val currentEnvironmentId = currentRecord?.codingEnvironmentId
+        val environments = CodingEnvironmentService.listEnabled().map {
+            AgentBrowserOption(it.id, it.name)
         }
         val background = UIUtil.getPanelBackground()
         val fileContextEnabled = AgentEditorFileContextSupport.isEnabled(currentProjectPath())
@@ -2901,11 +1379,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             ),
             sessions = sessions,
             agents = agents,
+            environments = environments,
             currentSessionId = currentSessionId,
             currentAgentId = currentAgentId,
-            messages = messageCards.map(AgentChatCard::toBrowserMessage),
+            currentEnvironmentId = currentEnvironmentId,
+            currentSession = currentBrowserSession(),
+            providers = browserProviders(),
+            prompts = browserPrompts(),
+            context = currentSessionId?.let(ContextCompactionService::contextStatus),
+            skills = currentSessionId?.let(ChatSessionService::sessionById)?.codingEnvironmentId?.let(CodingRuntimeSupport::runtimeSkillsJson) ?: com.google.gson.JsonArray(),
+            messages = emptyList(),
+            events = browserEvents.toList(),
+            tasks = browserTasks.toList(),
             historyRevision = historyRevision,
-            queue = queue,
+            queue = emptyList(),
             drafts = draftAttachments.map { it.toBrowserAttachment() },
             inputRestore = browserInputRestore,
             polishEnabled = polishAgent != null,
@@ -2932,6 +1419,166 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         ))
     }
 
+    private fun onMessageRuntimeEvent(payload: JsonObject) {
+        val sessionId = payload.get("session_id")?.takeIf { it.isJsonPrimitive }?.asLong ?: return
+        if (currentSessionId != sessionId) return
+        onUi {
+            when (payload.get("type")?.asString) {
+                "message_event" -> {
+                    val event = upsertBrowserEvent(payload) ?: return@onUi
+                    chatBrowser.patchState(com.google.gson.JsonObject().apply {
+                        add("events", com.google.gson.JsonArray().apply { add(event) })
+                    })
+                }
+                "message_task" -> {
+                    if (payload.get("deleted")?.takeIf { it.isJsonPrimitive }?.asBoolean == true) {
+                        val turnId = payload.get("turn_id")?.takeUnless { it.isJsonNull }?.asString
+                        if (!turnId.isNullOrBlank()) {
+                            browserEvents.removeAll { it.get("turn_id")?.takeUnless { value -> value.isJsonNull }?.asString == turnId }
+                        }
+                    }
+                    chatBrowser.patchState(com.google.gson.JsonObject().apply {
+                        add("message_task", payload)
+                    })
+                }
+                "session_usage" -> {
+                    val context = ContextCompactionService.contextStatus(sessionId)
+                    chatBrowser.patchState(com.google.gson.JsonObject().apply {
+                        add("context", context)
+                    })
+                }
+            }
+        }
+    }
+
+    private fun upsertBrowserEvent(payload: JsonObject): JsonObject? {
+        val id = payload.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: return null
+        val index = browserEvents.indexOfFirst { it.get("id")?.asLong == id }
+        val event = if (payload.has("event_type")) payload.deepCopy() else {
+            MessageStoreService.messageEvent(id, true)?.toBrowserJson() ?: return null
+        }
+        if (index >= 0) browserEvents[index] = event else browserEvents += event
+        browserEvents.sortBy { it.get("id")?.asLong ?: 0L }
+        return event
+    }
+
+    private fun reloadBrowserConversation(sessionId: Long) {
+        val events = MessageStoreService.listMessageEvents(sessionId, includeContext = true).map { it.toBrowserJson() }
+        val tasks = MessageStoreService.sessionTasks(sessionId).map(MessageStoreService::sessionTaskJson)
+        browserEvents.clear()
+        browserEvents += events
+        browserTasks.clear()
+        browserTasks += tasks
+        historyRevision++
+        syncBrowserState()
+    }
+
+    private fun reloadBrowserTasks(sessionId: Long) {
+        browserTasks.clear()
+        browserTasks += MessageStoreService.sessionTasks(sessionId).map(MessageStoreService::sessionTaskJson)
+        chatBrowser.patchState(com.google.gson.JsonObject().apply {
+            addProperty("session_id", sessionId)
+            add("tasks", com.google.gson.JsonArray().apply { browserTasks.forEach(::add) })
+        })
+    }
+
+    private fun currentSessionModelSettings(): JsonObject = currentBrowserSession()
+        ?: throw IllegalStateException("没有选中会话")
+
+    private fun saveSessionModelSettings(payload: JsonObject): JsonObject {
+        val sessionId = currentSessionId ?: throw IllegalStateException("没有选中会话")
+        val providerId = payload.get("provider_id")?.takeUnless { it.isJsonNull }?.asLong
+            ?: throw IllegalArgumentException("缺少供应商")
+        val modelId = payload.get("model_id")?.takeUnless { it.isJsonNull }?.asLong
+            ?: throw IllegalArgumentException("缺少模型")
+        val promptId = payload.get("prompt_id")?.takeUnless { it.isJsonNull }?.asLong
+        val snapshot = payload.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject
+        val reasoningLevel = payload.get("reasoning_level")?.takeUnless { it.isJsonNull }?.asString
+        val reasoningConfig = payload.get("reasoning_config")?.takeIf { it.isJsonObject }?.asJsonObject
+        val maxHistoryRounds = payload.get("max_history_rounds")?.takeUnless { it.isJsonNull }?.asInt
+        ChatSessionService.updateSessionSettings(
+            id = sessionId,
+            providerId = providerId,
+            modelId = modelId,
+            promptId = promptId,
+            modelSnapshot = snapshot,
+            reasoningLevel = reasoningLevel,
+            reasoningConfig = reasoningConfig,
+            maxHistoryRounds = maxHistoryRounds,
+        )
+        syncBrowserState()
+        return currentBrowserSession() ?: throw IllegalStateException("会话更新后无法读取")
+    }
+
+    private fun currentBrowserSession(): JsonObject? {
+        val record = currentSessionId?.let(ChatSessionService::sessionById) ?: return null
+        return JsonObject().apply {
+            addProperty("id", record.id)
+            addProperty("title", record.title)
+            addProperty("agent_id", record.agentId)
+            addProperty("coding_environment_id", record.codingEnvironmentId)
+            addProperty("provider_id", record.providerId)
+            addProperty("model_id", record.modelId)
+            if (record.promptId == null) add("prompt_id", com.google.gson.JsonNull.INSTANCE)
+            else addProperty("prompt_id", record.promptId)
+            addProperty("cwd", record.cwd)
+            add("model_snapshot", record.modelSnapshot)
+            record.config.get("reasoning_level")?.let { add("reasoning_level", it) }
+            record.config.get("reasoning_config")?.let { add("reasoning_config", it) }
+            record.config.get("max_history_rounds")?.let { add("max_history_rounds", it) }
+        }
+    }
+
+    private fun browserProviders(): List<JsonObject> =
+        CatalogService.listProvidersWithModels().map { item ->
+            JsonObject().apply {
+                addProperty("id", item.provider.id)
+                addProperty("name", item.provider.name)
+                addProperty("kind", item.provider.kind)
+                addProperty("api", item.provider.api)
+                addProperty("anthropic_version", item.provider.anthropicVersion)
+                add(
+                    "provider_config",
+                    runCatching { JsonParser.parseString(item.provider.providerConfig) }.getOrNull()
+                        ?.takeIf { it.isJsonObject } ?: JsonObject(),
+                )
+                add("models", JsonArray().apply {
+                    item.models.filter { it.enabled == 1 }.forEach { model ->
+                        add(JsonObject().apply {
+                            addProperty("id", model.id)
+                            addProperty("provider_id", model.providerId)
+                            addProperty("alias", model.alias)
+                            addProperty("model_id", model.modelId)
+                            addProperty("display_name", model.displayName)
+                            addProperty("api", model.api)
+                            model.contextWindow?.let { addProperty("context_window", it) }
+                            add(
+                                "modalities",
+                                runCatching { JsonParser.parseString(model.modalities) }.getOrNull()
+                                    ?.takeIf { it.isJsonArray } ?: JsonArray(),
+                            )
+                            add("model_params", optionalJson(model.modelParams))
+                            add("execution_params", optionalJson(model.executionParams))
+                            add("additional_params", optionalJson(model.additionalParams))
+                        })
+                    }
+                })
+            }
+        }
+
+    private fun browserPrompts(): List<JsonObject> =
+        CatalogService.listPromptTemplates().map { template ->
+            JsonObject().apply {
+                addProperty("id", template.id)
+                addProperty("name", template.name)
+            }
+        }
+
+    private fun optionalJson(text: String?): JsonElement {
+        val raw = text?.takeIf { it.isNotBlank() } ?: return com.google.gson.JsonNull.INSTANCE
+        return runCatching { JsonParser.parseString(raw) }.getOrNull() ?: com.google.gson.JsonNull.INSTANCE
+    }
+
     private fun cssColor(color: Color): String = "#${ColorUtil.toHex(color)}"
 
     // -------- 渲染数据结构 --------
@@ -2941,11 +1588,20 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("theme") val theme: AgentBrowserTheme,
         @SerializedName("sessions") val sessions: List<AgentBrowserSession>,
         @SerializedName("agents") val agents: List<AgentBrowserOption>,
+        @SerializedName("environments") val environments: List<AgentBrowserOption>,
         @SerializedName("currentSessionId") val currentSessionId: Long?,
         @SerializedName("currentAgentId") val currentAgentId: Long?,
-        @SerializedName("messages") val messages: List<AgentBrowserMessage>,
+        @SerializedName("currentEnvironmentId") val currentEnvironmentId: Long?,
+        @SerializedName("currentSession") val currentSession: JsonObject?,
+        @SerializedName("providers") val providers: List<JsonObject>,
+        @SerializedName("prompts") val prompts: List<JsonObject>,
+        @SerializedName("context") val context: JsonObject?,
+        @SerializedName("skills") val skills: com.google.gson.JsonArray,
+        @SerializedName("messages") val messages: List<JsonObject>,
+        @SerializedName("events") val events: List<JsonObject>,
+        @SerializedName("tasks") val tasks: List<JsonObject>,
         @SerializedName("historyRevision") val historyRevision: Long,
-        @SerializedName("queue") val queue: List<AgentBrowserQueueItem>,
+        @SerializedName("queue") val queue: List<JsonObject>,
         @SerializedName("drafts") val drafts: List<AgentBrowserAttachment>,
         @SerializedName("inputRestore") val inputRestore: AgentBrowserInputRestore?,
         @SerializedName("polishEnabled") val polishEnabled: Boolean,
@@ -2990,102 +1646,4 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("id") val id: Long,
         @SerializedName("name") val name: String,
     )
-    private data class AgentBrowserQueueItem(
-        @SerializedName("id") val id: String,
-        @SerializedName("sessionId") val sessionId: Long,
-        @SerializedName("title") val title: String,
-        @SerializedName("prompt") val prompt: String,
-        @SerializedName("status") val status: String,
-        @SerializedName("processing") val processing: Boolean,
-        @SerializedName("editable") val editable: Boolean,
-        @SerializedName("appendable") val appendable: Boolean,
-        @SerializedName("pendingAppendCount") val pendingAppendCount: Int,
-    )
-
-    private fun messageTimeNow(): String = LocalDateTime.now().toString().replace('T', ' ')
-
-    private enum class ChatQueueStatus(val label: String) {
-        PENDING("排队中"),
-        PROCESSING("进行中"),
-        COMPLETED("已完成"),
-        FAILED("失败"),
-        CANCELLED("已取消"),
-    }
-
-    private data class ChatQueueItem(
-        val messageId: String,
-        val sessionId: Long,
-        val agentId: Long,
-        var prompt: String,
-        val order: Long,
-        val attachments: List<AgentAttachmentState> = emptyList(),
-        val sourceAgentRunId: String? = null,
-        val sourceAgentId: Long? = null,
-        val sourceAgentName: String? = null,
-        val userMessageAt: String,
-        val token: ModelCancel = ModelCancel(),
-        val toolToken: ModelCancel = ModelCancel(),
-        var status: ChatQueueStatus = ChatQueueStatus.PENDING,
-        var runningToolCount: Int = 0,
-        var conversationCancelRequested: Boolean = false,
-        var hasAssistantOutput: Boolean = false,
-        @Volatile var persistedLogId: Long? = null,
-        var responseText: String = "",
-        var reasoningText: String = "",
-        val toolCalls: MutableMap<String, QueuedToolSnapshot> = linkedMapOf(),
-        val toolResults: MutableMap<String, String> = linkedMapOf(),
-        val runningToolIds: MutableSet<String> = linkedSetOf(),
-        val canceledToolIds: MutableSet<String> = linkedSetOf(),
-        val pendingAppendMessages: MutableList<AppendMessage> = mutableListOf(),
-        val injectedAppendMessages: MutableList<AppendMessage> = mutableListOf(),
-        var acceptingAppendMessages: Boolean = true,
-        var userCard: AgentUserMessageCard? = null,
-        var assistantCard: AgentAssistantMessageCard? = null,
-    )
-
-    private data class QueuedToolSnapshot(
-        val id: String,
-        val name: String,
-        val args: String,
-    )
-
-    private sealed class SessionRenderEntry(open val order: Long, open val tieBreaker: Long) {
-        data class History(val turn: ModelLogService.ChatTurn, override val order: Long) :
-            SessionRenderEntry(order, turn.logId)
-
-        data class AgentRun(val run: AgentRunSnapshot, override val order: Long) :
-            SessionRenderEntry(order, run.logId ?: order)
-
-        data class Queue(val item: ChatQueueItem, override val order: Long) :
-            SessionRenderEntry(order, item.order)
-    }
-
-    private data class AssistantTurnView(
-        val card: AgentAssistantMessageCard,
-    )
-
-    private data class MessageBlock(
-        val panel: JComponent,
-        val textComponent: JTextComponent,
-        val contentPanel: JComponent,
-        var rawContent: String = "",
-    )
-
-    private data class ToolListBlock(
-        val panel: JComponent,
-        val listPanel: JPanel,
-        val headerLabel: JLabel,
-        val cards: LinkedHashMap<String, ToolCard> = LinkedHashMap(),
-    )
-
-    private data class ToolCard(
-        val id: String,
-        val name: String,
-        val args: String,
-        var result: String = "",
-        var status: String = "调用中",
-        var titleLabel: JLabel? = null,
-        var panel: JComponent? = null,
-    )
 }
-

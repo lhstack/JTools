@@ -20,4 +20,25 @@ class AgentQueueStopPolicyTest {
             AgentQueueStopPolicy.target(hasRunningTools = false),
         )
     }
+
+    @Test
+    fun `message processor cancel uses live tool slot instead of a permanent token`() {
+        val slot = java.util.concurrent.atomic.AtomicReference<com.lhstack.tools.agent.model.http.ModelCancel>()
+        val model = com.lhstack.tools.agent.model.http.ModelCancel()
+        val view = com.lhstack.tools.agent.model.http.ModelCancel(slot)
+
+        view.cancel()
+        kotlin.test.assertFalse(model.isCancelled())
+        kotlin.test.assertFalse(view.isCancelled())
+
+        val batch = com.lhstack.tools.agent.model.http.ModelCancel()
+        slot.set(batch)
+        view.cancel()
+        kotlin.test.assertTrue(batch.isCancelled())
+        kotlin.test.assertFalse(model.isCancelled())
+
+        slot.set(null)
+        view.cancel()
+        kotlin.test.assertFalse(model.isCancelled())
+    }
 }

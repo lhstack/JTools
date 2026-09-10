@@ -15,12 +15,20 @@ import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.Message
-import com.lhstack.tools.agent.model.llm.UserContent
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.AssistantContent
+import com.lhstack.tools.llm.Message
+import com.lhstack.tools.llm.ProviderToolCall
+import com.lhstack.tools.llm.ToolResult
+import com.lhstack.tools.llm.UserContent
+import com.lhstack.tools.llm.provider.AppendMessageChannel
+import com.lhstack.tools.llm.provider.ModelStreamSink
+import com.lhstack.tools.llm.provider.ToolEventSink
+import com.lhstack.tools.llm.ToolDyn
 import com.lhstack.tools.agent.model.log.ModelLogContext
 import com.lhstack.tools.agent.model.params.ModelResolver
 import com.lhstack.tools.agent.model.params.ModelParams
+import com.lhstack.tools.llm.provider.HistoryTrimmer
+import com.lhstack.tools.llm.provider.ModelRuntime
 import com.lhstack.tools.agent.model.tools.PluginFunctionTool
 import com.lhstack.tools.agent.model.tools.ResourceKind
 import com.lhstack.tools.agent.model.tools.RuntimeTools
@@ -36,6 +44,9 @@ import java.io.File
  * 不在这里兼容缺失数据。
  */
 object AgentRuntime {
+
+    /** Agent 运行/润色的工具事件回调。与通用 ToolEventSink 同一契约。 */
+    interface ToolEventSink : com.lhstack.tools.llm.provider.ToolEventSink
 
     data class ExecutionResult(
         val logId: Long,
@@ -59,7 +70,7 @@ object AgentRuntime {
         val attachmentSnapshots: List<JsonObject> = emptyList(),
         val extraTools: List<ToolDyn> = emptyList(),
         val toolEnvVars: Map<String, String> = emptyMap(),
-        val streamSink: ModelStreamSink = ModelStreamSink.NOOP,
+        val streamSink: com.lhstack.tools.llm.provider.ModelStreamSink = com.lhstack.tools.llm.provider.ModelStreamSink.NOOP,
         val eventSink: ToolEventSink? = null,
         val cancel: ModelCancel? = null,
         val toolCancel: ModelCancel? = null,
@@ -72,7 +83,7 @@ object AgentRuntime {
         val requestMetadata: JsonObject? = null,
         val userMessageAt: String? = null,
         val onLogCreated: ((Long) -> Unit)? = null,
-        val appendMessageChannel: AppendMessageChannel = AppendMessageChannel.NONE,
+        val appendMessageChannel: com.lhstack.tools.llm.provider.AppendMessageChannel = com.lhstack.tools.llm.provider.AppendMessageChannel.NONE,
     )
 
     /** 照抄 execute_agent_prompt：按 Agent id 执行一次直接提示。 */
@@ -195,7 +206,7 @@ object AgentRuntime {
     private fun Message.textForHistory(): String = when (this) {
         is Message.System -> content
         is Message.User -> content.filterIsInstance<UserContent.Text>().joinToString(" ") { it.text }
-        is Message.Assistant -> content.filterIsInstance<com.lhstack.tools.agent.model.llm.AssistantContent.Text>()
+        is Message.Assistant -> content.filterIsInstance<AssistantContent.Text>()
             .joinToString(" ") { it.text }
     }
 
@@ -212,10 +223,10 @@ object AgentRuntime {
 
     private fun pluginFunctionTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> =
         PluginFunctionToolSupport.enabledEntries(
-            project = request.project,
             enabled = config.pluginFunctions.enabled,
             includeNew = config.pluginFunctions.includeNew,
             disabled = config.pluginFunctions.disabled,
+            project = request.project,
         ).map { entry -> PluginFunctionTool(entry.toolName, entry.function) }
 
     private fun viewResourceTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> = buildList {

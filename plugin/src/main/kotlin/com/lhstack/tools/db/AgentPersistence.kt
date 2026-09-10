@@ -4,6 +4,12 @@ import com.lhstack.tools.db.mapper.AgentMapper
 import com.lhstack.tools.db.mapper.GlobalConfigMapper
 import com.lhstack.tools.db.mapper.ModelMapper
 import com.lhstack.tools.db.mapper.McpServerMapper
+import com.lhstack.tools.db.mapper.ContextCompactionMapper
+import com.lhstack.tools.db.mapper.CodingEnvironmentMapper
+import com.lhstack.tools.db.mapper.MessageAppendItemMapper
+import com.lhstack.tools.db.mapper.MessageAttachmentMapper
+import com.lhstack.tools.db.mapper.MessageEventMapper
+import com.lhstack.tools.db.mapper.MessageProcessingTaskMapper
 import com.lhstack.tools.db.mapper.ChatSessionMapper
 import com.lhstack.tools.db.mapper.ModelRequestLogMapper
 import com.lhstack.tools.db.mapper.PromptTemplateMapper
@@ -36,6 +42,12 @@ object AgentPersistence {
                 ChatSessionMapper::class.java,
                 GlobalConfigMapper::class.java,
                 McpServerMapper::class.java,
+                MessageEventMapper::class.java,
+                MessageProcessingTaskMapper::class.java,
+                MessageAppendItemMapper::class.java,
+                MessageAttachmentMapper::class.java,
+                ContextCompactionMapper::class.java,
+                CodingEnvironmentMapper::class.java,
             )
             AgentDatabase.init()
             seedSettings()
@@ -47,6 +59,18 @@ object AgentPersistence {
     private fun seedSettings() {
         SettingService.setSettingIfAbsent("model.max_tool_call_rounds", "30")
         SettingService.setSettingIfAbsent("model.max_retries", "0")
+        SettingService.setSettingIfAbsent("model.retry_interval_ms", "2000")
+        SettingService.setSettingIfAbsent("message.history_token_ratio", "2")
         SettingService.setSettingIfAbsent("model.dns_servers", "")
+        SettingService.setSettingIfAbsent("model.http_request_timeout_secs", "0")
+        SettingService.setSettingIfAbsent("model.http_pool_idle_timeout_secs", "120")
+        SettingService.setSettingIfAbsent("model.http_pool_max_idle_per_host", "32")
+        SettingService.setSettingIfAbsent("web_fetch.proxy_enabled", "false")
+        SettingService.setSettingIfAbsent("web_fetch.proxy", "")
+        SettingService.setSettingIfAbsent("web_fetch.timeout_secs", "30")
+        SettingService.setSettingIfAbsent("web_fetch.max_response_bytes", "1000000")
+        SettingService.setSettingIfAbsent("bash.max_output_chars", "8000")
+        SettingService.setSettingIfAbsent("coding.bash.max_output_chars", "8000")
+        SettingService.setSettingIfAbsent("coding.compaction_agent_id", "")
     }
 }

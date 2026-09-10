@@ -4,8 +4,8 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
@@ -33,6 +33,7 @@ class BashTool(
     private val workspace: WorkspaceTools,
     private val envVars: Map<String, String> = emptyMap(),
     private val cancel: ModelCancel? = null,
+    private val maxOutputChars: Int = ToolOutputLimit.MAX_BYTES,
 ) : ToolDyn {
 
     override fun definition(prompt: String): ToolDefinition {
@@ -40,7 +41,7 @@ class BashTool(
         val envHint = shell.envProbe?.let { "（${it.sourceLabel}）" } ?: "（当前 shell 无用户配置可加载）"
         return ToolDefinition(
             name = NAME,
-            description = "在本机通过 ${shell.label} 执行 Shell 命令的工具，返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，因此可直接使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止，输出超过约 8KB 时会截断并终止进程。",
+            description = "在本机通过 ${shell.label} 执行 Shell 命令的工具，返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，因此可直接使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止，输出超过配置上限时会截断并终止进程。",
             parameters = JsonParser.parseString(
                 """
                 {
@@ -108,7 +109,7 @@ class BashTool(
         builder.environment().putAll(envVars)
 
         val process = builder.start()
-        val outputBudget = ProcessOutputBudget(ToolOutputLimit.MAX_BYTES)
+        val outputBudget = ProcessOutputBudget(maxOutputChars.coerceAtLeast(1))
         val stdoutCapture = ProcessOutputCapture(process.inputStream, outputBudget)
         val stderrCapture = ProcessOutputCapture(process.errorStream, outputBudget)
         val stdoutThread = stdoutCapture.start("jtools-bash-stdout")

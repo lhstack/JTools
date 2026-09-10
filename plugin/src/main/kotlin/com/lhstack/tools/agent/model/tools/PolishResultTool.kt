@@ -3,8 +3,8 @@ package com.lhstack.tools.agent.model.tools
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 
 /**
  * 润色结果收集工具。仅在单次润色任务期间由调用方通过 extraTools 注入，

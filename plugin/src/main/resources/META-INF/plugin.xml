@@ -31,8 +31,9 @@
         <li><b>🚀 Multi-Language Development:</b> Full support for Java, Kotlin, and JavaScript plugin development with rapid debugging capabilities.</li>
         <li><b>📂 Customizable Storage:</b> Configure your preferred plugin installation directory with automatic isolation by JetBrains product and version.</li>
         <li><b>📋 Integrated Logging:</b> Built-in logging console with soft-wrap output for easy troubleshooting during development and runtime.</li>
-        <li><b>🤖 Agent Chat:</b> Built-in agent entry with streaming output, reasoning blocks, and collapsible tool logs.</li>
-        <li><b>📊 Token Usage:</b> Agent chat shows per-session token consumption in K units near the prompt selector, with input/output and last-request details in the tooltip.</li>
+        <li><b>🤖 Coding Session:</b> Project-scoped coding dialog rewritten around message events, with streaming replies, reasoning, tool timeline, append/queue, attachments, async context compaction, and incremental live updates.</li>
+        <li><b>🧩 Coding Environment:</b> Sessions bind a coding environment as the capability pack for system prompt, tools, plugin functions, skills, multimodal view_* tools, and compaction agent.</li>
+        <li><b>📊 Context Metrics:</b> Token usage, turn/step counts, tool calls, and context window occupancy appear under the composer, with a dedicated context compaction dialog that runs in the background.</li>
         <li><b>🧭 Provider Manager:</b> Multi-provider configuration (OpenAI/Anthropic) with base URL, headers, and proxy.</li>
         <li><b>🎛️ Provider Selector:</b> Provider selector with model lists fetched from each provider.</li>
         <li><b>🧩 Provider Templates:</b> OpenAI-compatible provider types and vendor templates with preset endpoints and parameter hints for easier third-party model integration.</li>
@@ -97,8 +98,9 @@
         <li><b>🚀 多语言开发：</b>全面支持 Java、Kotlin 和 JavaScript 插件开发，具备快速调试能力。</li>
         <li><b>📂 自定义存储：</b>可配置首选的插件安装目录，按 JetBrains 产品和版本自动隔离。</li>
         <li><b>📋 集成日志：</b>内置日志控制台，支持软换行输出，便于开发和运行时故障排查。</li>
-        <li><b>🤖 智能体对话：</b>内置智能体入口，支持流式输出、推理块展示与工具调用折叠日志。</li>
-        <li><b>📊 Token 消耗：</b>智能体对话在提示词选择器旁展示当前会话 Token 累计消耗，按 K 单位显示，并在提示中提供输入/输出与上次请求明细。</li>
+        <li><b>🤖 编码会话：</b>按项目工作区重写的编码对话框，基于消息事件时间线，支持流式回复、推理、工具时间线、追加/排队、附件、异步上下文压缩和增量实时更新。</li>
+        <li><b>🧩 编码环境：</b>会话绑定编码环境作为能力包，统一管理系统提示词、工具、插件函数、技能、多模态 view_* 工具和压缩 Agent。</li>
+        <li><b>📊 上下文指标：</b>输入框下方动态展示轮次/步骤、工具次数、Token 用量和上下文窗口占用，上下文压缩在后台执行并以时间线通知结果。</li>
         <li><b>🧭 供应方管理：</b>多供应方配置（OpenAI/Anthropic），支持 Base URL、请求头、代理。</li>
         <li><b>🎛️ 供应方选择：</b>对话中可选供应方，并维护供应方级别模型列表与默认模型。</li>
         <li><b>🧩 供应方模板：</b>支持 OpenAI Compatible 接入类型与厂商模板，预置端点和参数建议，便于接入第三方模型服务。</li>
@@ -149,8 +151,37 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.3</h2>
+            <h2>🚀 Version v1.1.5.4</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>♻️ <b>Coding Session Rewrite:</b> Rebuilt the chat dialog on the awake-claw coding-session path. Message events, processing tasks, append items, attachments, and context compaction replace the old message-card queue. This is a major version cut: no migration, no compatibility layer, no fallback. Delete <code>~/.jtools/agent/agent.db</code> before upgrading.</li>
+                <li>🧩 <b>Coding Environment Capability Pack:</b> Sessions bind a coding environment instead of treating Agent as the model source. System prompt, builtin tools, plugin functions, skills, multimodal <code>view_*</code> tools, and the compaction Agent all come from the environment. Creating a session requires an environment first.</li>
+                <li>🎛️ <b>Composer Alignment:</b> Model, reasoning, attachments, and file context sit at the bottom-left of the input box; Sessions stays on the top bar and other management entries live in the top-right overflow menu. Advanced params flatten like the model manager, with additional JSON params shown directly. Context metrics appear under the composer.</li>
+                <li>💬 <b>Timeline Layout:</b> The dialog is full width. Model replies stay left at 95% width; user bubbles stay right, grow with content, and wrap at 95%. Theme-aware Element Plus icons sit on a highlighted vertical track, with looser spacing and larger type.</li>
+                <li>📝 <b>Markdown and Code Blocks:</b> Replies use CodeMirror/Lezer highlighting. HTML blocks can preview in an iframe. Download opens the IDE save dialog and sanitizes file names for Windows/macOS/Linux.</li>
+                <li>🛠️ <b>Runtime Tooling:</b> Plugin functions register the same way as Agent management. <code>web_fetch</code> and bash output limits read global settings. MCP stays behind the <code>cli</code> tool. Distillation UI is removed; only compaction remains.</li>
+                <li>🗜️ <b>Async Context Compaction:</b> Compact starts in the background and reports success or failure as timeline notices. Sending is blocked until a notice arrives; compact is blocked while a turn is processing or queued. Restarted in-flight compaction is marked failed so send does not stay locked.</li>
+                <li>⚡ <b>Streaming Performance:</b> Deltas patch the current event instead of replacing the whole host state. The conversation auto-follows the bottom like awake-claw, and stops following when the user scrolls up.</li>
+                <li>📎 <b>Attachments:</b> Text-only models receive file metadata (name, type, size, path) so they can call <code>view_image</code>. Timeline, processing, and queued cards preview images via data URLs. File context sends path and line range only, not selected text.</li>
+                <li>🐛 <b>Dialog Stability:</b> Streaming replies and reasoning persist into events; refresh no longer drops history; compact/send/save run off the EDT; an empty database renders the dialog instead of crashing; global sessions use <code>~/.jtools/global</code>.</li>
+                <li>📚 <b>Skill Create and Import:</b> Skills can be created with a name and description, or imported from a directory that contains <code>SKILL.md</code> files. Nested skill folders are copied into <code>~/.jtools/skills</code>.</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.4</code> and aligned SDK helper version metadata to <code>1154</code></li>
+                <li>♻️ <b>编码会话重写：</b>对话链路按 awake-claw 编码会话重建，消息事件、任务、追加、附件和上下文压缩替换旧消息卡队列。这是大版本切断：不迁移、不兼容、不降级。升级前请删除 <code>~/.jtools/agent/agent.db</code>。</li>
+                <li>🧩 <b>编码环境能力包：</b>会话绑定编码环境，不再把 Agent 当模型真源。系统提示词、内置工具、插件函数、技能、多模态 <code>view_*</code> 和压缩 Agent 都由环境提供。建会话必须先有环境。</li>
+                <li>🎛️ <b>输入框与布局对齐：</b>模型、推理、附件、文件上下文放在输入框左下角；会话入口留在顶栏，其余管理入口收进右上角二级菜单。高级参数与模型管理对齐，附加 JSON 参数直接铺开。上下文指标出现在输入框下方。</li>
+                <li>💬 <b>时间线布局：</b>对话框全宽。模型回复靠左 95%；用户气泡靠右，随内容撑开，最大 95% 后软换行。图标改用 Element Plus 并适配亮暗主题，叠在高亮竖线上，行距和字号已拉开。</li>
+                <li>📝 <b>Markdown 与代码块：</b>回复使用 CodeMirror/Lezer 高亮。HTML 代码块可 iframe 预览。下载走 IDE 保存对话框，并按 Windows/macOS/Linux 清洗文件名。</li>
+                <li>🛠️ <b>运行时工具：</b>插件函数按 Agent 管理页同一套方式注册。<code>web_fetch</code> 与 bash 输出上限读取全局设置。MCP 仍走 <code>cli</code>。蒸馏相关 UI 已移除，只保留压缩。</li>
+                <li>🗜️ <b>异步上下文压缩：</b>压缩在后台执行，成功或失败都以时间线通知呈现。未出通知前不能发送；模型处理中或排队中不能压缩。重启时未完成的压缩会标失败，避免发送一直锁死。</li>
+                <li>⚡ <b>流式性能：</b>增量只补当前事件，不再每次整包替换宿主状态。对话滚动按 awake-claw 贴底跟随，用户上翻后停止跟随。</li>
+                <li>📎 <b>附件：</b>纯文本模型会收到文件名、类型、大小和路径等元数据，可通过 <code>view_image</code> 读取。时间线、处理中和排队卡片用 data URL 预览图片。文件上下文只发送路径和行号，不发送选中文本。</li>
+                <li>🐛 <b>对话框稳定性：</b>流式回复和推理会写入事件；刷新不再丢历史；压缩/发送/保存离开 EDT；空库能打开对话框而不是崩溃；全局会话工作区为 <code>~/.jtools/global</code>。</li>
+                <li>📚 <b>技能创建与导入：</b>新增技能需要名称和描述。导入技能会从所选目录递归发现包含 <code>SKILL.md</code> 的技能，并复制到 <code>~/.jtools/skills</code>。</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.4</code>，并同步 SDK Helper 版本元数据到 <code>1154</code></li>
+            </ul>
+
+            
+            <h2>🚀 Version v1.1.5.3</h2>
             <ul>
                 <li>🐛 <b>User Shell Environment Fix:</b> The bash tool previously ran commands through a login shell, which loads <code>.zprofile</code>/<code>.bash_profile</code> but never <code>.zshrc</code>/<code>.bashrc</code>; tools managed by sdkman, nvm, fnm or gvm were therefore missing, or resolved to a global build instead of the version selected by the manager</li>
                 <li>🔄 <b>Resolved Environment Caching:</b> The full user environment is resolved once through an interactive login shell on first command execution and reused afterwards, so rc initialisation is not repeated per command; a failed resolution is not cached and is retried on the next call</li>

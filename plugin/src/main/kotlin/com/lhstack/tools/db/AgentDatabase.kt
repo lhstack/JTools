@@ -1,9 +1,6 @@
 package com.lhstack.tools.db
 
 import com.baomidou.mybatisplus.annotation.DbType
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import com.baomidou.mybatisplus.core.MybatisConfiguration
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder
 import com.baomidou.mybatisplus.core.config.GlobalConfig
@@ -21,6 +18,7 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory
 import java.io.File
 import java.sql.Connection
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Agent 数据库入口。全局单例，参考 jtools-runtime-environment 的
@@ -40,6 +38,7 @@ object AgentDatabase {
     private val initialized = AtomicBoolean(false)
     private val destroyed = AtomicBoolean(false)
     private val lock = Any()
+    private val writeLock = ReentrantLock()
 
     /** 需要注册到 MyBatis 的 Mapper 接口集合。各模块在此登记。 */
     private val mapperClasses: MutableList<Class<*>> = mutableListOf()
@@ -78,19 +77,29 @@ object AgentDatabase {
      * 打开一个事务性会话，回调结束后统一提交；异常回滚。
      * 与 awake-claw 的 repository 事务边界一致：每次业务操作在一个明确事务内完成。
      */
+    /**
+     * SQLite 同一进程同时只能有一个写者。对齐 awake `sqlite_write_lock`：
+     * 进入事务前先拿进程内写锁，避免连接池里多条连接互相抢 RESERVED/EXCLUSIVE。
+     * 当前所有 execute 都开事务，因此一律串行化；同线程可重入，允许嵌套 execute。
+     */
     fun <T> execute(action: (SqlSession) -> T): T {
         val factory = sqlSessionFactory
             ?: throw IllegalStateException("AgentDatabase is not initialized")
-        val session = factory.openSession(false)
+        writeLock.lock()
         try {
-            val result = action(session)
-            session.commit()
-            return result
-        } catch (e: Throwable) {
-            session.rollback()
-            throw e
+            val session = factory.openSession(false)
+            try {
+                val result = action(session)
+                session.commit()
+                return result
+            } catch (e: Throwable) {
+                session.rollback()
+                throw e
+            } finally {
+                session.close()
+            }
         } finally {
-            session.close()
+            writeLock.unlock()
         }
     }
 
@@ -123,7 +132,8 @@ object AgentDatabase {
         val ds = HikariDataSource()
         val dbPath = databaseFile.absolutePath.replace("\\", "/")
         ds.driverClassName = "org.sqlite.JDBC"
-        ds.jdbcUrl = "jdbc:sqlite:$dbPath"
+        ds.jdbcUrl = "jdbc:sqlite:$dbPath?journal_mode=WAL&synchronous=NORMAL&busy_timeout=30000&foreign_keys=on"
+        ds.connectionInitSql = "PRAGMA busy_timeout=30000"
         ds.isAutoCommit = false
         ds.minimumIdle = 1
         ds.maximumPoolSize = 5
@@ -140,8 +150,6 @@ object AgentDatabase {
                     statement.execute(sql)
                 }
             }
-            ensureChatSessionScopeColumns(connection)
-            migrateIdeProjectToolNames(connection)
             if (initializeDefaultPrompt) DefaultPromptTemplate.insert(connection)
             verifyDefaultPromptInitialization(connection, databaseFile, initializeDefaultPrompt)
             connection.commit()
@@ -176,86 +184,6 @@ object AgentDatabase {
                 }
             }
         }
-    }
-
-    private fun ensureChatSessionScopeColumns(connection: Connection) {
-        val columns = connection.createStatement().use { statement ->
-            statement.executeQuery("pragma table_info(chat_sessions)").use { rows ->
-                buildSet {
-                    while (rows.next()) add(rows.getString("name"))
-                }
-            }
-        }
-        connection.createStatement().use { statement ->
-            if ("session_type" !in columns) {
-                statement.execute("alter table chat_sessions add column session_type text not null default 'global'")
-            }
-            if ("project_path" !in columns) {
-                statement.execute("alter table chat_sessions add column project_path text")
-            }
-        }
-    }
-
-    private fun migrateIdeProjectToolNames(connection: Connection) {
-        val aliases = mapOf(
-            "read_file" to "read_project_files",
-            "write_file" to "write_project_files",
-            "replace_text_in_file" to "replace_project_text",
-            "find_files" to "find_project_files",
-            "search_text" to "search_project_text",
-            "format_file" to "format_project_files",
-            "compile_project" to "build_project",
-            "get_file_problems" to "inspect_project_files",
-        )
-        val updates = mutableListOf<Pair<Long, String>>()
-        connection.createStatement().use { statement ->
-            statement.executeQuery("select id, ext_config from agents").use { rows ->
-                while (rows.next()) {
-                    val id = rows.getLong("id")
-                    val original = rows.getString("ext_config")
-                    val parsed = try {
-                        JsonParser.parseString(original)
-                    } catch (error: Throwable) {
-                        throw IllegalStateException("Agent `$id` ext_config is not valid JSON", error)
-                    }
-                    val root = parsed.takeIf { it.isJsonObject }?.asJsonObject
-                        ?: throw IllegalStateException("Agent `$id` ext_config must be a JSON object")
-                    if (migrateToolNames(root, aliases)) updates.add(id to root.toString())
-                }
-            }
-        }
-        connection.prepareStatement("update agents set ext_config = ? where id = ?").use { statement ->
-            updates.forEach { (id, config) ->
-                statement.setString(1, config)
-                statement.setLong(2, id)
-                statement.addBatch()
-            }
-            if (updates.isNotEmpty()) statement.executeBatch()
-        }
-    }
-
-    private fun migrateToolNames(root: JsonObject, aliases: Map<String, String>): Boolean {
-        val tools = root.get("tools") ?: return false
-        require(tools.isJsonObject) { "Agent ext_config.tools must be a JSON object" }
-        var changed = false
-        listOf("enabled", "disabled").forEach { property ->
-            val value = tools.asJsonObject.get(property) ?: return@forEach
-            require(value.isJsonArray) { "Agent ext_config.tools.$property must be a JSON array" }
-            val migrated = JsonArray()
-            val names = linkedSetOf<String>()
-            value.asJsonArray.forEach { item ->
-                require(item.isJsonPrimitive && item.asJsonPrimitive.isString) {
-                    "Agent ext_config.tools.$property values must be strings"
-                }
-                names.add(aliases[item.asString] ?: item.asString)
-            }
-            names.forEach(migrated::add)
-            if (migrated != value) {
-                tools.asJsonObject.add(property, migrated)
-                changed = true
-            }
-        }
-        return changed
     }
 
     private fun buildSqlSessionFactory(ds: HikariDataSource): SqlSessionFactory {

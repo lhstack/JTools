@@ -1,9 +1,9 @@
 package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
-import com.lhstack.tools.agent.model.llm.AudioMediaType
-import com.lhstack.tools.agent.model.llm.ImageMediaType
-import com.lhstack.tools.agent.model.llm.UserContent
+import com.lhstack.tools.llm.AudioMediaType
+import com.lhstack.tools.llm.ImageMediaType
+import com.lhstack.tools.llm.UserContent
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.nio.charset.StandardCharsets
@@ -67,23 +67,22 @@ object AgentAttachmentSupport {
     /**
      * 把附件映射为一个 LLM 用户内容块。
      *
-     * modalities 是当前模型声明的多模态能力（image/audio/video/text）。只有模型具备对应
-     * 模态能力时才内联 base64 内容，否则降级为元数据文本；文本文件始终按文本注入。
-     * 无法读取内容时统一返回元数据文本。
+     * modalities 是当前模型声明的多模态能力（image/audio/video/text）。
+     * 模型具备对应模态时内联内容，并且始终附上元数据文本（文件名/类型/路径）。
+     * 不具备对应模态或无法读取内容时只发元数据。
      */
-    fun toUserContent(draft: AgentAttachmentState, modalities: Set<String>): UserContent {
+    fun toUserContents(draft: AgentAttachmentState, modalities: Set<String>): List<UserContent> {
         val normalized = normalize(draft)
-        return when (AgentAttachmentKind.fromId(normalized.kind)) {
-            AgentAttachmentKind.IMAGE ->
-                if ("image" in modalities) imageContent(normalized) ?: metadataContent(normalized)
-                else metadataContent(normalized)
-            AgentAttachmentKind.AUDIO ->
-                if ("audio" in modalities) audioContent(normalized) ?: metadataContent(normalized)
-                else metadataContent(normalized)
-            AgentAttachmentKind.VIDEO -> metadataContent(normalized)
-            AgentAttachmentKind.FILE -> textContent(normalized) ?: metadataContent(normalized)
+        val metadata = metadataContent(normalized)
+        val inline = when (AgentAttachmentKind.fromId(normalized.kind)) {
+            AgentAttachmentKind.IMAGE -> if ("image" in modalities) imageContent(normalized) else null
+            AgentAttachmentKind.AUDIO -> if ("audio" in modalities) audioContent(normalized) else null
+            AgentAttachmentKind.VIDEO -> null
+            AgentAttachmentKind.FILE -> textContent(normalized)
         }
+        return listOfNotNull(inline, metadata)
     }
+
 
     private fun imageContent(draft: AgentAttachmentState): UserContent? {
         val optimized = optimizeImage(draft)
@@ -108,10 +107,35 @@ object AgentAttachmentSupport {
         return UserContent.text("[附件文件 $name]\n$text")
     }
 
+    fun metadataPrompt(
+        fileName: String,
+        contentType: String,
+        size: Long,
+        kind: String,
+        path: String,
+        uploadedAt: String,
+    ): String = buildString {
+        append("[Attachment]\n")
+        append("file_name: ").append(fileName).append('\n')
+        append("content_type: ").append(contentType).append('\n')
+        append("size: ").append(size).append(" bytes\n")
+        append("kind: ").append(kind).append('\n')
+        append("path: ").append(path).append('\n')
+        append("uploaded_at: ").append(uploadedAt).append('\n')
+    }
+
     private fun metadataContent(draft: AgentAttachmentState): UserContent {
         val name = draft.name.ifBlank { Paths.get(draft.path).fileName?.toString().orEmpty() }
-        val sizeText = if (draft.size > 0) "，大小 ${draft.size / 1024} KB" else ""
-        return UserContent.text("[附件 $name（${draft.mimeType}$sizeText），未内联内容，可用工具读取路径：${draft.path}]")
+        return UserContent.text(
+            metadataPrompt(
+                fileName = name,
+                contentType = draft.mimeType.ifBlank { "application/octet-stream" },
+                size = draft.size,
+                kind = draft.kind.ifBlank { AgentAttachmentKind.FILE.id },
+                path = draft.path,
+                uploadedAt = "",
+            )
+        )
     }
 
     private fun extractText(draft: AgentAttachmentState): String? {

@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.lhstack.tools.concurrent.AgentExecutors
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.ColorUtil
 import com.intellij.util.ui.UIUtil
@@ -37,7 +38,9 @@ internal class AgentChatBrowser(
     private val browser: JBCefBrowser?
     private var ready = false
     private var pendingState: Any? = null
+    private val pendingPatches = mutableListOf<com.google.gson.JsonObject>()
     private val renderTimer = javax.swing.Timer(40) { flushState() }.apply { isRepeats = false }
+    private val patchTimer = javax.swing.Timer(40) { flushPatches() }.apply { isRepeats = false }
     val component: JComponent
 
     init {
@@ -72,10 +75,23 @@ internal class AgentChatBrowser(
                             .onSuccess(result::set)
                             .onFailure(failure::set)
                     }
-                    if (ApplicationManager.getApplication().isDispatchThread) execute.run()
-                    else ApplicationManager.getApplication().invokeAndWait(execute)
+                    val application = ApplicationManager.getApplication()
+                    if (application.isDispatchThread) {
+                        execute.run()
+                    } else {
+                        AgentExecutors.shared.submit(execute).get()
+                    }
                     failure.get()?.let { throw it }
-                    JBCefJSQuery.Response(gson.toJson(mapOf("ok" to true, "data" to result.get())))
+                    val data = result.get()
+                    val body = com.google.gson.JsonObject().apply {
+                        addProperty("ok", true)
+                        when (data) {
+                            null -> add("data", com.google.gson.JsonNull.INSTANCE)
+                            is com.google.gson.JsonElement -> add("data", data)
+                            else -> add("data", gson.toJsonTree(data))
+                        }
+                    }
+                    JBCefJSQuery.Response(gson.toJson(body))
                 }.getOrElse { JBCefJSQuery.Response("", 500, it.message ?: "Command failed") }
             }
             Disposer.register(this, query)
@@ -157,16 +173,77 @@ internal class AgentChatBrowser(
         if (ready) renderTimer.restart()
     }
 
+    fun patchState(payload: com.google.gson.JsonObject) {
+        if (browser == null) return
+        pendingPatches += payload.deepCopy()
+        if (ready) patchTimer.restart()
+    }
+
     private fun flushState() {
         val state = pendingState ?: return
         val cef = browser?.cefBrowser ?: return
         if (!ready) return
+        val patches = pendingPatches.toList()
+        pendingPatches.clear()
+        pendingState = null
         cef.executeJavaScript(
             "window.jtoolsAgent && window.jtoolsAgent.replace(${gson.toJson(state)});",
             "http://jtools.agent/index.html",
             0,
         )
-        if (pendingState === state) pendingState = null
+        if (patches.isNotEmpty()) {
+            cef.executeJavaScript(
+                "window.jtoolsAgent && window.jtoolsAgent.patch(${gson.toJson(mergePatches(patches))});",
+                "http://jtools.agent/index.html",
+                0,
+            )
+        }
+    }
+
+    private fun flushPatches() {
+        if (pendingState != null) {
+            return
+        }
+        if (pendingPatches.isEmpty()) return
+        val cef = browser?.cefBrowser ?: return
+        if (!ready) return
+        val merged = mergePatches(pendingPatches.toList())
+        pendingPatches.clear()
+        cef.executeJavaScript(
+            "window.jtoolsAgent && window.jtoolsAgent.patch(${gson.toJson(merged)});",
+            "http://jtools.agent/index.html",
+            0,
+        )
+    }
+
+    private fun mergePatches(patches: List<com.google.gson.JsonObject>): com.google.gson.JsonObject {
+        val events = linkedMapOf<Long, com.google.gson.JsonElement>()
+        var tasks: com.google.gson.JsonElement? = null
+        var context: com.google.gson.JsonElement? = null
+        var historyRevision: com.google.gson.JsonElement? = null
+        var drafts: com.google.gson.JsonElement? = null
+        val messageTasks = com.google.gson.JsonArray()
+        patches.forEach { patch ->
+            patch.get("events")?.takeIf { it.isJsonArray }?.asJsonArray?.forEach { item ->
+                val id = item.takeIf { it.isJsonObject }?.asJsonObject?.get("id")?.takeIf { it.isJsonPrimitive }?.asLong
+                if (id != null) events[id] = item
+            }
+            patch.get("tasks")?.let { tasks = it }
+            patch.get("context")?.let { context = it }
+            patch.get("historyRevision")?.let { historyRevision = it }
+            patch.get("drafts")?.let { drafts = it }
+            patch.get("message_task")?.let { messageTasks.add(it) }
+            patch.get("message_tasks")?.takeIf { it.isJsonArray }?.asJsonArray?.forEach { messageTasks.add(it) }
+        }
+        return com.google.gson.JsonObject().apply {
+            if (events.isNotEmpty()) add("events", com.google.gson.JsonArray().apply { events.values.forEach(::add) })
+            tasks?.let { add("tasks", it) }
+            context?.let { add("context", it) }
+            historyRevision?.let { add("historyRevision", it) }
+            drafts?.let { add("drafts", it) }
+            if (messageTasks.size() == 1) add("message_task", messageTasks.get(0))
+            if (messageTasks.size() > 0) add("message_tasks", messageTasks)
+        }
     }
 
     private fun parseCommand(request: String): AgentBrowserCommand {
@@ -179,7 +256,9 @@ internal class AgentChatBrowser(
 
     override fun dispose() {
         renderTimer.stop()
+        patchTimer.stop()
         pendingState = null
+        pendingPatches.clear()
         ready = false
     }
 
