@@ -1,13 +1,18 @@
 package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.lhstack.tools.agent.model.log.ModelLogService
 import com.lhstack.tools.db.entity.ModelEntity
 import com.lhstack.tools.db.entity.PromptTemplateEntity
 import com.lhstack.tools.db.entity.ProviderEntity
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ChatSessionService
+import com.lhstack.tools.db.service.CodingEnvironmentService
 import com.lhstack.tools.db.service.ChatSessionType
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.db.service.SettingService
@@ -31,6 +36,7 @@ internal object AgentBrowserManagement {
     private data class ConfigField(
         val key: String,
         val label: String,
+        val description: String,
         val type: String,
         val default: String,
         val options: () -> List<Map<String, Any?>> = ::emptyOptions,
@@ -47,19 +53,22 @@ internal object AgentBrowserManagement {
     }
 
     private val configFields = listOf(
-        ConfigField(AgentPolishService.SETTING_KEY, "输入框润色 Agent", "select", "", ::polishAgentOptions),
-        ConfigField("model.max_tool_call_rounds", "默认工具调用轮次", "number", "30"),
-        ConfigField("model.max_retries", "默认模型重试次数", "number", "0"),
-        ConfigField("model.dns_servers", "模型请求 DNS", "text", ""),
-        ConfigField("model.http_request_timeout_secs", "模型 HTTP 请求超时", "number", "0"),
-        ConfigField("model.http_max_retries_per_request", "模型 HTTP 单请求重试次数", "number", "2"),
-        ConfigField("model.http_pool_idle_timeout_secs", "模型连接池空闲秒数", "number", "120"),
-        ConfigField("model.http_pool_max_idle_per_host", "每 Host 最大空闲连接", "number", "32"),
-        ConfigField("agent.distillation.max_threads", "Agent 蒸馏最大线程数", "number", "1"),
-        ConfigField("web_fetch.proxy_enabled", "启用 Web Fetch 代理", "boolean", "false"),
-        ConfigField("web_fetch.proxy", "Web Fetch 代理地址", "text", ""),
-        ConfigField("web_fetch.timeout_secs", "Web Fetch 超时", "number", "30"),
-        ConfigField("web_fetch.max_response_bytes", "Web Fetch 最大响应字节", "number", "1000000"),
+        ConfigField(AgentPolishService.SETTING_KEY, "输入框润色 Agent", "对话输入框的润色入口使用的 Agent。留空表示不启用润色。", "select", "", ::polishAgentOptions),
+        ConfigField("coding.compaction_agent_id", "上下文压缩 Agent", "编码会话手动压缩上下文时使用的 Agent。环境自己的压缩 Agent 优先，这里是全局回退。", "select", "", ::polishAgentOptions),
+        ConfigField("model.max_tool_call_rounds", "默认工具调用轮次", "模型请求自动执行工具调用循环时允许的默认最大轮次。默认 30。", "number", "30"),
+        ConfigField("model.max_retries", "默认模型重试次数", "模型 API 请求失败后的默认重试次数。0 表示不重试。", "number", "0"),
+        ConfigField("model.retry_interval_ms", "模型重试间隔", "模型请求失败后的重试等待时间，单位毫秒。默认 2000。", "number", "2000"),
+        ConfigField("message.history_token_ratio", "历史 Token 估算比例", "估算消息历史占用时，字符数到 Token 的换算比例。默认 2.0。", "number", "2"),
+        ConfigField("model.dns_servers", "模型请求 DNS", "模型 API 请求使用的自定义 DNS 服务器，多个用英文逗号分隔。支持 223.5.5.5 或 223.5.5.5:53；留空时不启用自定义 DNS。", "text", ""),
+        ConfigField("model.http_request_timeout_secs", "模型 HTTP 请求超时", "模型 HTTP 客户端单次请求的总超时时间，单位秒。0 表示不设置总请求超时。", "number", "0"),
+        ConfigField("model.http_pool_idle_timeout_secs", "模型连接池空闲秒数", "模型 HTTP 客户端连接池中空闲连接的保留时长，单位秒。默认 120。", "number", "120"),
+        ConfigField("model.http_pool_max_idle_per_host", "每 Host 最大空闲连接", "模型 HTTP 客户端连接池为每个 Host 保留的最大空闲连接数。默认 32。", "number", "32"),
+        ConfigField("web_fetch.proxy_enabled", "启用 Web Fetch 代理", "控制 web_fetch 工具是否使用工具代理地址。关闭时即使填了代理也不会生效。", "boolean", "false"),
+        ConfigField("web_fetch.proxy", "Web Fetch 代理地址", "web_fetch 工具默认代理。示例：http://127.0.0.1:7890、socks5://127.0.0.1:1080。只影响 web_fetch，不影响模型 API 请求。", "text", ""),
+        ConfigField("web_fetch.timeout_secs", "Web Fetch 超时", "web_fetch 工具默认请求超时时间，单位秒。", "number", "30"),
+        ConfigField("web_fetch.max_response_bytes", "Web Fetch 最大响应字节", "web_fetch 工具读取响应体的最大字节数，避免拉取过大的页面或文件。", "number", "1000000"),
+        ConfigField("bash.max_output_chars", "Bash 最大输出", "Agent 运行里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。", "number", "8000"),
+        ConfigField("coding.bash.max_output_chars", "编码会话 Bash 最大输出", "编码会话里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。", "number", "8000"),
     )
 
     fun handle(project: Project, type: String, payload: JsonObject, changed: () -> Unit): Any? = when (type) {
@@ -67,6 +76,7 @@ internal object AgentBrowserManagement {
             mapOf(
                 "id" to session.id,
                 "title" to session.title,
+                "codingEnvironmentId" to session.codingEnvironmentId,
                 "agentId" to session.agentId,
                 "sessionType" to session.sessionType.value,
                 "projectPath" to session.projectPath,
@@ -76,11 +86,18 @@ internal object AgentBrowserManagement {
         }
         "session.create" -> {
             val type = ChatSessionType.from(string(payload, "sessionType"))
+            val environmentId = payload.longOrNull("codingEnvironmentId")
+                ?: payload.longOrNull("environmentId")
+                ?: throw IllegalArgumentException("创建会话必须指定编码环境")
             ChatSessionService.createSession(
-                payload.stringOrNull("title") ?: "新会话",
-                payload.longOrNull("agentId"),
-                type,
-                projectPath(project).takeIf { type == ChatSessionType.PROJECT },
+                title = payload.stringOrNull("title") ?: "新会话",
+                codingEnvironmentId = environmentId,
+                sessionType = type,
+                workspacePath = projectPath(project),
+                agentId = payload.longOrNull("agentId"),
+                providerId = payload.longOrNull("providerId"),
+                modelId = payload.longOrNull("modelId"),
+                promptId = payload.longOrNull("promptId"),
             )
             changed()
             Unit
@@ -142,18 +159,85 @@ internal object AgentBrowserManagement {
         "agent.delete" -> { AgentService.deleteAgent(long(payload, "id")); changed(); Unit }
         "skills.list" -> ResourceConfigService.listSkills().map { skillMap(it) }
         "skill.files" -> skillFileNode(ResourceConfigService.skillFileTree(string(payload, "name")))
-        "skill.create" -> mapOf("name" to ResourceConfigService.createSkill(string(payload, "name")))
+        "skill.create" -> mapOf("name" to ResourceConfigService.createSkill(string(payload, "name"), string(payload, "description")))
+        "skill.import" -> {
+            val report = ResourceConfigService.importSkills(string(payload, "sourcePath"))
+            mapOf(
+                "imported" to report.imported.map(::skillMap),
+                "failed" to report.failed.map { mapOf("name" to it.name, "error" to it.error) },
+            )
+        }
+        "skill.chooseImportDir" -> chooseSkillImportDir(project)
         "skill.delete" -> { ResourceConfigService.deleteSkill(string(payload, "name")); Unit }
         "skill.deleteEntry" -> { ResourceConfigService.deleteSkillEntry(string(payload, "name"), string(payload, "path")); Unit }
         "skill.read" -> ResourceConfigService.readSkillFile(string(payload, "name"), payload.get("path")?.asString).let { mapOf("skill" to it.skill, "path" to it.path, "content" to it.content) }
         "skill.save" -> { ResourceConfigService.writeSkillFile(string(payload, "name"), string(payload, "path"), string(payload, "content")); Unit }
         "skill.createFile" -> mapOf("path" to ResourceConfigService.createSkillFile(string(payload, "name"), payload.stringOrNull("parentPath"), string(payload, "fileName")))
         "skill.createDirectory" -> mapOf("path" to ResourceConfigService.createSkillDirectory(string(payload, "name"), payload.stringOrNull("parentPath"), string(payload, "directoryName")))
-        "config.get" -> configFields.map { mapOf("key" to it.key, "label" to it.label, "type" to it.type, "value" to (SettingService.setting(it.key) ?: it.default), "options" to it.options()) }
+        "config.get" -> configFields.map { mapOf(
+            "key" to it.key,
+            "label" to it.label,
+            "description" to it.description,
+            "type" to it.type,
+            "value" to (SettingService.setting(it.key) ?: it.default),
+            "options" to it.options(),
+        ) }
         // 润色 Agent 等配置直接影响对话面板入口，保存后需要通知宿主同步状态。
         "config.save" -> { payload.getAsJsonObject("values").entrySet().forEach { (key, value) -> SettingService.setSetting(key, value.asString) }; changed(); Unit }
+        "environments.catalog" -> mapOf(
+            "environments" to CodingEnvironmentService.listAll().map(::environmentMap),
+            "agents" to AgentService.listAgents().filter { it.enabled }.map { mapOf("id" to it.id, "name" to it.name) },
+            "skills" to ResourceConfigService.listSkills().map { mapOf(
+                "name" to it.name,
+                "description" to it.description,
+                "available" to it.available,
+                "fail_reason" to it.failReason,
+            ) },
+            "tools" to CodingEnvironmentService.toolNames,
+            "pluginFunctionGroups" to PluginFunctionToolSupport.groups(project).map { group -> mapOf(
+                "pluginKey" to group.pluginKey,
+                "pluginName" to group.pluginName,
+                "functions" to group.functions.map { function -> mapOf(
+                    "key" to function.key,
+                    "name" to function.functionName,
+                    "toolName" to function.toolName,
+                    "description" to function.description,
+                ) },
+            ) },
+        )
+        "environment.create" -> {
+            val record = CodingEnvironmentService.create(string(payload, "name"))
+            changed()
+            environmentMap(record)
+        }
+        "environment.rename" -> {
+            CodingEnvironmentService.rename(long(payload, "id"), string(payload, "name"))
+            changed()
+            Unit
+        }
+        "environment.save" -> {
+            val config = payload.get("config")?.takeIf { it.isJsonObject }?.asJsonObject
+                ?: throw IllegalArgumentException("缺少环境配置")
+            val record = CodingEnvironmentService.updateConfig(long(payload, "id"), config)
+            changed()
+            environmentMap(record)
+        }
+        "environment.delete" -> {
+            CodingEnvironmentService.delete(long(payload, "id"))
+            changed()
+            Unit
+        }
         else -> error("Unsupported Agent UI command: $type")
     }
+
+    private fun environmentMap(record: com.lhstack.tools.db.service.CodingEnvironmentRecord) = mapOf(
+        "id" to record.id,
+        "name" to record.name,
+        "enabled" to record.enabled,
+        "config" to record.config,
+        "created_at" to record.createdAt,
+        "updated_at" to record.updatedAt,
+    )
 
     private fun requireVisibleSession(project: Project, id: Long) =
         requireNotNull(ChatSessionService.visibleSessionById(id, projectPath(project))) { "会话不存在或不属于当前项目" }
@@ -193,6 +277,20 @@ internal object AgentBrowserManagement {
     private fun providerMap(v: ProviderEntity) = mapOf("id" to v.id, "name" to v.name, "kind" to v.kind, "apiKey" to v.apiKey, "baseUrl" to v.baseUrl, "api" to v.api, "anthropicVersion" to v.anthropicVersion, "providerConfig" to parseJsonObject(v.providerConfig), "enabled" to v.enabled)
     private fun modelMap(v: ModelEntity) = mapOf("id" to v.id, "providerId" to v.providerId, "alias" to v.alias, "modelId" to v.modelId, "displayName" to v.displayName, "api" to v.api, "contextWindow" to v.contextWindow, "modalities" to v.modalities, "modelParams" to v.modelParams, "executionParams" to v.executionParams, "additionalParams" to v.additionalParams, "enabled" to v.enabled)
     private fun promptMap(v: PromptTemplateEntity) = mapOf("id" to v.id, "name" to v.name, "preamble" to v.preamble, "updatedAt" to v.updatedAt)
+    private fun chooseSkillImportDir(project: Project): String? {
+        val descriptor = FileChooserDescriptor(false, true, false, false, false, false).apply {
+            title = "选择要导入的技能目录"
+            description = "将递归导入包含 SKILL.md 的技能目录"
+        }
+        val selected = arrayOfNulls<VirtualFile>(1)
+        val choose = Runnable {
+            selected[0] = FileChooser.chooseFile(descriptor, project, null)
+        }
+        val application = ApplicationManager.getApplication()
+        if (application.isDispatchThread) choose.run() else application.invokeAndWait(choose)
+        return selected[0]?.path
+    }
+
     private fun skillFileNode(v: ResourceConfigService.SkillFileNode): Map<String, Any?> = mapOf(
         "name" to v.name,
         "path" to v.path,
@@ -224,7 +322,6 @@ internal object AgentBrowserManagement {
             "profile" to v.extConfig.persona.profile, "profileMaxChars" to v.extConfig.persona.profileMaxChars,
             "guardrails" to v.extConfig.persona.guardrails, "guardrailsMaxChars" to v.extConfig.persona.guardrailsMaxChars,
         ),
-        "distill" to mapOf("enabled" to v.distillConfig.enabled, "agentId" to v.distillConfig.agentId, "minMessages" to v.distillConfig.minMessages, "messageTypes" to v.distillConfig.messageTypes, "extraPrompt" to v.distillConfig.extraPrompt),
         "updatedAt" to v.updatedAt,
     )
     private fun viewResourceMap(v: AgentViewResourceRef) = mapOf("enabled" to v.enabled, "agentId" to v.agentId)
@@ -260,7 +357,7 @@ internal object AgentBrowserManagement {
                 viewResources = parseViewResources(p.getAsJsonObject("viewResources")),
                 persona = parsePersona(p.getAsJsonObject("persona")),
             ),
-            distillConfig = parseDistill(p.getAsJsonObject("distill"), base.distillConfig.lastDistilledModelLogId),
+            distillConfig = AgentDistillConfig(),
         ))
     }
     private fun parseViewResources(p: JsonObject?): AgentViewResourcesConfig = AgentViewResourcesConfig(
@@ -275,12 +372,6 @@ internal object AgentBrowserManagement {
         profile = p?.let { string(it, "profile") }.orEmpty(), profileMaxChars = p?.get("profileMaxChars")?.asInt ?: 512,
         guardrails = p?.let { string(it, "guardrails") }.orEmpty(), guardrailsMaxChars = p?.get("guardrailsMaxChars")?.asInt ?: 512,
     )
-    private fun parseDistill(p: JsonObject?, lastId: Long?): AgentDistillConfig = AgentDistillConfig(
-        enabled = p?.boolean("enabled", false) ?: false, agentId = p?.longOrNull("agentId"),
-        minMessages = p?.get("minMessages")?.asInt ?: 10, messageTypes = p?.let { stringList(it, "messageTypes") } ?: emptyList(),
-        extraPrompt = p?.stringOrNull("extraPrompt"), lastDistilledModelLogId = lastId,
-    )
-
     private fun stringList(p: JsonObject, key: String): List<String> = p.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.map { it.asString } ?: emptyList()
 
     private fun provider(p: JsonObject) = ProviderEntity().apply {

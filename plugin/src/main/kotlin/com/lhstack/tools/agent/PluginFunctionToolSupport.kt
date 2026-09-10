@@ -24,10 +24,10 @@ object PluginFunctionToolSupport {
         val function: FunctionCalling,
     )
 
-    fun groups(project: Project?): List<Group> {
+    fun groups(project: Project? = null): List<Group> {
         val groups = mutableListOf<Group>()
         PluginManager.getInstance().plugins { info, plugin ->
-            functionEntries(project, pluginKey(info), info.name, plugin).takeIf { it.isNotEmpty() }?.let { entries ->
+            functionEntries(pluginKey(info), info.name, plugin, project).takeIf { it.isNotEmpty() }?.let { entries ->
                 groups.add(Group(pluginKey(info), info.name, entries))
             }
         }
@@ -36,20 +36,20 @@ object PluginFunctionToolSupport {
         if (devPlugin != null) {
             val pluginName = devInfo?.name ?: devPlugin.pluginName()
             val pluginKey = "dev:${pluginName}"
-            functionEntries(project, pluginKey, pluginName, devPlugin).takeIf { it.isNotEmpty() }?.let { entries ->
+            functionEntries(pluginKey, pluginName, devPlugin, project).takeIf { it.isNotEmpty() }?.let { entries ->
                 groups.add(Group(pluginKey, "$pluginName（开发）", entries))
             }
         }
         return groups
     }
 
-    fun entries(project: Project?): List<Entry> = groups(project).flatMap { it.functions }
+    fun entries(project: Project? = null): List<Entry> = groups(project).flatMap { it.functions }
 
     fun enabledEntries(
-        project: Project?,
         enabled: Collection<String>,
         includeNew: Boolean,
         disabled: Collection<String> = emptyList(),
+        project: Project? = null,
     ): List<Entry> {
         val enabledSet = enabled.toSet()
         val disabledSet = disabled.toSet()
@@ -68,8 +68,10 @@ object PluginFunctionToolSupport {
 
     private fun pluginKey(info: PluginInfo): String = "plugin:${info.id}"
 
-    private fun functionEntries(project: Project?, pluginKey: String, pluginName: String, plugin: IPlugin): List<Entry> {
-        val functions = if (project != null) plugin.functionCallings(project) else plugin.functionCallings("")
+    private fun functionEntries(pluginKey: String, pluginName: String, plugin: IPlugin, project: Project? = null): List<Entry> {
+        val functions = listOfNotNull(project).plus(openProjects()).distinct().firstNotNullOfOrNull { opened ->
+            plugin.functionCallings(opened).takeIf { it.isNotEmpty() }
+        } ?: plugin.functionCallings("")
         return functions
             .filter { it.name().isNotBlank() }
             .distinctBy { it.name() }
@@ -84,6 +86,9 @@ object PluginFunctionToolSupport {
                 )
             }
     }
+
+    private fun openProjects(): List<Project> =
+        com.intellij.openapi.project.ProjectManager.getInstance().openProjects.filterNot { it.isDisposed }
 
     private fun sanitize(value: String): String = value
         .map { ch -> if (ch.isLetterOrDigit() || ch == '_' || ch == '-') ch else '_' }

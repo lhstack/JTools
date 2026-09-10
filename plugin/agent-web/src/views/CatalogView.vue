@@ -71,6 +71,10 @@ function openGroup(g){remoteModels.value=[];remoteQuery.value='';selectedId.valu
 function newProvider(){remoteModels.value=[];remoteQuery.value='';selectedId.value=null;assign(provider,emptyProvider());normalizeProviderHeaders(provider);assign(model,emptyModel());assign(params,defaultParams());editing.value=false;sections.value=['provider','models'];dialog.value=true}
 function hydrate(x){return{...emptyModel(),...x,modalities:parseArray(x.modalities),enabled:x.enabled??1}}
 function parseArray(x){if(Array.isArray(x))return x;try{return JSON.parse(x||'[]')}catch{return['text']}}
+const REASONING_LABELS={none:'关闭',minimal:'极低',low:'低',medium:'中',high:'高',xhigh:'超高',max:'最大'}
+const reasoningEffortOptions=['none','minimal','low','medium','high','xhigh','max'].map(value=>({value,label:REASONING_LABELS[value]}))
+const outputEffortOptions=['low','medium','high','xhigh','max'].map(value=>({value,label:REASONING_LABELS[value]}))
+function modalityLabel(value){return ({text:'文本',image:'图片',audio:'音频',video:'视频',file:'文件'})[value]||value}
 function normalizeProviderHeaders(p){
   const cfg=p.providerConfig&&typeof p.providerConfig==='object'?p.providerConfig:{}
   const headers=Array.isArray(cfg.custom_headers)?cfg.custom_headers:[]
@@ -183,14 +187,19 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
                   <div class="form-three">
                     <el-form-item label="别名"><el-input v-model="model.alias"/></el-form-item><el-form-item label="模型 ID"><el-input v-model="model.modelId"/></el-form-item><el-form-item label="显示名称"><el-input v-model="model.displayName"/></el-form-item>
                     <el-form-item v-if="provider.kind==='openai'" label="API"><el-select v-model="model.api" clearable placeholder="继承供应商"><el-option label="Chat Completions" value="completions"/><el-option label="Responses" value="responses"/></el-select></el-form-item>
-                    <el-form-item label="上下文窗口"><el-input-number v-model="model.contextWindow" :min="1"/></el-form-item><el-form-item label="多模态能力"><el-select v-model="model.modalities" multiple><el-option v-for="x in ['text','image','audio','video','file']" :key="x" :value="x"/></el-select></el-form-item>
+                    <el-form-item label="上下文窗口"><el-input-number v-model="model.contextWindow" :min="1"/></el-form-item>
+                    <el-form-item label="多模态能力">
+                      <el-checkbox-group v-model="model.modalities" class="modality-checks">
+                        <el-checkbox-button v-for="x in ['text','image','audio','video','file']" :key="x" :value="x">{{ modalityLabel(x) }}</el-checkbox-button>
+                      </el-checkbox-group>
+                    </el-form-item>
                   </div>
                   <div class="section-caption"><strong>生成与推理</strong><span>根据 API 自动映射参数字段</span></div>
                   <div class="form-four">
                     <el-form-item label="最大输出 Token"><el-input-number v-model="params.maxTokens" :min="1"/></el-form-item>
-                    <template v-if="isAnthropic"><el-form-item label="Thinking"><el-select v-model="params.thinkingType"><el-option label="关闭" value="disabled"/><el-option label="启用" value="enabled"/><el-option label="Adaptive" value="adaptive"/></el-select></el-form-item><el-form-item v-if="params.thinkingType==='enabled'" label="Thinking Budget"><el-input-number v-model="params.thinkingBudget" :min="1024"/></el-form-item><el-form-item label="输出强度"><el-select v-model="params.outputEffort" clearable><el-option v-for="x in ['low','medium','high','xhigh','max']" :key="x" :value="x"/></el-select></el-form-item></template>
-                    <template v-else-if="isCompatible"><el-form-item label="推理强度"><el-select v-model="params.reasoning" clearable><el-option v-for="x in ['无','最小','低','中','高','极高']" :key="x" :label="x" :value="{'无':'none','最小':'minimal','低':'low','中':'medium','高':'high','极高':'xhigh'}[x]"/></el-select></el-form-item><el-form-item label="兼容推理"><el-select v-model="params.thinkingType"><el-option label="启用" value="enabled"/><el-option label="关闭" value="disabled"/></el-select></el-form-item><el-form-item label="输出强度"><el-select v-model="params.outputEffort" clearable><el-option v-for="x in ['low','medium','high','xhigh','max']" :key="x" :value="x"/></el-select></el-form-item></template>
-                    <el-form-item v-else label="推理强度"><el-select v-model="params.reasoning" clearable><el-option v-for="x in ['无','最小','低','中','高','极高']" :key="x" :label="x" :value="{'无':'none','最小':'minimal','低':'low','中':'medium','高':'high','极高':'xhigh'}[x]"/></el-select></el-form-item>
+                    <template v-if="isAnthropic"><el-form-item label="Thinking"><el-select v-model="params.thinkingType"><el-option label="关闭" value="disabled"/><el-option label="启用" value="enabled"/><el-option label="Adaptive" value="adaptive"/></el-select></el-form-item><el-form-item v-if="params.thinkingType==='enabled'" label="Thinking Budget"><el-input-number v-model="params.thinkingBudget" :min="1024"/></el-form-item><el-form-item label="输出强度"><el-select v-model="params.outputEffort" clearable><el-option v-for="x in outputEffortOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item></template>
+                    <template v-else-if="isCompatible"><el-form-item label="推理强度"><el-select v-model="params.reasoning" clearable><el-option v-for="x in reasoningEffortOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item><el-form-item label="兼容推理"><el-select v-model="params.thinkingType"><el-option label="启用" value="enabled"/><el-option label="关闭" value="disabled"/></el-select></el-form-item><el-form-item label="输出强度"><el-select v-model="params.outputEffort" clearable><el-option v-for="x in outputEffortOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item></template>
+                    <el-form-item v-else label="推理强度"><el-select v-model="params.reasoning" clearable><el-option v-for="x in reasoningEffortOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item>
                     <el-form-item v-if="!isCompatible&&!isAnthropic" label="结构化输出格式"><el-select v-model="params.outputFormat" clearable><el-option label="JSON Schema" value="json_schema"/></el-select></el-form-item>
                     <el-form-item label="流式输出"><el-switch v-model="params.stream"/></el-form-item>
                   </div>
@@ -208,3 +217,8 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
   </el-dialog>
 </PageShell>
 </template>
+
+<style scoped>
+.modality-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.modality-checks :deep(.el-checkbox-button__inner) { padding: 6px 10px; }
+</style>

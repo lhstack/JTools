@@ -2,8 +2,8 @@ package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 import com.lhstack.tools.plugins.FunctionCalling
 
 /** 把插件暴露的 FunctionCalling 包装为模型工具。 */

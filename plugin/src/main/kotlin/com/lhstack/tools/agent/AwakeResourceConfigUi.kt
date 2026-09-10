@@ -30,7 +30,6 @@ import com.lhstack.tools.db.config.AgentViewResourcesConfig
 import com.lhstack.tools.db.config.AgentViewResourceRef
 import com.lhstack.tools.db.config.AgentPersonaConfig
 import com.lhstack.tools.db.config.AgentDistillConfig
-import com.lhstack.tools.db.config.AgentDistillLogKind
 import com.lhstack.tools.db.service.ProviderModels
 import com.lhstack.tools.agent.model.tools.BuiltinTools
 import com.intellij.openapi.ui.ComboBox
@@ -97,8 +96,8 @@ private fun resourceFormGrid(vararg rows: List<JComponent>): JPanel = JPanel(Gri
 
 /** awake AgentsView 的 DTO 对齐 Swing 页面。复杂嵌套字段按原 JSON key 编辑。 */
 /**
- * awake AgentsView 的 Swing 复刻：左侧 Agent 列表，右侧四个折叠分区（模型 / 资源 / 角色 / 蒸馏），
- * 全部使用真实控件编辑，字段与 awake AgentsView 一一对应。
+ * awake AgentsView 的 Swing 复刻：左侧 Agent 列表，右侧三个折叠分区（模型 / 资源 / 角色），
+ * 全部使用真实控件编辑。蒸馏配置已移除，只保留压缩相关能力。
  */
 class AwakeAgentConfigPanel(private val project: Project, private val onChanged: (() -> Unit)? = null) {
 
@@ -142,12 +141,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
     // 角色分区
     private val personaControls = linkedMapOf<String, PersonaControl>()
 
-    // 蒸馏分区
-    private val distillEnabled = JCheckBox("启用")
-    private val distillAgentCombo = ComboBox<AgentOption>()
-    private val distillMinMessagesField = JBTextField()
-    private val distillTypeDropdown = CheckBoxMultiSelectDropdown(DISTILL_TYPES)
-    private val distillExtraPromptArea = JBTextArea(3, 0)
 
     val component: JComponent get() = root
 
@@ -157,7 +150,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
         providerCombo.renderer = simpleListRenderer { (it as? ProviderEntity)?.name.orEmpty() }
         modelCombo.renderer = simpleListRenderer { (it as? ModelEntity)?.alias.orEmpty() }
         promptCombo.renderer = simpleListRenderer { (it as? PromptOption)?.label.orEmpty() }
-        distillAgentCombo.renderer = simpleListRenderer { (it as? AgentOption)?.label.orEmpty() }
         providerCombo.addActionListener { if (!loading) onProviderChanged() }
         loadCatalog()
         buildLayout()
@@ -197,7 +189,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
         add(agentSection("模型", modelSection()))
         add(agentSection("资源", resourceSection()))
         add(agentSection("角色", personaSection()))
-        add(agentSection("蒸馏", distillSection()))
     }
 
     private fun agentSection(title: String, content: JComponent): JComponent = JPanel(BorderLayout(0, 4)).apply {
@@ -435,18 +426,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
         }
     }
 
-    // -------- 蒸馏分区 --------
-
-    private fun distillSection(): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        add(resourceFormGrid(
-            listOf(labeled("启用", distillEnabled), labeled("蒸馏 Agent", distillAgentCombo)),
-            listOf(labeled("最小消息数", distillMinMessagesField)),
-        ))
-        add(labeled("蒸馏消息类型", distillTypeDropdown))
-        add(labeled("蒸馏额外提示", resourceJsonEditor(distillExtraPromptArea, 3)))
-    }
-
     // -------- 数据加载 --------
 
     private fun loadCatalog() {
@@ -484,11 +463,8 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
         }
     }
 
-    private fun reloadAgentCombos(excludeId: Long?, selectedDistillId: Long?, selectedViewAgents: Map<String, Long?>) {
+    private fun reloadAgentCombos(excludeId: Long?, selectedViewAgents: Map<String, Long?>) {
         val agents = AgentService.listAgents().filter { it.id != null }
-        val allOptions = mutableListOf(AgentOption(null, "无"))
-        agents.forEach { allOptions.add(AgentOption(it.id, it.name)) }
-        fillAgentCombo(distillAgentCombo, allOptions, selectedDistillId)
         viewResourceControls.forEach { (kind, control) ->
             val options = mutableListOf(AgentOption(null, "无"))
             agents
@@ -564,7 +540,7 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
             "video" to ext.viewResources.video.agentId,
             "file" to ext.viewResources.file.agentId,
         )
-        reloadAgentCombos(record.id, record.distillConfig.agentId, selectedViewAgents)
+        reloadAgentCombos(record.id, selectedViewAgents)
         viewResourceControls["image"]?.enabled?.isSelected = ext.viewResources.image.enabled
         viewResourceControls["audio"]?.enabled?.isSelected = ext.viewResources.audio.enabled
         viewResourceControls["video"]?.enabled?.isSelected = ext.viewResources.video.enabled
@@ -577,11 +553,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
         personaControls["profile"]?.apply { area.text = persona.profile; maxChars.text = persona.profileMaxChars.toString() }
         personaControls["guardrails"]?.apply { area.text = persona.guardrails; maxChars.text = persona.guardrailsMaxChars.toString() }
 
-        val distill = record.distillConfig
-        distillEnabled.isSelected = distill.enabled
-        distillMinMessagesField.text = distill.minMessages.toString()
-        distillTypeDropdown.setSelectedValues(distill.messageTypes)
-        distillExtraPromptArea.text = distill.extraPrompt.orEmpty()
         loading = false
     }
 
@@ -627,7 +598,7 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
                 tags = tagsField.text.split(",").mapNotNull { it.trim().takeIf(String::isNotEmpty) },
                 runtimeParams = buildRuntimeConfig(),
                 extConfig = buildCapabilityConfig(),
-                distillConfig = buildDistillConfig(),
+                distillConfig = AgentDistillConfig(),
             )
             require(agent.name.isNotBlank()) { "name 不能为空" }
             val expectedTools = selectedKeys(toolChecks).toSet()
@@ -701,15 +672,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
         personaControls[key]?.maxChars?.text?.trim()?.toIntOrNull()?.coerceAtLeast(0)
             ?: AgentPersonaConfig.DEFAULT_PERSONA_MAX_CHARS
 
-    private fun buildDistillConfig(): AgentDistillConfig = AgentDistillConfig(
-        enabled = distillEnabled.isSelected,
-        agentId = (distillAgentCombo.selectedItem as? AgentOption)?.id,
-        minMessages = distillMinMessagesField.text.trim().toIntOrNull()?.coerceAtLeast(1) ?: AgentDistillConfig.DEFAULT_MIN_MESSAGES,
-        messageTypes = distillTypeDropdown.selectedValues,
-        extraPrompt = distillExtraPromptArea.text.trim().ifBlank { null },
-        lastDistilledModelLogId = current?.distillConfig?.lastDistilledModelLogId,
-    )
-
     private fun delete() {
         current?.id?.let { AgentService.deleteAgent(it) }
         refresh()
@@ -737,11 +699,6 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
             "memory" to "专业记忆", "behavior_habits" to "工作方法", "soul" to "角色设定",
             "profile" to "能力画像", "guardrails" to "边界约束",
         )
-        val DISTILL_TYPES = listOf(
-            "direct_run" to "直接运行", "chat_turn" to "对话轮次", "workflow_node" to "工作流节点",
-            "scheduled_run" to "定时运行", "multimodal_analysis" to "多模态分析",
-            "agent_distillation" to "Agent 蒸馏", "environment_distillation" to "环境蒸馏",
-        )
     }
 }
 
@@ -753,63 +710,6 @@ private class ScrollableWidthPanel : JPanel(), Scrollable {
     override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int = JBUI.scale(96)
     override fun getScrollableTracksViewportWidth(): Boolean = true
     override fun getScrollableTracksViewportHeight(): Boolean = false
-}
-
-/** 带复选框的多选下拉框，保存值保持为字符串列表。 */
-private class CheckBoxMultiSelectDropdown(
-    private val options: List<Pair<String, String>>,
-) : JPanel(BorderLayout()) {
-
-    private val checkBoxes = linkedMapOf<String, JCheckBox>()
-    private val button = JButton()
-    private val popup = JPopupMenu()
-
-    val selectedValues: List<String>
-        get() = checkBoxes.filterValues { it.isSelected }.keys.toList()
-
-    init {
-        isOpaque = false
-        options.forEach { (value, label) ->
-            checkBoxes[value] = JCheckBox(label).apply {
-                addActionListener { refreshButtonText() }
-            }
-        }
-        button.horizontalAlignment = SwingConstants.LEFT
-        button.addActionListener { showPopup() }
-        add(button, BorderLayout.CENTER)
-        rebuildPopup()
-        refreshButtonText()
-    }
-
-    fun setSelectedValues(values: List<String>) {
-        val selected = values.toSet()
-        checkBoxes.forEach { (value, checkBox) -> checkBox.isSelected = value in selected }
-        refreshButtonText()
-    }
-
-    private fun showPopup() {
-        rebuildPopup()
-        popup.show(button, 0, button.height)
-    }
-
-    private fun rebuildPopup() {
-        popup.removeAll()
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(4)
-            checkBoxes.values.forEach { add(it) }
-        }
-        popup.add(panel)
-        popup.pack()
-    }
-
-    private fun refreshButtonText() {
-        val labels = checkBoxes.filterValues { it.isSelected }.keys.mapNotNull { value ->
-            options.firstOrNull { it.first == value }?.second
-        }
-        button.text = labels.ifEmpty { listOf("请选择") }.joinToString("、")
-        button.toolTipText = labels.joinToString("、")
-    }
 }
 
 /** Skills 管理。主界面按技能行展开，展开后就是技能目录文件编辑器。 */
@@ -1345,29 +1245,31 @@ private data class GlobalConfigGroup(val title: String, val fields: List<GlobalC
 
 /** 对齐 awake SYSTEM_CONFIG_KEYS + configGroupDefinitions。active_environment 不做：idea-tools 无多环境模块。 */
 private val GLOBAL_CONFIG_GROUPS = listOf(
+    GlobalConfigGroup("对话输入", listOf(
+        GlobalConfigField("chat.polish.agent_id", "输入框润色 Agent", "对话输入框的润色入口使用的 Agent。留空表示不启用润色。", "text", ""),
+        GlobalConfigField("coding.compaction_agent_id", "上下文压缩 Agent", "编码会话手动压缩上下文时使用的 Agent。环境自己的压缩 Agent 优先，这里是全局回退。", "text", ""),
+    )),
     GlobalConfigGroup("模型执行", listOf(
         GlobalConfigField("model.max_tool_call_rounds", "默认工具调用轮次", "模型请求自动执行工具调用循环时允许的默认最大轮次。默认 30。", "number", "30"),
         GlobalConfigField("model.max_retries", "默认模型重试次数", "模型 API 请求失败后的默认重试次数。0 表示不重试。", "number", "0"),
+        GlobalConfigField("model.retry_interval_ms", "模型重试间隔", "模型请求失败后的重试等待时间，单位毫秒。默认 2000。", "number", "2000"),
+        GlobalConfigField("message.history_token_ratio", "历史 Token 估算比例", "估算消息历史占用时，字符数到 Token 的换算比例。默认 2.0。", "number", "2"),
     )),
     GlobalConfigGroup("模型 HTTP", listOf(
         GlobalConfigField("model.dns_servers", "模型请求 DNS", "模型 API 请求使用的自定义 DNS 服务器，多个用英文逗号分隔。支持 223.5.5.5 或 223.5.5.5:53；留空时不启用自定义 DNS。", "text", ""),
         GlobalConfigField("model.http_request_timeout_secs", "模型 HTTP 请求超时", "模型 HTTP 客户端单次请求的总超时时间，单位秒。0 表示不设置总请求超时。", "number", "0"),
-        GlobalConfigField("model.http_max_retries_per_request", "模型 HTTP 单请求重试次数", "reqwest 客户端每个底层 HTTP 请求错误的最大重试次数。默认 2，0 表示关闭客户端级重试。", "number", "2"),
         GlobalConfigField("model.http_pool_idle_timeout_secs", "模型连接池空闲保留秒数", "模型 HTTP 客户端连接池中空闲连接的保留时长，单位秒。默认 120。", "number", "120"),
         GlobalConfigField("model.http_pool_max_idle_per_host", "模型连接池每 Host 最大空闲连接数", "模型 HTTP 客户端连接池为每个 Host 保留的最大空闲连接数。默认 32。", "number", "32"),
-    )),
-    GlobalConfigGroup("蒸馏任务", listOf(
-        GlobalConfigField("distillation.max_threads", "蒸馏最大线程数", "全局同时执行的环境蒸馏任务数量上限。环境自己的蒸馏配置决定最小会话数和最小消息数。", "number", "1"),
-        GlobalConfigField("agent.distillation.max_threads", "Agent 蒸馏最大线程数", "全局同时执行的 Agent 蒸馏任务数量上限。每轮候选数量仍由 agent.distillation.max_agents_per_scan 控制。", "number", "1"),
-    )),
-    GlobalConfigGroup("渠道配置", listOf(
-        GlobalConfigField("channel.retry_count", "渠道重试次数", "渠道通知发送失败后的即时重试次数。默认 1，0 表示不重试。", "number", "1"),
     )),
     GlobalConfigGroup("Web Fetch 工具", listOf(
         GlobalConfigField("web_fetch.proxy_enabled", "启用工具代理", "控制 web_fetch 工具是否使用工具代理地址。关闭时即使填写了代理地址也不会生效。", "boolean", "false"),
         GlobalConfigField("web_fetch.proxy", "工具代理地址", "web_fetch 工具使用的代理地址，仅在启用工具代理时生效。示例：http://127.0.0.1:7890、socks5://127.0.0.1:1080。只影响 web_fetch，不影响模型 API 请求。", "url", ""),
         GlobalConfigField("web_fetch.timeout_secs", "Web Fetch 超时", "web_fetch 工具默认请求超时时间，单位秒。", "number", "30"),
         GlobalConfigField("web_fetch.max_response_bytes", "Web Fetch 最大响应", "web_fetch 工具读取响应体的最大字节数，避免拉取过大的页面或文件。", "number", "1000000"),
+    )),
+    GlobalConfigGroup("命令工具", listOf(
+        GlobalConfigField("bash.max_output_chars", "Bash 最大输出", "Agent 运行里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。", "number", "8000"),
+        GlobalConfigField("coding.bash.max_output_chars", "编码会话 Bash 最大输出", "编码会话里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。", "number", "8000"),
     )),
 )
 

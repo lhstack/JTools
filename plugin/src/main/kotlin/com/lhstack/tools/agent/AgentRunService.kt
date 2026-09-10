@@ -6,15 +6,14 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.Message
-import com.lhstack.tools.agent.model.llm.ProviderToolCall
-import com.lhstack.tools.agent.model.llm.ToolResult
-import com.lhstack.tools.agent.model.llm.ToolResultContent
+import com.lhstack.tools.llm.Message
+import com.lhstack.tools.llm.ProviderToolCall
+import com.lhstack.tools.llm.ToolResult
+import com.lhstack.tools.llm.ToolResultContent
+import com.lhstack.tools.llm.provider.ModelStreamSink
 import com.lhstack.tools.agent.model.log.ModelLogService
 import com.lhstack.tools.agent.model.log.ModelRequestException
 import com.lhstack.tools.agent.model.provider.AgentRuntime
-import com.lhstack.tools.agent.model.provider.ModelStreamSink
-import com.lhstack.tools.agent.model.provider.ToolEventSink
 import com.lhstack.tools.concurrent.AgentExecutors
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.ChatSessionService
@@ -106,9 +105,7 @@ internal object AgentRunService {
         val session = ChatSessionService.visibleSessionById(request.sessionId, projectPath)
             ?: throw IllegalArgumentException("投递会话 `${request.sessionId}` 不存在或在目标项目不可见")
         if (request.receiver.requiresQueueDelivery()) {
-            val targetAgentId = session.agentId
-                ?: throw IllegalArgumentException("投递会话 `${request.sessionId}` 未绑定 Agent，无法将结果加入用户消息队列")
-            val targetAgent = AgentService.agentById(targetAgentId)
+            val targetAgent = AgentService.agentById(session.agentId)
                 ?: throw IllegalArgumentException("投递会话 `${request.sessionId}` 绑定的 Agent 不存在")
             require(targetAgent.enabled) { "投递会话 `${request.sessionId}` 绑定的 Agent 已停用" }
         }
@@ -315,7 +312,7 @@ internal object AgentRunService {
         }
     }
 
-    private fun eventSink(run: RunState) = object : ToolEventSink {
+    private fun eventSink(run: RunState) = object : AgentRuntime.ToolEventSink {
         override fun onToolCall(call: ProviderToolCall) {
             synchronized(run) { run.tools[call.id] = AgentToolItem(call.id, call.name, call.argsString()) }
             if (run.runId !in deletedRuns) publish(run)
@@ -380,27 +377,18 @@ internal object AgentRunService {
         return toolDetail(args, result?.get("result")?.asString.orEmpty())
     }
 
-    private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> =
-        ModelLogService.listChatTurnsForSession(session.id)
-            .filter(ChatTurnHistoryPolicy::shouldInclude)
-            .flatMap { turn -> sessionHistoryMessages(turn) }
-
-    private fun sessionHistoryMessages(turn: ModelLogService.ChatTurn): List<Message> {
-        val request = turn.requestData.getAsJsonObject("request_snapshot")
-        val structured = turn.responseData.getAsJsonObject("structured_response")
-        val response = structured?.get("response")?.asString.orEmpty()
-        if (turn.messageType == "agent_run") {
-            return if (request?.get("agent_run_receiver")?.asString?.let(AgentRunReceiver::from)?.isAssistantMessage() == true && response.isNotBlank()) {
-                listOf(Message.assistant(response))
-            } else {
-                emptyList()
-            }
-        }
-        val prompt = request?.get("prompt_message")?.asString.orEmpty()
-        return buildList {
-            if (prompt.isNotBlank()) add(Message.user(prompt))
-            ChatTurnHistoryMessages.append(this, structured)
-        }
+    private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> {
+        val events = com.lhstack.tools.db.service.MessageStoreService.assembledHistoryEvents(session.id, "", includeCurrentTurn = true)
+        val maxHistoryRounds = session.config.get("max_history_rounds")
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+            ?.asInt
+        val history = com.lhstack.tools.agent.coding.MessageHistorySupport.toModelHistory(
+            events = events,
+            currentTurnId = "",
+            includeCurrentTurn = true,
+            maxHistoryRounds = maxHistoryRounds,
+        )
+        return history
     }
 
     private fun resolveProject(projectPath: String): Project {

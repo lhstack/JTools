@@ -420,19 +420,19 @@ class AwakeModelParamsPanel {
     private fun optionLabel(key: String, value: String): String = when (key) {
         "reasoning_effort", "reasoning.effort" -> when (value) {
             "" -> "未设置"; "none" -> "不推理"; "minimal" -> "极低"; "low" -> "低"
-            "medium" -> "中"; "high" -> "高"; "xhigh" -> "极高"; else -> value
+            "medium" -> "中"; "high" -> "高"; "xhigh" -> "超高"; "max" -> "最大"; else -> value
         }
         "thinking.type" -> when (value) {
             "" -> "未设置"; "enabled" -> "启用"; "disabled" -> "禁用"; "adaptive" -> "自适应"; else -> value
         }
         "output_config.effort" -> when (value) {
-            "" -> "未设置"; "low" -> "低"; "medium" -> "中"; "high" -> "高"; "xhigh" -> "极高"; "max" -> "最大"; else -> value
+            "" -> "未设置"; "low" -> "低"; "medium" -> "中"; "high" -> "高"; "xhigh" -> "超高"; "max" -> "最大"; else -> value
         }
         else -> value.ifBlank { "未设置" }
     }
 
     private companion object {
-        val REASONING_EFFORTS = listOf("none", "minimal", "low", "medium", "high", "xhigh")
+        val REASONING_EFFORTS = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max")
         val OUTPUT_EFFORTS = listOf("low", "medium", "high", "xhigh", "max")
     }
 }

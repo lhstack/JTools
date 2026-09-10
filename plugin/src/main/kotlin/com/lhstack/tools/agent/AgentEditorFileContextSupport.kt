@@ -8,6 +8,7 @@ import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.lhstack.tools.agent.model.tools.WorkspaceTools
+import com.lhstack.tools.db.AgentDatabase
 import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.db.service.SettingService
 import java.io.File
@@ -31,8 +32,10 @@ object AgentEditorFileContextSupport {
             get() = path.substringAfterLast('/').ifBlank { path }
     }
 
-    fun isEnabled(projectPath: String): Boolean =
-        SettingService.setting(settingKey(projectPath)) == "true"
+    fun isEnabled(projectPath: String): Boolean {
+        if (!AgentDatabase.isReady()) return false
+        return SettingService.setting(settingKey(projectPath)) == "true"
+    }
 
     fun setEnabled(projectPath: String, enabled: Boolean) {
         SettingService.setSetting(settingKey(projectPath), if (enabled) "true" else "false")
