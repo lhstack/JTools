@@ -77,8 +77,8 @@ class ToolRuntime(
         if (calls.isEmpty()) return emptyList()
         val pending = calls.map { call ->
             val index = definitions.indexOfFirst { it.name == call.name }
-            val timeoutSeconds = if (index >= 0) tools[index].executionTimeoutSeconds else 120L
-            PendingTool(call, timeoutSeconds.coerceAtLeast(1L), AgentExecutors.shared.submit(Callable { executeToolCall(call) }))
+            val timeoutSeconds = timeoutSecondsFor(call, index)
+            PendingTool(call, timeoutSeconds, AgentExecutors.shared.submit(Callable { executeToolCall(call) }))
         }
         val futures = pending.map { it.future }
         val cancelFutures = { futures.forEach { it.cancel(true) }; Unit }
@@ -116,6 +116,22 @@ class ToolRuntime(
         for ((call, output) in calls.zip(outputs)) {
             hook.onToolResult(call.name, call.callId, call.id, call.argsString(), output)
         }
+    }
+
+    private fun timeoutSecondsFor(call: ProviderToolCall, index: Int): Long {
+        val declared = if (index >= 0) tools[index].executionTimeoutSeconds else 120L
+        val requested = requestedTimeoutSeconds(call)
+        return maxOf(declared, requested).coerceAtLeast(1L)
+    }
+
+    /** 工具参数里的 timeout_secs 若更长，外层必须让内部超时先返回。 */
+    private fun requestedTimeoutSeconds(call: ProviderToolCall): Long {
+        val args = call.arguments.takeIf { it.isJsonObject }?.asJsonObject ?: return 0L
+        val value = args.get("timeout_secs") ?: return 0L
+        if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return 0L
+        val seconds = value.asLong
+        if (seconds <= 0L) return 0L
+        return seconds + 10L
     }
 
     /** 照抄 execute_tool_call：按名找工具，未注册返回错误文本，异常包成错误文本。 */

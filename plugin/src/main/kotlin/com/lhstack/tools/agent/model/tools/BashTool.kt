@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  * bash 工具。完全照抄 awake-claw tools.rs 的 BashTool。
  *
  * 用系统 shell 执行命令，返回 stdout / stderr / exit_code / success。
- * cwd 省略时用 workspace 根目录；timeout 默认 30s，硬上限 300s。
+ * cwd 省略时用 workspace 根目录；timeout_secs 未设置时默认 300s，设置后按该秒数超时。
  * 支持超时与取消：超时/取消时销毁进程树并在 stderr 追加提示，success=false。
  *
  * 环境变量由 [ShellEnvironment] 提供：登录 shell 不读 .zshrc/.bashrc，而版本管理器
@@ -35,6 +35,9 @@ class BashTool(
     private val cancel: ModelCancel? = null,
     private val maxOutputChars: Int = ToolOutputLimit.MAX_BYTES,
 ) : ToolDyn {
+
+    /** ToolRuntime 外层超时。默认覆盖 300s，参数 timeout_secs 更大时由 ToolRuntime 再抬高。 */
+    override val executionTimeoutSeconds: Long = 310L
 
     override fun definition(prompt: String): ToolDefinition {
         val shell = SelectedShell.current()
@@ -57,7 +60,7 @@ class BashTool(
                         },
                         "timeout_secs": {
                             "type": "integer",
-                            "description": "可选。超时秒数，默认 30，最大 300。超时会终止整个进程树，并在 stderr 说明已超时。"
+                            "description": "可选。超时秒数。未设置时默认 300；设置后按该秒数超时并终止整个进程树。"
                         },
                         "refresh_vfs": {
                             "type": "boolean",
@@ -91,9 +94,9 @@ class BashTool(
                 throw ToolException.invalidCwd(e.message ?: e.toString())
             }
         }
-        // 部分模型用 0 表达"不指定超时"；0 及负值按未指定处理取默认值，避免夹取成 1 秒导致命令必然超时。
+        // 未设置、0 或负值按默认 300 秒；设置了正数就按该秒数超时，不再夹取到 300。
         val timeoutSecs = obj.get("timeout_secs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
-            ?.asLong?.takeIf { it > 0 }?.coerceIn(1, 300) ?: 30
+            ?.asLong?.takeIf { it > 0 } ?: 300
         val refreshVfs = obj.get("refresh_vfs")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
             ?.asBoolean ?: false
         val refreshEnv = obj.get("refresh_env")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
