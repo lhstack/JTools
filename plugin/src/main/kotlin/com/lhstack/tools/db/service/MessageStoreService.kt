@@ -18,6 +18,7 @@ import com.lhstack.tools.agent.coding.MessageTaskStatus
 import com.lhstack.tools.agent.coding.NewMessageEvent
 import com.lhstack.tools.agent.coding.PendingMessageTask
 import com.lhstack.tools.db.AgentDatabase
+import com.lhstack.tools.db.MessageEventTokenSupport
 import com.lhstack.tools.db.entity.ChatSessionEntity
 import com.lhstack.tools.db.entity.ContextCompactionEntity
 import com.lhstack.tools.db.entity.MessageAppendItemEntity
@@ -1125,18 +1126,11 @@ object MessageStoreService {
         session: SqlSession,
         eventType: MessageEventType,
         value: JsonObject,
-    ): JsonObject {
-        val context = value.deepCopy()
-        if (eventType == MessageEventType.MODEL_RETRY || eventType == MessageEventType.TASK_FAILED) {
-            context.remove("estimated_tokens")
-            return context
-        }
-        val ratio = historyTokenRatio()
-        context.remove("estimated_tokens")
-        val projected = context.toString()
-        context.addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(projected, ratio))
-        return context
-    }
+    ): JsonObject = MessageEventTokenSupport.reestimate(
+        context = value,
+        eventType = eventType.value,
+        ratio = historyTokenRatio(),
+    )
 
     private fun historyTokenRatio(): Double {
         val raw = runCatching { SettingService.setting("message.history_token_ratio") }.getOrNull()

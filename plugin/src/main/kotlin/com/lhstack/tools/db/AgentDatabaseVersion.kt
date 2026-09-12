@@ -2,7 +2,7 @@ package com.lhstack.tools.db
 
 /** Agent 数据库的 SQLite schema 版本策略。 */
 internal object AgentDatabaseVersion {
-    const val CURRENT_SCHEMA_VERSION = 1
+    const val CURRENT_SCHEMA_VERSION = 2
     const val REBUILD_FROM_VERSION = 1
 
     fun shouldRebuildSchema(schemaVersion: Int): Boolean {

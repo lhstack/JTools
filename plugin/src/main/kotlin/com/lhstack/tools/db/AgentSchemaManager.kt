@@ -15,6 +15,14 @@ internal object AgentSchemaManager {
                 wipeUserSchema(connection)
             }
             applyCurrentSchema(connection, databaseFile)
+            if (schemaVersion >= AgentDatabaseVersion.REBUILD_FROM_VERSION &&
+                schemaVersion < AgentDatabaseVersion.CURRENT_SCHEMA_VERSION
+            ) {
+                MessageEventTokenSupport.recalculateExistingEvents(
+                    connection,
+                    MessageEventTokenSupport.configuredRatio(connection),
+                )
+            }
             writeSchemaVersion(connection, AgentDatabaseVersion.CURRENT_SCHEMA_VERSION)
             connection.commit()
         } catch (e: Throwable) {

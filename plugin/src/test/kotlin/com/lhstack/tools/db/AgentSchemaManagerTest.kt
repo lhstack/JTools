@@ -79,7 +79,7 @@ class AgentSchemaManagerTest {
         assertTrue(AgentDatabaseVersion.shouldRebuildSchema(0))
         assertFalse(AgentDatabaseVersion.shouldRebuildSchema(1))
         assertFailsWith<IllegalStateException> {
-            AgentDatabaseVersion.shouldRebuildSchema(2)
+            AgentDatabaseVersion.shouldRebuildSchema(3)
         }
     }
 
@@ -88,7 +88,7 @@ class AgentSchemaManagerTest {
         DriverManager.getConnection("jdbc:sqlite::memory:").use { connection ->
             connection.autoCommit = false
             connection.createStatement().use { statement ->
-                statement.execute("pragma user_version = 2")
+                statement.execute("pragma user_version = 3")
                 connection.commit()
             }
 
@@ -96,7 +96,7 @@ class AgentSchemaManagerTest {
                 AgentSchemaManager.apply(connection, File("agent.db"))
             }
 
-            assertEquals(2, schemaVersion(connection))
+            assertEquals(3, schemaVersion(connection))
         }
     }
 
