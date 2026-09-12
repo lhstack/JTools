@@ -10,9 +10,11 @@ import com.lhstack.tools.agent.PluginFunctionToolSupport
 import com.lhstack.tools.db.config.AgentCapabilityConfig
 import com.lhstack.tools.db.config.AgentDistillLogKind
 import com.lhstack.tools.db.config.AgentRuntimeConfig
+import com.lhstack.tools.db.service.AgentEventStoreService
 import com.lhstack.tools.db.service.AgentRecord
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.llm.AssistantContent
@@ -118,7 +120,7 @@ object AgentRuntime {
             toolEnvVars = request.toolEnvVars,
             cancel = request.toolCancel ?: request.cancel,
             project = request.project,
-        ) + pluginFunctionTools(agent.extConfig, request) + viewResourceTools(agent.extConfig, request) + request.extraTools
+        ) + pluginFunctionTools(agent.extConfig, request, provider.name, model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId) + viewResourceTools(agent.extConfig, request) + request.extraTools
 
         ModelParams.validateContextBudget(
             runtimeModel.params.contextWindow,
@@ -160,32 +162,53 @@ object AgentRuntime {
             },
         )
 
-        val result = ModelRuntime.execute(
-            model = runtimeModel,
-            agentMaxTurns = null,
-            preamble = preamble,
-            promptMessage = promptMessage,
-            history = prepareHistory(agent, request, runtimeModel, preamble, promptMessage),
-            tools = tools,
-            logContext = logContext,
-            environmentId = null,
-            streamed = runtimeModel.stream,
-            streamSink = request.streamSink,
-            eventSink = request.eventSink,
-            cancel = request.cancel,
-            toolCancel = request.toolCancel,
-            onLogCreated = request.onLogCreated,
-            appendMessageChannel = request.appendMessageChannel,
-        )
+        val conversationId = "agent-${request.agentId}-${System.currentTimeMillis()}"
+        val result = try {
+            ModelRuntime.execute(
+                model = runtimeModel,
+                agentMaxTurns = runtimeModel.params.executionParams.maxToolCallRounds,
+                preamble = preamble,
+                promptMessage = promptMessage,
+                history = prepareHistory(agent, request, runtimeModel, preamble, promptMessage),
+                tools = tools,
+                logContext = logContext,
+                environmentId = null,
+                streamed = runtimeModel.stream,
+                streamSink = request.streamSink,
+                eventSink = request.eventSink,
+                cancel = request.cancel,
+                toolCancel = request.toolCancel,
+                onLogCreated = request.onLogCreated,
+                appendMessageChannel = request.appendMessageChannel,
+            )
+        } catch (error: Throwable) {
+            if (!isIsolatedTrigger(request.triggerType)) {
+                AgentEventStoreService.recordFailure(request.agentId, conversationId, error.message ?: error.toString())
+            }
+            throw error
+        }
+        if (!isIsolatedTrigger(request.triggerType)) {
+            AgentEventStoreService.recordExecution(request.agentId, conversationId, request.prompt, result.value)
+        }
         val output = result.value.get("response")?.takeIf { it.isJsonPrimitive }?.asString
             ?: result.value.toString()
         return ExecutionResult(result.modelLogId, result.value, output, result.assistantMessageAt)
     }
 
     private fun effectiveHistory(agent: AgentRecord, request: Request): List<Message> {
+        if (isIsolatedTrigger(request.triggerType)) return emptyList()
         if (request.triggerType == "chat") return request.history
-        return if (agent.runtimeParams.includeHistory) request.history else emptyList()
+        return AgentEventStoreService.loadHistory(
+            agentId = request.agentId,
+            includeHistory = agent.runtimeParams.includeHistory,
+            maxTurns = agent.runtimeParams.maxHistoryMessages,
+        )
     }
+
+    private fun isIsolatedTrigger(triggerType: String): Boolean = triggerType in setOf(
+        "view_image", "view_audio", "view_video", "view_files", "view_resources",
+        "coding_context_compaction", "coding_subagent",
+    )
 
     private fun prepareHistory(
         agent: AgentRecord,
@@ -221,13 +244,33 @@ object AgentRuntime {
     }
 
 
-    private fun pluginFunctionTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> =
-        PluginFunctionToolSupport.enabledEntries(
+    private fun pluginFunctionTools(
+        config: AgentCapabilityConfig,
+        request: Request,
+        providerName: String,
+        modelName: String,
+    ): List<ToolDyn> {
+        val session = request.sessionId?.let { ChatSessionService.sessionById(it) }
+        val sessionName = session?.title?.takeIf { it.isNotBlank() } ?: request.sessionId?.let { "agent-$it" }
+        val sessionKey = request.sessionId?.toString()
+        return PluginFunctionToolSupport.enabledEntries(
             enabled = config.pluginFunctions.enabled,
             includeNew = config.pluginFunctions.includeNew,
             disabled = config.pluginFunctions.disabled,
             project = request.project,
-        ).map { entry -> PluginFunctionTool(entry.toolName, entry.function) }
+            sessionName = sessionName,
+            sessionId = sessionKey,
+        ).map { entry ->
+            PluginFunctionTool(
+                toolName = entry.toolName,
+                function = entry.function,
+                sessionName = sessionName,
+                sessionId = sessionKey,
+                provider = providerName,
+                model = modelName,
+            )
+        }
+    }
 
     private fun viewResourceTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> = buildList {
         addViewResourceTool(ResourceKind.IMAGE, config.viewResources.image, request)

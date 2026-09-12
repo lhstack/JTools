@@ -24,36 +24,46 @@ object PluginFunctionToolSupport {
         val function: FunctionCalling,
     )
 
-    fun groups(project: Project? = null): List<Group> {
+    fun groups(
+        project: Project? = null,
+        sessionName: String? = null,
+        sessionId: String? = null,
+    ): List<Group> {
         val groups = mutableListOf<Group>()
         PluginManager.getInstance().plugins { info, plugin ->
-            functionEntries(pluginKey(info), info.name, plugin, project).takeIf { it.isNotEmpty() }?.let { entries ->
-                groups.add(Group(pluginKey(info), info.name, entries))
-            }
+            functionEntries(pluginKey(info), info.name, plugin, project, sessionName, sessionId)
+                .takeIf { it.isNotEmpty() }
+                ?.let { entries -> groups.add(Group(pluginKey(info), info.name, entries)) }
         }
         val devPlugin = DevPluginRegistry.plugin()
         val devInfo = DevPluginRegistry.pluginInfo()
         if (devPlugin != null) {
             val pluginName = devInfo?.name ?: devPlugin.pluginName()
             val pluginKey = "dev:${pluginName}"
-            functionEntries(pluginKey, pluginName, devPlugin, project).takeIf { it.isNotEmpty() }?.let { entries ->
-                groups.add(Group(pluginKey, "$pluginName（开发）", entries))
-            }
+            functionEntries(pluginKey, pluginName, devPlugin, project, sessionName, sessionId)
+                .takeIf { it.isNotEmpty() }
+                ?.let { entries -> groups.add(Group(pluginKey, "$pluginName（开发）", entries)) }
         }
         return groups
     }
 
-    fun entries(project: Project? = null): List<Entry> = groups(project).flatMap { it.functions }
+    fun entries(
+        project: Project? = null,
+        sessionName: String? = null,
+        sessionId: String? = null,
+    ): List<Entry> = groups(project, sessionName, sessionId).flatMap { it.functions }
 
     fun enabledEntries(
         enabled: Collection<String>,
         includeNew: Boolean,
         disabled: Collection<String> = emptyList(),
         project: Project? = null,
+        sessionName: String? = null,
+        sessionId: String? = null,
     ): List<Entry> {
         val enabledSet = enabled.toSet()
         val disabledSet = disabled.toSet()
-        return entries(project).filter { entry ->
+        return entries(project, sessionName, sessionId).filter { entry ->
             entry.key in enabledSet || (includeNew && entry.key !in disabledSet)
         }
     }
@@ -68,10 +78,15 @@ object PluginFunctionToolSupport {
 
     private fun pluginKey(info: PluginInfo): String = "plugin:${info.id}"
 
-    private fun functionEntries(pluginKey: String, pluginName: String, plugin: IPlugin, project: Project? = null): List<Entry> {
-        val functions = listOfNotNull(project).plus(openProjects()).distinct().firstNotNullOfOrNull { opened ->
-            plugin.functionCallings(opened).takeIf { it.isNotEmpty() }
-        } ?: plugin.functionCallings("")
+    private fun functionEntries(
+        pluginKey: String,
+        pluginName: String,
+        plugin: IPlugin,
+        project: Project? = null,
+        sessionName: String? = null,
+        sessionId: String? = null,
+    ): List<Entry> {
+        val functions = listFunctions(plugin, project, sessionName, sessionId)
         return functions
             .filter { it.name().isNotBlank() }
             .distinctBy { it.name() }
@@ -85,6 +100,26 @@ object PluginFunctionToolSupport {
                     function = function,
                 )
             }
+    }
+
+    private fun listFunctions(
+        plugin: IPlugin,
+        project: Project?,
+        sessionName: String?,
+        sessionId: String?,
+    ): List<FunctionCalling> {
+        val hasSession = !sessionName.isNullOrBlank() && !sessionId.isNullOrBlank()
+        val opened = listOfNotNull(project).plus(openProjects()).distinct()
+        if (hasSession) {
+            val name = sessionName!!
+            val id = sessionId!!
+            return opened.firstNotNullOfOrNull { item ->
+                plugin.functionCallings(name, id, item).takeIf { it.isNotEmpty() }
+            } ?: plugin.functionCallings(name, id, project?.locationHash.orEmpty())
+        }
+        return opened.firstNotNullOfOrNull { item ->
+            plugin.functionCallings(item).takeIf { it.isNotEmpty() }
+        } ?: plugin.functionCallings("")
     }
 
     private fun openProjects(): List<Project> =

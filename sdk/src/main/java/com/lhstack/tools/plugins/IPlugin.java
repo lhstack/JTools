@@ -175,6 +175,22 @@ public interface IPlugin {
         return functionCallings(project.getLocationHash());
     }
 
+    /**
+     * 按当前会话列出插件函数。默认转回 {@link #functionCallings(Project)}，已有实现不受影响。
+     */
+    @Since(value = "v1.1.5.4", changeNotes = "插件函数列举增加会话 id 和会话名称")
+    default List<FunctionCalling> functionCallings(String sessionName, String sessionId, Project project) {
+        return functionCallings(project);
+    }
+
+    /**
+     * 按当前会话列出插件函数。默认转回 {@link #functionCallings(String)}，已有实现不受影响。
+     */
+    @Since(value = "v1.1.5.4", changeNotes = "插件函数列举增加会话 id 和会话名称")
+    default List<FunctionCalling> functionCallings(String sessionName, String sessionId, String locationHash) {
+        return functionCallings(locationHash);
+    }
+
     default List<FunctionCalling> functionCallings(String locationHash) {
         return Collections.emptyList();
     }

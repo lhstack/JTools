@@ -93,6 +93,25 @@ object AgentSchema {
         );
         """.trimIndent(),
         """
+        create table if not exists agent_events (
+            id integer primary key autoincrement,
+            parent_event_id integer references agent_events(id) on delete restrict,
+            agent_id integer not null references agents(id) on delete cascade,
+            turn_id text not null,
+            status text not null check (status in ('running', 'completed', 'failed', 'cancelled')),
+            event_type text not null,
+            event_id text not null,
+            summary text not null,
+            context text not null check (json_valid(context)),
+            revision integer not null default 1,
+            created_at text not null default (CURRENT_TIMESTAMP),
+            updated_at text not null default (CURRENT_TIMESTAMP)
+        );
+        """.trimIndent(),
+        "create index if not exists idx_agent_events_agent_id_id on agent_events(agent_id, id);",
+        "create index if not exists idx_agent_events_agent_turn_id on agent_events(agent_id, turn_id, id);",
+        "create unique index if not exists uq_agent_events_identity on agent_events(agent_id, turn_id, ifnull(parent_event_id, 0), event_type, event_id);",
+        """
         create table if not exists message_sessions (
             id integer primary key autoincrement,
             session_type text not null check (session_type in ('common', 'coding')),

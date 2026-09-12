@@ -1,5 +1,6 @@
 package com.lhstack.tools.db
 
+import com.lhstack.tools.db.mapper.AgentEventMapper
 import com.lhstack.tools.db.mapper.AgentMapper
 import com.lhstack.tools.db.mapper.GlobalConfigMapper
 import com.lhstack.tools.db.mapper.ModelMapper
@@ -38,6 +39,7 @@ object AgentPersistence {
                 ModelMapper::class.java,
                 PromptTemplateMapper::class.java,
                 AgentMapper::class.java,
+                AgentEventMapper::class.java,
                 ModelRequestLogMapper::class.java,
                 ChatSessionMapper::class.java,
                 GlobalConfigMapper::class.java,

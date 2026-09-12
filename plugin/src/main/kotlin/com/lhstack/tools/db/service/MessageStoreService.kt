@@ -741,19 +741,34 @@ object MessageStoreService {
             ).map { toRecord(it, includeContext) }
         }
 
-    fun assembledHistoryEvents(sessionId: Long, currentTurnId: String, includeCurrentTurn: Boolean): List<MessageEventRecord> =
-        AgentDatabase.execute { session ->
-            val config = sessionConfig(session, sessionId)
-            val boundary = compactedThroughEventId(config)
-            val events = session.getMapper(MessageEventMapper::class.java).selectList(
-                QueryWrapper<MessageEventEntity>()
-                    .eq("session_id", sessionId)
-                    .orderByAsc("id"),
-            ).map { toRecord(it, true) }.filter { event ->
-                event.id > boundary && (includeCurrentTurn || event.turnId != currentTurnId)
-            }
-            events
-        }
+    fun assembledHistoryEvents(
+        sessionId: Long,
+        currentTurnId: String,
+        contextWindow: Long? = null,
+        outputTokens: Long? = null,
+    ): List<MessageEventRecord> = AgentDatabase.execute { session ->
+        val config = sessionConfig(session, sessionId)
+        val snapshot = config.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
+        val maxRounds = config.get("max_history_rounds")?.takeIf { it.isJsonPrimitive }?.asLong?.takeIf { it > 0 }
+        val toolRetention = snapshot.get("execution_params")
+            ?.takeIf { it.isJsonObject }
+            ?.asJsonObject
+            ?.get("tool_call_retention_rounds")
+            ?.takeIf { it.isJsonPrimitive }
+            ?.asLong
+        val reserved = reservedContextTokens(config)
+        val budget = contextWindow
+            ?.takeIf { it > 0 }
+            ?.let { window -> (window - (outputTokens ?: 0L) - reserved).coerceAtLeast(0L) }
+            ?: Long.MAX_VALUE
+        session.getMapper(MessageEventMapper::class.java).selectContextHistoryEvents(
+            sessionId,
+            currentTurnId,
+            maxRounds,
+            toolRetention,
+            budget,
+        ).map { toRecord(it, true) }
+    }
 
     fun messageContextStatus(sessionId: Long): JsonObject = AgentDatabase.execute { session ->
         contextStatus(session, sessionId)

@@ -260,8 +260,12 @@ object MessageProcessor {
         val environment = CodingEnvironmentService.requireEnabled(session.codingEnvironmentId)
         val attachments = MessageStoreService.listAttachmentsByIds(task.sessionId, task.attachments)
         require(attachments.size == task.attachments.size) { "Coding 消息包含无效附件" }
-        val historyEvents = MessageStoreService.assembledHistoryEvents(task.sessionId, task.turnId, includeCurrentTurn = false)
-        val history = MessageHistorySupport.toModelHistory(historyEvents, task.turnId, includeCurrentTurn = false)
+        val historyEvents = MessageStoreService.assembledHistoryEvents(
+            sessionId = task.sessionId,
+            currentTurnId = task.turnId,
+            contextWindow = model.params.contextWindow,
+            outputTokens = com.lhstack.tools.agent.model.params.ModelParams.runtimeOutputTokens(model),
+        )
         val promptMessage = if (task.resumed) {
             Message.user(MessageEventSupport.RESUMED_PROMPT)
         } else {
@@ -284,11 +288,16 @@ object MessageProcessor {
             toolCancelSlot = active.toolSlot,
             broadcaster = ::broadcast,
         )
+        val history = MessageHistorySupport.toModelHistory(
+            events = historyEvents,
+            currentTurnId = task.turnId,
+            includeCurrentTurn = false,
+        )
         val recorder = UnifiedMessageEventRecorder(task.sessionId, broadcaster = ::broadcast)
         val continuation = MessageAppendContinuation(task.sessionId, task.turnId, model.params.modalities)
         val result = ModelRuntime.execute(
             model = model,
-            agentMaxTurns = null,
+            agentMaxTurns = model.params.executionParams.maxToolCallRounds,
             preamble = runtime.preamble,
             promptMessage = promptMessage,
             history = history,

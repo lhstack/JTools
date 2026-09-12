@@ -151,8 +151,24 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.4</h2>
+            <h2>🚀 Version v1.1.5.5</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🧾 <b>Agent Event Persistence:</b> Added an independent <code>agent_events</code> store for user messages, reasoning, tool calls/results, model replies, and failures, keeping Agent history at Agent scope.</li>
+                <li>🧠 <b>Agent History Across Sessions:</b> Direct Agent runs restore history by Agent rather than by one chat session; isolated resource views, compaction, and subagent runs do not pollute regular history.</li>
+                <li>📐 <b>Context Budgeting:</b> Coding-session history is selected against the model context window, reserved output tokens, history limits, and retained tool-call rounds to keep requests within budget.</li>
+                <li>🔗 <b>Session-Aware Plugin Functions:</b> SDK plugin functions can receive the active session name, session ID, provider, and model, so integrations can identify their invocation context.</li>
+                <li>⚙️ <b>Execution Parameter Alignment:</b> Tool-call round limits and tool-history retention are now carried through model snapshots and applied consistently by coding and Agent runtimes.</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.5</code> and aligned SDK helper version metadata to <code>1155</code>.</li>
+                <li>🧾 <b>Agent 事件持久化：</b>新增独立 <code>agent_events</code> 存储，按 Agent 记录用户消息、推理、工具调用/结果、模型回复和失败事件，历史范围收敛到 Agent 维度。</li>
+                <li>🧠 <b>跨会话 Agent 历史：</b>通用 Agent 直接执行按 Agent 恢复历史，不再局限于单个聊天会话；资源查看、上下文压缩和 SubAgent 等隔离任务不污染普通历史。</li>
+                <li>📐 <b>上下文预算控制：</b>编码会话根据模型上下文窗口、输出 Token 预留、历史上限和工具调用保留轮次筛选历史，确保请求在预算内。</li>
+                <li>🔗 <b>会话感知的插件函数：</b>SDK 插件函数可接收当前会话名称、会话 ID、供应商和模型信息，准确识别调用上下文。</li>
+                <li>⚙️ <b>执行参数对齐：</b>工具调用轮次上限和工具历史保留策略通过模型快照传递，并由编码会话与 Agent 运行时统一应用。</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.5</code>，并同步 SDK Helper 版本元数据到 <code>1155</code>。</li>
+            </ul>
+            <h2>🚀 Version v1.1.5.4</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>♻️ <b>Coding Session Rewrite:</b> Rebuilt the chat dialog on the awake-claw coding-session path. Message events, processing tasks, append items, attachments, and context compaction replace the old message-card queue. This is a major version cut: no migration, no compatibility layer, no fallback. The plugin automatically rebuilds the database when it detects an older schema version; data in the old database is not retained.</li>
                 <li>🧩 <b>Coding Environment Capability Pack:</b> Sessions bind a coding environment instead of treating Agent as the model source. System prompt, builtin tools, plugin functions, skills, multimodal <code>view_*</code> tools, and the compaction Agent all come from the environment. Creating a session requires an environment first.</li>

@@ -61,6 +61,7 @@ enum class OpenAiApi {
 data class ModelExecutionParams(
     val maxToolCallRounds: Int? = null,
     val maxRetries: Int? = null,
+    val toolCallRetentionRounds: Int? = null,
 )
 
 /**

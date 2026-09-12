@@ -378,17 +378,13 @@ internal object AgentRunService {
     }
 
     private fun buildHistory(session: com.lhstack.tools.db.service.ChatSessionRecord): List<Message> {
-        val events = com.lhstack.tools.db.service.MessageStoreService.assembledHistoryEvents(session.id, "", includeCurrentTurn = true)
-        val maxHistoryRounds = session.config.get("max_history_rounds")
-            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
-            ?.asInt
-        val history = com.lhstack.tools.agent.coding.MessageHistorySupport.toModelHistory(
-            events = events,
-            currentTurnId = "",
-            includeCurrentTurn = true,
-            maxHistoryRounds = maxHistoryRounds,
+        val agent = com.lhstack.tools.db.service.AgentService.agentById(session.agentId) ?: return emptyList()
+        val agentId = agent.id ?: return emptyList()
+        return com.lhstack.tools.db.service.AgentEventStoreService.loadHistory(
+            agentId = agentId,
+            includeHistory = agent.runtimeParams.includeHistory,
+            maxTurns = agent.runtimeParams.maxHistoryMessages,
         )
-        return history
     }
 
     private fun resolveProject(projectPath: String): Project {

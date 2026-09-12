@@ -151,6 +151,7 @@ object ModelResolver {
         add("execution_params", JsonObject().apply {
             add("max_tool_call_rounds", model.params.executionParams.maxToolCallRounds?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
             add("max_retries", model.params.executionParams.maxRetries?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+            add("tool_call_retention_rounds", model.params.executionParams.toolCallRetentionRounds?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
         })
         add("context_window", model.params.contextWindow?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
         add("modalities", JsonArray().apply { model.params.modalities.forEach { add(it) } })
@@ -187,6 +188,7 @@ object ModelResolver {
         return ModelExecutionParams(
             maxToolCallRounds = obj.get("max_tool_call_rounds")?.asLongOrNull()?.toInt(),
             maxRetries = obj.get("max_retries")?.asLongOrNull()?.toInt(),
+            toolCallRetentionRounds = obj.get("tool_call_retention_rounds")?.asLongOrNull()?.toInt(),
         )
     }
 

@@ -14,6 +14,7 @@ import com.lhstack.tools.agent.model.tools.PluginFunctionTool
 import com.lhstack.tools.agent.model.tools.RuntimeTools
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.db.service.CodingEnvironmentConfig
 import com.lhstack.tools.db.service.CodingEnvironmentService
 import com.lhstack.tools.db.service.CodingSubagentEntry
@@ -145,6 +146,9 @@ private class SubagentRunTool(
         val enabledSkills = AgentRuntime.enabledSkills(agent.extConfig, availableSkills)
         val enabledTools = restrictedTools(AgentRuntime.enabledTools(agent.extConfig), entry)
         val cancel = ModelCancel(toolCancelSlot ?: AtomicReference())
+        val session = ChatSessionService.sessionById(sessionId)
+        val sessionName = session?.title?.takeIf { it.isNotBlank() } ?: "coding-$sessionId"
+        val sessionKey = sessionId.toString()
         val tools = RuntimeTools.create(
             workspace = cwd,
             enabledTools = enabledTools,
@@ -158,7 +162,18 @@ private class SubagentRunTool(
             includeNew = agent.extConfig.pluginFunctions.includeNew,
             disabled = agent.extConfig.pluginFunctions.disabled,
             project = project,
-        ).map { entry -> PluginFunctionTool(entry.toolName, entry.function) }
+            sessionName = sessionName,
+            sessionId = sessionKey,
+        ).map { entry ->
+            PluginFunctionTool(
+                toolName = entry.toolName,
+                function = entry.function,
+                sessionName = sessionName,
+                sessionId = sessionKey,
+                provider = provider.name,
+                model = modelEntity.displayName?.takeIf { it.isNotBlank() } ?: modelEntity.modelId,
+            )
+        }
         val preamble = buildString {
             append("## Coding SubAgent\n")
             append("- Agent：${agent.name}\n")

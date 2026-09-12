@@ -67,6 +67,27 @@ class MessageHistorySupportTest {
     }
 
     @Test
+    fun `max history rounds keeps latest turns`() {
+        val events = listOf(
+            event(1, "t1", MessageEventType.USER_MESSAGE, JsonObject().apply { addProperty("content", "one") }),
+            event(2, "t1", MessageEventType.MODEL_REPLY, JsonObject().apply { addProperty("text", "a") }),
+            event(3, "t2", MessageEventType.USER_MESSAGE, JsonObject().apply { addProperty("content", "two") }),
+            event(4, "t2", MessageEventType.MODEL_REPLY, JsonObject().apply { addProperty("text", "b") }),
+            event(5, "t3", MessageEventType.USER_MESSAGE, JsonObject().apply { addProperty("content", "three") }),
+            event(6, "t3", MessageEventType.MODEL_REPLY, JsonObject().apply { addProperty("text", "c") }),
+        )
+        val messages = MessageHistorySupport.toModelHistory(
+            events,
+            currentTurnId = "t4",
+            includeCurrentTurn = false,
+            maxHistoryRounds = 2,
+        )
+        assertEquals(4, messages.size)
+        val first = assertIs<Message.User>(messages.first())
+        assertEquals("two", (first.content[0] as UserContent.Text).text)
+    }
+
+    @Test
     fun `resumed prompt is explicit and not empty`() {
         assertTrue(MessageEventSupport.RESUMED_PROMPT.contains("服务重启"))
     }

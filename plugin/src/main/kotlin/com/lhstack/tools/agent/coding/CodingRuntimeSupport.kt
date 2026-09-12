@@ -16,6 +16,7 @@ import com.lhstack.tools.db.config.AgentCapabilityConfig
 import com.lhstack.tools.db.service.AgentRecord
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.db.service.CodingEnvironmentConfig
 import com.lhstack.tools.db.service.CodingEnvironmentRecord
 import com.lhstack.tools.db.service.CodingEnvironmentService
@@ -75,7 +76,7 @@ object CodingRuntimeSupport {
             cancel = cancel,
             project = project,
             codingSession = true,
-        ) + pluginFunctionTools(environment.config, project) + viewResourceTools(environment.config, cwd, skillsRoot, cancel) +
+        ) + pluginFunctionTools(environment.config, project, sessionId) + viewResourceTools(environment.config, cwd, skillsRoot, cancel) +
             if (turnId != null) CodingSubagentTools.create(
                 environment = environment.config,
                 sessionId = sessionId,
@@ -215,11 +216,28 @@ object CodingRuntimeSupport {
     private fun pluginFunctionTools(
         config: com.lhstack.tools.db.service.CodingEnvironmentConfig,
         project: Project?,
+        sessionId: Long,
     ): List<ToolDyn> {
-        val known = PluginFunctionToolSupport.entries(project)
+        val session = ChatSessionService.sessionById(sessionId)
+        val sessionName = session?.title?.takeIf { it.isNotBlank() } ?: "coding-$sessionId"
+        val sessionKey = sessionId.toString()
+        val providerName = session?.let { CatalogService.providerById(it.providerId)?.name }
+        val modelName = session?.let { item ->
+            CatalogService.modelById(item.modelId)?.let { model -> model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId }
+        }
+        val known = PluginFunctionToolSupport.entries(project, sessionName, sessionKey)
         return known.filter { entry ->
             CodingEnvironmentService.pluginFunctionEnabled(config, entry.key, entry.functionName)
-        }.map { entry -> PluginFunctionTool(entry.toolName, entry.function) }
+        }.map { entry ->
+            PluginFunctionTool(
+                toolName = entry.toolName,
+                function = entry.function,
+                sessionName = sessionName,
+                sessionId = sessionKey,
+                provider = providerName,
+                model = modelName,
+            )
+        }
     }
 
     private fun viewResourceTools(
