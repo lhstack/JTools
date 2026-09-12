@@ -1253,7 +1253,7 @@ private val GLOBAL_CONFIG_GROUPS = listOf(
         GlobalConfigField("model.max_tool_call_rounds", "默认工具调用轮次", "模型请求自动执行工具调用循环时允许的默认最大轮次。默认 30。", "number", "30"),
         GlobalConfigField("model.max_retries", "默认模型重试次数", "模型 API 请求失败后的默认重试次数。0 表示不重试。", "number", "0"),
         GlobalConfigField("model.retry_interval_ms", "模型重试间隔", "模型请求失败后的重试等待时间，单位毫秒。默认 2000。", "number", "2000"),
-        GlobalConfigField("message.history_token_ratio", "历史 Token 估算比例", "估算消息历史占用时，字符数到 Token 的换算比例。默认 2.0。", "number", "2"),
+        GlobalConfigField("message.history_token_ratio", "历史 Token 估算比例", "估算消息历史占用时，字符数到 Token 的换算比例。默认 0.4。", "number", "0.4"),
     )),
     GlobalConfigGroup("模型 HTTP", listOf(
         GlobalConfigField("model.dns_servers", "模型请求 DNS", "模型 API 请求使用的自定义 DNS 服务器，多个用英文逗号分隔。支持 223.5.5.5 或 223.5.5.5:53；留空时不启用自定义 DNS。", "text", ""),

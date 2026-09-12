@@ -115,6 +115,25 @@ interface MessageEventMapper : BaseMapper<MessageEventEntity> {
         @Param("toolRetention") toolRetention: Long?,
         @Param("budget") budget: Long,
     ): List<MessageEventEntity>
+
+    @Select(
+        """
+        select coalesce(sum(cast(coalesce(json_extract(context, '$.estimated_tokens'), 0) as integer)), 0)
+        from message_events
+        where session_id=#{sessionId}
+          and ifnull(parent_event_id, 0) = 0
+          and id > coalesce((select json_extract(config, '$.coding_compacted_through_event_id') from message_sessions where id=#{sessionId}), 0)
+          and (
+                event_type in ('user_message','append_message','model_reply')
+                or event_type='tool_call'
+              )
+          and (
+                event_type<>'tool_call'
+                or coalesce(json_extract(context, '$.extra.type'), '') <> 'subagent'
+              )
+        """
+    )
+    fun selectRemainingHistoryTokens(@Param("sessionId") sessionId: Long): Long
 }
 
 interface MessageProcessingTaskMapper : BaseMapper<MessageProcessingTaskEntity>

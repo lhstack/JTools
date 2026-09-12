@@ -222,6 +222,8 @@ object CodingEnvironmentService {
         }
     }
 
+    internal fun toRecordForContext(entity: CodingEnvironmentEntity) = toRecord(entity)
+
     private fun toRecord(entity: CodingEnvironmentEntity) = CodingEnvironmentRecord(
         id = entity.id ?: 0,
         name = entity.name,

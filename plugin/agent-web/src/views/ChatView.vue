@@ -48,7 +48,7 @@ const settingsSelectExpanded = ref(false)
 const advancedParamsVisible = ref(false)
 const advancedParamsSaving = ref(false)
 const contextVisible = ref(false)
-const context = computed(() => s.context || { estimated_tokens: 0, context_window: null, percent: null, compaction_status: 'idle', compaction_agent_configured: false })
+const context = computed(() => s.context || { estimated_tokens: 0, history_tokens: 0, reserved_tokens: 0, context_window: null, percent: null, compaction_status: 'idle', compaction_agent_configured: false, token_usage: {} })
 const runtimeSkills = computed(() => Array.isArray(s.skills) ? s.skills : [])
 const skillsHint = computed(() => {
   const skills = runtimeSkills.value
@@ -94,19 +94,32 @@ function formatDuration(milliseconds) {
   if (minutes <= 0) return `${remain}s`
   return `${minutes}m ${remain}s`
 }
-function totalTokenUsage(usage) {
-  const rows = flattenUsageRows(usage)
-  return rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0)
-}
 function flattenUsageRows(usage, prefix = '') {
   if (!usage || typeof usage !== 'object') return []
-  const rows = []
-  Object.entries(usage).forEach(([key, value]) => {
-    const next = prefix ? `${prefix}.${key}` : key
-    if (value && typeof value === 'object' && !Array.isArray(value)) rows.push(...flattenUsageRows(value, next))
-    else if (value != null && value !== '') rows.push({ key: next, value })
+  return Object.entries(usage).flatMap(([key, value]) => {
+    if (key === 'attribution') return []
+    const path = prefix ? `${prefix}.${key}` : key
+    if (value === null || value === undefined) return []
+    if (Array.isArray(value)) return value.flatMap((item, index) => flattenUsageRows({ [index]: item }, path))
+    if (typeof value === 'object') return flattenUsageRows(value, path)
+    return [{ key: path, value: typeof value === 'number' && Number.isInteger(value) ? value : String(value) }]
   })
-  return rows
+}
+function numericUsage(usage, ...keys) {
+  for (const key of keys) {
+    const value = Number(usage?.[key])
+    if (Number.isFinite(value) && value > 0) return value
+  }
+  return 0
+}
+function totalTokenUsage(usage) {
+  const explicit = numericUsage(usage, 'total_tokens')
+  if (explicit) return explicit
+  return numericUsage(usage, 'input_tokens', 'prompt_tokens')
+    + numericUsage(usage, 'output_tokens', 'completion_tokens')
+    + numericUsage(usage, 'cached_input_tokens', 'cache_read_input_tokens')
+    + numericUsage(usage, 'cache_creation_input_tokens')
+    + numericUsage(usage, 'estimated_tokens')
 }
 const sessionModelParams = reactive({
   api: '',
@@ -1336,6 +1349,7 @@ function drop(event) {
       <div>
         <h3>{{ Number(context.estimated_tokens || 0).toLocaleString() }} tokens</h3>
         <p>下一轮模型请求的有效上下文估算</p>
+        <p class="context-breakdown">历史 {{ Number(context.history_tokens || 0).toLocaleString() }} · 预留 {{ Number(context.reserved_tokens || 0).toLocaleString() }}{{ context.context_window ? ` · 窗口 ${Number(context.context_window).toLocaleString()}` : '' }}</p>
         <p v-if="!context.compaction_agent_configured" class="context-warning">未配置压缩 Agent，无法手动压缩。</p>
         <p v-else-if="sessionRunning" class="context-warning">会话运行中，请先等待当前任务结束。</p>
       </div>

@@ -756,7 +756,7 @@ object MessageStoreService {
             ?.get("tool_call_retention_rounds")
             ?.takeIf { it.isJsonPrimitive }
             ?.asLong
-        val reserved = reservedContextTokens(config)
+        val reserved = reservedContextTokens(session, sessionId, config)
         val budget = contextWindow
             ?.takeIf { it > 0 }
             ?.let { window -> (window - (outputTokens ?: 0L) - reserved).coerceAtLeast(0L) }
@@ -1269,8 +1269,8 @@ object MessageStoreService {
         val config = sessionConfig(session, sessionId)
         val snapshot = config.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
         val contextWindow = snapshot.get("context_window")?.takeIf { it.isJsonPrimitive }?.asLong
-        val reservedTokens = reservedContextTokens(config)
-        val historyTokens = remainingHistoryTokens(session, sessionId, compactedThroughEventId(config))
+        val reservedTokens = reservedContextTokens(session, sessionId, config)
+        val historyTokens = remainingHistoryTokens(session, sessionId)
         val estimatedTokens = historyTokens + reservedTokens
         val percent = contextWindow?.takeIf { it > 0 }?.let { window ->
             kotlin.math.round((estimatedTokens.toDouble() / window.toDouble()) * 10000.0) / 100.0
@@ -1285,33 +1285,34 @@ object MessageStoreService {
             if (contextWindow == null) add("context_window", com.google.gson.JsonNull.INSTANCE) else addProperty("context_window", contextWindow)
             if (percent == null) add("percent", com.google.gson.JsonNull.INSTANCE) else addProperty("percent", percent)
             addProperty("compacted_through_event_id", compactedThroughEventId(config))
-            add("token_usage", config.get("token_usage")?.takeIf { it.isJsonObject } ?: JsonObject())
+            add("token_usage", com.lhstack.tools.llm.Usage.withoutAttribution(config.get("token_usage")?.takeIf { it.isJsonObject } ?: JsonObject()))
             if (compactionId == null) add("compaction_id", com.google.gson.JsonNull.INSTANCE) else addProperty("compaction_id", compactionId)
             addProperty("compaction_status", if (compactionId == null) "idle" else "running")
             config.get("coding_compaction_summary")?.takeIf { it.isJsonPrimitive }?.asString?.let { addProperty("compaction_summary", it) }
         }
     }
 
-    private fun remainingHistoryTokens(session: SqlSession, sessionId: Long, boundary: Long): Long {
-        val events = session.getMapper(MessageEventMapper::class.java).selectList(
-            QueryWrapper<MessageEventEntity>()
-                .eq("session_id", sessionId)
-                .gt("id", boundary)
-                .apply("ifnull(parent_event_id, 0) = 0")
-                .`in`("event_type", MessageEventType.USER_MESSAGE.value, MessageEventType.APPEND_MESSAGE.value, MessageEventType.MODEL_REPLY.value, MessageEventType.TOOL_CALL.value, MessageEventType.COMPACTION_NOTICE.value),
-        )
-        return events.sumOf { event ->
-            parseObject(event.context).get("estimated_tokens")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L
-        }
-    }
+    private fun remainingHistoryTokens(session: SqlSession, sessionId: Long): Long =
+        session.getMapper(MessageEventMapper::class.java).selectRemainingHistoryTokens(sessionId).coerceAtLeast(0L)
 
-    private fun reservedContextTokens(config: JsonObject): Long {
-        val summary = config.get("coding_compaction_summary")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
-        if (summary.isBlank()) return 0
-        return MessageEventSupport.estimateHistoryTokens(
-            com.lhstack.tools.agent.coding.CompactionTranscriptSupport.compactionSummaryPreamble(summary),
-            historyTokenRatio(),
+    private fun reservedContextTokens(session: SqlSession, sessionId: Long, config: JsonObject): Long {
+        val environmentId = config.get("coding_environment_id")?.takeIf { it.isJsonPrimitive }?.asLong ?: return 0
+        val environment = session.getMapper(com.lhstack.tools.db.mapper.CodingEnvironmentMapper::class.java)
+            .selectById(environmentId)
+            ?.let(com.lhstack.tools.db.service.CodingEnvironmentService::toRecordForContext)
+            ?: return 0
+        val cwd = config.get("cwd")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        val promptId = config.get("prompt_id")?.takeIf { it.isJsonPrimitive }?.asLong
+        val summary = config.get("coding_compaction_summary")?.takeIf { it.isJsonPrimitive }?.asString
+        val preamble = com.lhstack.tools.agent.coding.CodingRuntimeSupport.preambleForContext(
+            environment = environment,
+            sessionId = sessionId,
+            cwd = cwd,
+            promptId = promptId,
+            compactionSummary = summary,
         )
+        if (preamble.isBlank()) return 0
+        return MessageEventSupport.estimateHistoryTokens(preamble, historyTokenRatio())
     }
 
     private fun compactedThroughEventId(config: JsonObject): Long =

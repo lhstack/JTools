@@ -21,6 +21,8 @@ import com.lhstack.tools.llm.provider.AppendMessageChannel
 import com.lhstack.tools.llm.provider.ClaimedContinuationBatch
 import com.lhstack.tools.llm.provider.ModelContinuationPort
 import com.lhstack.tools.llm.provider.asContinuationPort
+import com.lhstack.tools.llm.provider.StreamPartialFailure
+import com.lhstack.tools.llm.provider.StreamRetryCarry
 import com.lhstack.tools.llm.provider.waitBeforeModelRetry
 import com.lhstack.tools.llm.provider.ModelStreamSink
 import com.lhstack.tools.llm.provider.ToolRuntime
@@ -99,7 +101,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         val awaitingDelivery = request.initialContinuationBatchId?.let { mutableListOf(it) } ?: mutableListOf()
         while (true) {
             throwIfCancelled(cancel)
-            val round = chatStream(chatUrl(), request.body, request.maxRetries, request.retryIntervalMs, cancel)
+            val round = chatStream(request, chatUrl(), cancel)
             confirmContinuationDelivery(continuation, awaitingDelivery)
             val continued = continueChatToolLoop(request, total, round, rounds, toolRuntime, cancel, continuation, awaitingDelivery)
             if (!continued.continueLoop && !cancel.isCancelledOrFalse() && continueWithPendingAppend(request::appendMessages, total, continuation, awaitingDelivery)) {
@@ -126,7 +128,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         while (true) {
             throwIfCancelled(cancel)
             val round = if (request.stream) {
-                responsesStream(responsesUrl(), request.body, request.maxRetries, request.retryIntervalMs, cancel)
+                responsesStream(request, responsesUrl(), cancel)
             } else {
                 val value = postJsonWithRetries(
                     "/responses",
@@ -253,26 +255,35 @@ class OpenAiClient(private val params: OpenAiClientParams) {
     // -------- chat stream --------
 
     private fun chatStream(
+        request: OpenAiChatRequest,
         url: String,
-        body: JsonObject,
-        maxRetries: Int,
-        retryIntervalMs: Long,
         cancel: ModelCancel?,
     ): ProviderRound {
         var retryAttempt = 0
         val failures = mutableListOf<String>()
         while (true) {
             try {
-                return chatStreamOnce(url, body, cancel)
+                return chatStreamOnce(url, request.body, cancel)
             } catch (e: ModelRequestCancelledException) {
                 throw e
+            } catch (e: StreamPartialFailure) {
+                throwIfCancelled(cancel)
+                retryAttempt += 1
+                failures.add("第 $retryAttempt 次重试判定，异常: ${e.original.message ?: e.original.toString()}")
+                if (retryAttempt <= request.maxRetries) {
+                    httpTrace?.retry()
+                    waitBeforeModelRetry(params.eventSink, e.original, cancel, request.retryIntervalMs)
+                    StreamRetryCarry.appendPartialToRequest(request::appendMessages, e.partial)
+                    continue
+                }
+                throw IllegalStateException("调用 OpenAI Chat Completions stream API 失败:\n${failures.joinToString("\n")}")
             } catch (e: Throwable) {
                 throwIfCancelled(cancel)
                 retryAttempt += 1
                 failures.add("第 $retryAttempt 次重试判定，异常: ${e.message ?: e.toString()}")
-                if (retryAttempt <= maxRetries) {
+                if (retryAttempt <= request.maxRetries) {
                     httpTrace?.retry()
-                    waitBeforeModelRetry(params.eventSink, e, cancel, retryIntervalMs)
+                    waitBeforeModelRetry(params.eventSink, e, cancel, request.retryIntervalMs)
                     continue
                 }
                 throw IllegalStateException("调用 OpenAI Chat Completions stream API 失败:\n${failures.joinToString("\n")}")
@@ -281,11 +292,12 @@ class OpenAiClient(private val params: OpenAiClientParams) {
     }
 
     private fun chatStreamOnce(url: String, body: JsonObject, cancel: ModelCancel?): ProviderRound {
-        val parser = openStream(url, body, cancel)
         val responseText = StringBuilder()
         val reasoning = mutableListOf<String>()
         var usage = Usage()
         val calls = sortedMapOf<Int, StreamToolCall>()
+        try {
+        val parser = openStream(url, body, cancel)
         parser.use {
             while (true) {
                 throwIfCancelled(cancel)
@@ -321,6 +333,19 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         val round = roundFromParts(responseText.toString(), reasoning, calls, usage)
         traceRoundResponse(url, round)
         return round
+        } catch (e: ModelRequestCancelledException) {
+            throw e
+        } catch (e: Throwable) {
+            return StreamRetryCarry.throwOrComplete(
+                StreamRetryCarry.outcome(
+                    e,
+                    responseText.toString(),
+                    reasoning,
+                    completeStreamToolCalls(calls.values),
+                    usage,
+                ),
+            )
+        }
     }
 
     /** 照抄 collect_chat_delta：content / reasoning* / tool_calls 增量聚合并回调。 */
@@ -356,26 +381,35 @@ class OpenAiClient(private val params: OpenAiClientParams) {
     // -------- responses stream --------
 
     private fun responsesStream(
+        request: OpenAiResponsesRequest,
         url: String,
-        body: JsonObject,
-        maxRetries: Int,
-        retryIntervalMs: Long,
         cancel: ModelCancel?,
     ): ProviderRound {
         var retryAttempt = 0
         val failures = mutableListOf<String>()
         while (true) {
             try {
-                return responsesStreamOnce(url, body, cancel)
+                return responsesStreamOnce(url, request.body, cancel)
             } catch (e: ModelRequestCancelledException) {
                 throw e
+            } catch (e: StreamPartialFailure) {
+                throwIfCancelled(cancel)
+                retryAttempt += 1
+                failures.add("第 $retryAttempt 次重试判定，异常: ${e.original.message ?: e.original.toString()}")
+                if (retryAttempt <= request.maxRetries) {
+                    httpTrace?.retry()
+                    waitBeforeModelRetry(params.eventSink, e.original, cancel, request.retryIntervalMs)
+                    StreamRetryCarry.appendPartialToRequest(request::appendMessages, e.partial)
+                    continue
+                }
+                throw IllegalStateException("调用 OpenAI Responses stream API 失败:\n${failures.joinToString("\n")}")
             } catch (e: Throwable) {
                 throwIfCancelled(cancel)
                 retryAttempt += 1
                 failures.add("第 $retryAttempt 次重试判定，异常: ${e.message ?: e.toString()}")
-                if (retryAttempt <= maxRetries) {
+                if (retryAttempt <= request.maxRetries) {
                     httpTrace?.retry()
-                    waitBeforeModelRetry(params.eventSink, e, cancel, retryIntervalMs)
+                    waitBeforeModelRetry(params.eventSink, e, cancel, request.retryIntervalMs)
                     continue
                 }
                 throw IllegalStateException("调用 OpenAI Responses stream API 失败:\n${failures.joinToString("\n")}")
@@ -384,11 +418,12 @@ class OpenAiClient(private val params: OpenAiClientParams) {
     }
 
     private fun responsesStreamOnce(url: String, body: JsonObject, cancel: ModelCancel?): ProviderRound {
-        val parser = openStream(url, body, cancel)
         val text = StringBuilder()
         val reasoning = mutableListOf<String>()
         var rawFinal: JsonElement = com.google.gson.JsonNull.INSTANCE
         val outputItems = sortedMapOf<Long, JsonElement>()
+        try {
+        val parser = openStream(url, body, cancel)
         parser.use {
             while (true) {
                 throwIfCancelled(cancel)
@@ -443,6 +478,26 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         round.reasoning.addAll(reasoning)
         traceRoundResponse(url, round)
         return round
+        } catch (e: ModelRequestCancelledException) {
+            throw e
+        } catch (e: Throwable) {
+            val calls = runCatching {
+                if (rawFinal.isJsonObject) {
+                    mergeStreamOutputItems(rawFinal.asJsonObject, outputItems)
+                    OpenAiParser.parseResponse(rawFinal).toolCalls.toList()
+                } else if (outputItems.isNotEmpty()) {
+                    val wrapper = JsonObject().apply {
+                        add("output", JsonArray().apply { outputItems.values.forEach { add(it) } })
+                    }
+                    OpenAiParser.parseResponse(wrapper).toolCalls.toList()
+                } else {
+                    emptyList()
+                }
+            }.getOrDefault(emptyList())
+            return StreamRetryCarry.throwOrComplete(
+                StreamRetryCarry.outcome(e, text.toString(), reasoning, calls),
+            )
+        }
     }
 
     private fun pushTextDelta(text: StringBuilder, value: JsonObject) {
@@ -691,6 +746,9 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             round.usage.add(usage)
             return round
         }
+
+        private fun completeStreamToolCalls(calls: Collection<StreamToolCall>): List<ProviderToolCall> =
+            calls.mapNotNull { StreamRetryCarry.completeToolCall(it.id, it.name, it.arguments.toString()) }
 
         /** 照抄 stream_error_message。 */
         private fun streamErrorMessage(value: JsonElement): String? {

@@ -62,7 +62,7 @@ object AgentPersistence {
         SettingService.setSettingIfAbsent("model.max_tool_call_rounds", "30")
         SettingService.setSettingIfAbsent("model.max_retries", "0")
         SettingService.setSettingIfAbsent("model.retry_interval_ms", "2000")
-        SettingService.setSettingIfAbsent("message.history_token_ratio", "2")
+        SettingService.setSettingIfAbsent("message.history_token_ratio", "0.4")
         SettingService.setSettingIfAbsent("model.dns_servers", "")
         SettingService.setSettingIfAbsent("model.http_request_timeout_secs", "0")
         SettingService.setSettingIfAbsent("model.http_pool_idle_timeout_secs", "120")

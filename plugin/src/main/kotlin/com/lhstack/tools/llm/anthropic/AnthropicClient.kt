@@ -22,6 +22,8 @@ import com.lhstack.tools.llm.provider.AppendMessageChannel
 import com.lhstack.tools.llm.provider.ClaimedContinuationBatch
 import com.lhstack.tools.llm.provider.ModelContinuationPort
 import com.lhstack.tools.llm.provider.asContinuationPort
+import com.lhstack.tools.llm.provider.StreamPartialFailure
+import com.lhstack.tools.llm.provider.StreamRetryCarry
 import com.lhstack.tools.llm.provider.waitBeforeModelRetry
 import com.lhstack.tools.llm.provider.ModelStreamSink
 import com.lhstack.tools.llm.provider.ToolRuntime
@@ -187,14 +189,24 @@ class AnthropicClient(private val params: AnthropicClientParams) {
     // -------- stream request --------
 
     private fun messageStream(request: AnthropicMessageRequest, cancel: ModelCancel?): ProviderRound {
-        val body = request.body()
         var retryAttempt = 0
         val failures = mutableListOf<String>()
         while (true) {
             try {
-                return messageStreamOnce(body, request.anthropicBeta(), cancel)
+                return messageStreamOnce(request.body(), request.anthropicBeta(), cancel)
             } catch (e: ModelRequestCancelledException) {
                 throw e
+            } catch (e: StreamPartialFailure) {
+                throwIfCancelled(cancel)
+                retryAttempt += 1
+                failures.add("第 $retryAttempt 次重试判定，异常: ${e.original.message ?: e.original.toString()}")
+                if (retryAttempt <= request.maxRetries) {
+                    httpTrace?.retry()
+                    waitBeforeModelRetry(params.eventSink, e.original, cancel, request.retryIntervalMs)
+                    StreamRetryCarry.appendPartialToRequest(request::appendMessages, e.partial)
+                    continue
+                }
+                throw IllegalStateException("调用 Anthropic Messages stream API 失败:\n${failures.joinToString("\n")}")
             } catch (e: Throwable) {
                 throwIfCancelled(cancel)
                 retryAttempt += 1
@@ -211,11 +223,12 @@ class AnthropicClient(private val params: AnthropicClientParams) {
 
     private fun messageStreamOnce(body: JsonObject, anthropicBeta: String?, cancel: ModelCancel?): ProviderRound {
         val url = messagesUrl()
-        val parser = openStream(url, body, anthropicBeta, cancel)
         val text = StringBuilder()
         val reasoning = mutableListOf<String>()
         val usage = Usage()
         val blocks = sortedMapOf<Long, StreamBlock>()
+        try {
+        val parser = openStream(url, body, anthropicBeta, cancel)
         parser.use {
             while (true) {
                 throwIfCancelled(cancel)
@@ -251,6 +264,20 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         round.usage.add(AnthropicParser.withTotal(usage))
         traceRoundResponse(url, round)
         return round
+        } catch (e: ModelRequestCancelledException) {
+            throw e
+        } catch (e: Throwable) {
+            return StreamRetryCarry.throwOrComplete(
+                StreamRetryCarry.outcome(
+                    e,
+                    text.toString(),
+                    reasoning,
+                    completeAnthropicToolCalls(blocks),
+                    AnthropicParser.withTotal(usage),
+                    AnthropicParser::assistantMessage,
+                ),
+            )
+        }
     }
 
     private fun openStream(url: String, body: JsonObject, anthropicBeta: String?, cancel: ModelCancel?): SseParser {
@@ -303,6 +330,11 @@ class AnthropicClient(private val params: AnthropicClientParams) {
 
     private fun toolCallsFromStreamBlocks(blocks: Map<Long, StreamBlock>): List<ProviderToolCall> =
         blocks.values.filter { it.blockType == "tool_use" }.map { it.intoToolCall() }
+
+    private fun completeAnthropicToolCalls(blocks: Map<Long, StreamBlock>): List<ProviderToolCall> =
+        blocks.values.filter { it.blockType == "tool_use" }.mapNotNull { block ->
+            StreamRetryCarry.completeToolCall(block.id, block.name, block.argumentsJson())
+        }
 
     // -------- list models page --------
 
@@ -513,6 +545,9 @@ private class StreamBlock(
     }
 
     /** 照抄 into_tool_call：优先 partial_json，否则用 start 时的 input。 */
+    fun argumentsJson(): String =
+        if (partialInput.isEmpty()) input.toString() else partialInput.toString()
+
     fun intoToolCall(): ProviderToolCall {
         val arguments = if (partialInput.isEmpty()) {
             AnthropicParser.toolInputArguments(input)

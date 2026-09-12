@@ -46,6 +46,26 @@ object CodingRuntimeSupport {
         val project: Project?,
     )
 
+    fun preambleForContext(
+        environment: CodingEnvironmentRecord,
+        sessionId: Long,
+        cwd: String,
+        promptId: Long?,
+        compactionSummary: String?,
+        project: Project? = currentIdeProject(),
+    ): String {
+        val skillsRoot = ResourceConfigService.skillsRootDir()
+        val availableSkills = ResourceConfigService.listSkills()
+        val enabledSkillNames = CodingEnvironmentService.enabledSkillNames(
+            environment.config,
+            availableSkills.map { it.name }.toSet(),
+        )
+        return CompactionTranscriptSupport.appendSummary(
+            buildPreamble(environment, sessionId, cwd, promptId, skillsRoot, enabledSkillNames, availableSkills, project),
+            compactionSummary,
+        )
+    }
+
     fun assemble(
         environment: CodingEnvironmentRecord,
         sessionId: Long,
