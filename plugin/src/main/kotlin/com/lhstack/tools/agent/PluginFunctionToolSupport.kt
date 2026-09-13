@@ -118,7 +118,7 @@ object PluginFunctionToolSupport {
             } ?: plugin.functionCallings(name, id, project?.locationHash.orEmpty())
         }
         return opened.firstNotNullOfOrNull { item ->
-            plugin.functionCallings(item).takeIf { it.isNotEmpty() }
+            plugin.functionCallings(null, null, item).takeIf { it.isNotEmpty() }
         } ?: plugin.functionCallings("")
     }
 
