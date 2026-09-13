@@ -675,30 +675,49 @@ object MessageStoreService {
             mapper.updateById(task) == 1
         }
 
+    data class MessageEventPage(
+        val events: List<MessageEventRecord>,
+        val hasMore: Boolean,
+        val nextBeforeId: Long?,
+    )
+
     fun listMessageEvents(
         sessionId: Long,
         beforeId: Long? = null,
         limit: Int = 80,
         includeContext: Boolean = false,
-    ): List<MessageEventRecord> = AgentDatabase.execute { session ->
+    ): List<MessageEventRecord> = listMessageEventsPage(sessionId, beforeId, limit, includeContext).events
+
+    fun listMessageEventsPage(
+        sessionId: Long,
+        beforeId: Long? = null,
+        limit: Int = 80,
+        includeContext: Boolean = false,
+    ): MessageEventPage = AgentDatabase.execute { session ->
         require(limit in 1..200) { "事件分页 limit 必须在 1..=200" }
         val sql = buildString {
             append("select id from message_events where session_id=? and ifnull(parent_event_id, 0)=0 and not (event_type='model_reply' and event_id='final')")
             if (beforeId != null) append(" and id < ?")
             append(" order by id desc limit ?")
         }
-        val rootIds = session.connection.prepareStatement(sql).use { statement ->
+        val candidateRootIds = session.connection.prepareStatement(sql).use { statement ->
             statement.setLong(1, sessionId)
             var index = 2
             if (beforeId != null) statement.setLong(index++, beforeId)
-            statement.setInt(index, limit)
+            statement.setInt(index, limit + 1)
             statement.executeQuery().use { rows ->
-                val ids = mutableListOf<Long>()
-                while (rows.next()) ids += rows.getLong(1)
-                ids.asReversed()
+                buildList {
+                    while (rows.next()) add(rows.getLong(1))
+                }
             }
         }
-        eventsForRootIds(session, sessionId, rootIds, includeContext)
+        val hasMore = candidateRootIds.size > limit
+        val rootIds = candidateRootIds.take(limit).asReversed()
+        MessageEventPage(
+            events = eventsForRootIds(session, sessionId, rootIds, includeContext),
+            hasMore = hasMore,
+            nextBeforeId = rootIds.firstOrNull()?.takeIf { hasMore },
+        )
     }
 
     fun eventsAfter(sessionId: Long, afterId: Long, includeContext: Boolean = false): List<MessageEventRecord> =

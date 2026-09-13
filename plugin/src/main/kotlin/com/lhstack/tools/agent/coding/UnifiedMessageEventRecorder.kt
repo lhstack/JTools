@@ -3,6 +3,7 @@ package com.lhstack.tools.agent.coding
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.lhstack.tools.db.service.MessageStoreService
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import com.lhstack.tools.llm.provider.ToolEventSink
 import java.util.concurrent.ConcurrentHashMap
 
@@ -14,6 +15,7 @@ class UnifiedMessageEventRecorder(
     private val sessionId: Long,
     private val parentEventId: Long? = null,
     private val broadcaster: (JsonObject) -> Unit,
+    private val firstTokenTrace: FirstTokenTrace? = null,
 ) {
     private val streamRounds = ConcurrentHashMap<String, Int>()
     private val pendingToolCalls = ConcurrentHashMap<String, MutableSet<String>>()
@@ -203,6 +205,7 @@ class UnifiedMessageEventRecorder(
             addProperty("type", "message_event")
         }
         broadcaster(payload)
+        if (event.eventType == MessageEventType.MODEL_REPLY) firstTokenTrace?.mark("browser_broadcast")
     }
 
     private fun recordClaimedAppend(turnId: String, data: JsonObject) {
@@ -285,6 +288,7 @@ class UnifiedMessageEventRecorder(
         val id = MessageStoreService.appendMessageEventText(
             sessionId, turnId, eventType, eventId, text, parentEventId,
         )
+        if (eventType == MessageEventType.MODEL_REPLY) firstTokenTrace?.mark("event_persisted")
         broadcastEventId(id)
     }
 

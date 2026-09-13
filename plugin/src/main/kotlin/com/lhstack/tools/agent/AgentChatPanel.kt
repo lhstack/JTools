@@ -156,6 +156,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private var currentSessionId: Long? = null
     private var inputRestoreSequence = 0L
     private var historyRevision = 0L
+    private var browserHistoryBeforeId: Long? = null
+    private var browserHistoryHasMore = false
     private var browserInputRestore: AgentBrowserInputRestore? = null
     private var updatingSessionSelection = false
     private var updatingAgentSelection = false
@@ -273,15 +275,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun chooseAndCreateSession() {
         val dialog = object : DialogWrapper(project, false) {
             private val nameField = JTextField(28)
-            private val projectType = JRadioButton("项目会话（仅当前项目可见）", true)
-            private val globalType = JRadioButton("全局会话（所有项目共享）")
-
             init {
-                title = "新建会话"
-                ButtonGroup().apply {
-                    add(projectType)
-                    add(globalType)
-                }
+                title = "新建项目会话"
                 init()
             }
 
@@ -291,11 +286,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 add(JLabel("会话名称"))
                 add(Box.createVerticalStrut(JBUI.scale(6)))
                 add(nameField)
-                add(Box.createVerticalStrut(JBUI.scale(14)))
-                add(JLabel("会话范围"))
-                add(Box.createVerticalStrut(JBUI.scale(6)))
-                add(projectType)
-                add(globalType)
             }
 
             override fun getPreferredFocusedComponent(): JComponent = nameField
@@ -306,14 +296,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     setErrorText("请输入会话名称", nameField)
                     return
                 }
-                createSession(if (projectType.isSelected) ChatSessionType.PROJECT else ChatSessionType.GLOBAL, name)
+                createSession(name)
                 super.doOKAction()
             }
         }
         dialog.show()
     }
 
-    private fun createSession(sessionType: ChatSessionType, title: String = AUTO_TITLE) {
+    private fun createSession(title: String = AUTO_TITLE) {
         val environment = requireSelectedEnvironment()
         val current = currentSessionId?.let(ChatSessionService::sessionById)
         val fallback = CatalogService.listProvidersWithModels()
@@ -323,12 +313,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         val record = ChatSessionService.createSession(
             title = title,
             codingEnvironmentId = environment.id,
-            sessionType = sessionType,
-            workspacePath = if (sessionType == ChatSessionType.GLOBAL) {
-                CodingSessionSupport.globalWorkspacePath()
-            } else {
-                currentProjectPath()
-            },
+            sessionType = ChatSessionType.PROJECT,
+            workspacePath = currentProjectPath(),
             providerId = current?.providerId ?: fallback?.first,
             modelId = current?.modelId ?: fallback?.second,
             promptId = current?.promptId,
@@ -756,6 +742,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         rememberActiveSession(null)
         browserEvents.clear()
         browserTasks.clear()
+        browserHistoryBeforeId = null
+        browserHistoryHasMore = false
         historyRevision++
         refreshSessionSelector(emptyList())
         syncBrowserState()
@@ -1172,10 +1160,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     MessageStoreService.sessionTasks(sessionId).map(MessageStoreService::sessionTaskJson).forEach(::add)
                 })
             }
+            "session.history.before" -> loadBrowserHistoryBefore(
+                sessionId = payload.get("sessionId")?.takeUnless { it.isJsonNull }?.asLong ?: currentSessionId ?: error("缺少会话 ID"),
+                beforeId = payload.get("beforeId")?.takeUnless { it.isJsonNull }?.asLong,
+                limit = payload.get("limit")?.takeUnless { it.isJsonNull }?.asInt ?: 80,
+            )
             "session.new" -> createSession(
-                payload.get("sessionType")?.takeUnless { it.isJsonNull }?.asString
-                    ?.let(ChatSessionType::from)
-                    ?: ChatSessionType.PROJECT,
                 payload.get("name")?.takeUnless { it.isJsonNull }?.asString?.trim()
                     ?.takeIf { it.isNotEmpty() }
                     ?: AUTO_TITLE,
@@ -1360,7 +1350,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun syncBrowserStateNow() {
         if (!AgentDatabase.isReady()) return
         val sessions = visibleSessions().map {
-            AgentBrowserSession(it.id, it.title, it.sessionType.value, it.projectPath)
+            AgentBrowserSession(it.id, it.title, it.projectPath)
         }
         val agents = AgentService.listAgents().mapNotNull { agent -> agent.id?.let { AgentBrowserOption(it, agent.name) } }
         val currentRecord = currentSessionId?.let(ChatSessionService::sessionById)
@@ -1403,6 +1393,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             events = browserEvents.toList(),
             tasks = browserTasks.toList(),
             historyRevision = historyRevision,
+            historyBeforeId = browserHistoryBeforeId,
+            historyHasMore = browserHistoryHasMore,
             queue = emptyList(),
             drafts = draftAttachments.map { it.toBrowserAttachment() },
             inputRestore = browserInputRestore,
@@ -1473,11 +1465,38 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         return event
     }
 
+    private fun loadBrowserHistoryBefore(sessionId: Long, beforeId: Long?, limit: Int): JsonObject {
+        require(sessionId == currentSessionId) { "只能加载当前会话历史" }
+        val page = MessageStoreService.listMessageEventsPage(
+            sessionId = sessionId,
+            beforeId = beforeId,
+            limit = limit,
+            includeContext = true,
+        )
+        val incoming = page.events.map { it.toBrowserJson() }
+        val existingIds = browserEvents.mapNotNull { it.get("id")?.takeIf { value -> value.isJsonPrimitive }?.asLong }.toMutableSet()
+        browserEvents += incoming.filter { event ->
+            val eventId = event.get("id")?.takeIf { value -> value.isJsonPrimitive }?.asLong ?: return@filter false
+            existingIds.add(eventId)
+        }
+        browserEvents.sortBy { it.get("id")?.takeIf { value -> value.isJsonPrimitive }?.asLong ?: 0L }
+        browserHistoryBeforeId = page.nextBeforeId
+        browserHistoryHasMore = page.hasMore
+        return JsonObject().apply {
+            addProperty("session_id", sessionId)
+            add("events", JsonArray().apply { incoming.forEach(::add) })
+            addProperty("has_more", page.hasMore)
+            page.nextBeforeId?.let { addProperty("next_before_id", it) }
+        }
+    }
+
     private fun reloadBrowserConversation(sessionId: Long) {
-        val events = MessageStoreService.listMessageEvents(sessionId, includeContext = true).map { it.toBrowserJson() }
+        val page = MessageStoreService.listMessageEventsPage(sessionId, includeContext = true)
+        browserHistoryBeforeId = page.nextBeforeId
+        browserHistoryHasMore = page.hasMore
         val tasks = MessageStoreService.sessionTasks(sessionId).map(MessageStoreService::sessionTaskJson)
         browserEvents.clear()
-        browserEvents += events
+        browserEvents += page.events.map { it.toBrowserJson() }
         browserTasks.clear()
         browserTasks += tasks
         historyRevision++
@@ -1612,6 +1631,8 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         @SerializedName("events") val events: List<JsonObject>,
         @SerializedName("tasks") val tasks: List<JsonObject>,
         @SerializedName("historyRevision") val historyRevision: Long,
+        @SerializedName("historyBeforeId") val historyBeforeId: Long?,
+        @SerializedName("historyHasMore") val historyHasMore: Boolean,
         @SerializedName("queue") val queue: List<JsonObject>,
         @SerializedName("drafts") val drafts: List<AgentBrowserAttachment>,
         @SerializedName("inputRestore") val inputRestore: AgentBrowserInputRestore?,
@@ -1650,7 +1671,6 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     internal data class AgentBrowserSession(
         @SerializedName("id") val id: Long,
         @SerializedName("name") val name: String,
-        @SerializedName("sessionType") val sessionType: String,
         @SerializedName("projectPath") val projectPath: String?,
     )
     internal data class AgentBrowserOption(

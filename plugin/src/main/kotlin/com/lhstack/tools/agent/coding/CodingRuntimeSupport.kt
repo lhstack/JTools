@@ -52,7 +52,7 @@ object CodingRuntimeSupport {
         cwd: String,
         promptId: Long?,
         compactionSummary: String?,
-        project: Project? = currentIdeProject(),
+        project: Project? = projectForWorkspace(cwd),
     ): String {
         val skillsRoot = ResourceConfigService.skillsRootDir()
         val availableSkills = ResourceConfigService.listSkills()
@@ -73,7 +73,7 @@ object CodingRuntimeSupport {
         promptId: Long?,
         compactionSummary: String?,
         cancel: ModelCancel? = null,
-        project: Project? = currentIdeProject(),
+        project: Project? = projectForWorkspace(cwd),
         turnId: String? = null,
         toolCancelSlot: java.util.concurrent.atomic.AtomicReference<ModelCancel>? = null,
         broadcaster: (JsonObject) -> Unit = {},
@@ -134,11 +134,6 @@ object CodingRuntimeSupport {
             val base = project.basePath ?: return@firstOrNull false
             File(base).canonicalFile.invariantSeparatorsPath == canonical
         }
-    }
-
-    fun currentIdeProject(): Project? {
-        val opened = ProjectManager.getInstance().openProjects.filterNot { it.isDisposed }
-        return opened.singleOrNull() ?: opened.firstOrNull()
     }
 
     internal fun effectiveTools(config: AgentCapabilityConfig): Set<String> = effectiveEnabledItems(

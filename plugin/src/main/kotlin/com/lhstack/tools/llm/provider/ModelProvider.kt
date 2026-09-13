@@ -8,6 +8,7 @@ import com.lhstack.tools.llm.anthropic.AnthropicMessageRequest
 import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.http.ModelHttpExecutor
 import com.lhstack.tools.agent.model.http.ModelHttpTrace
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import com.lhstack.tools.llm.Message
 import com.lhstack.tools.llm.ProviderRound
 import com.lhstack.tools.llm.ToolDefinition
@@ -42,6 +43,7 @@ class ModelProviderRequest(
     val streamSink: ModelStreamSink = ModelStreamSink.NOOP,
     val eventSink: ToolEventSink? = null,
     val httpTrace: ModelHttpTrace,
+    val firstTokenTrace: FirstTokenTrace? = null,
     val cancel: ModelCancel? = null,
     val toolCancel: ModelCancel? = null,
     val toolCancelSlot: java.util.concurrent.atomic.AtomicReference<ModelCancel>? = null,
@@ -158,6 +160,7 @@ object ModelProvider {
                 httpTrace = request.httpTrace,
                 streamSink = request.streamSink,
                 eventSink = request.eventSink,
+                firstTokenTrace = request.firstTokenTrace,
             )
         )
         return when (request.model.api) {
@@ -218,6 +221,7 @@ object ModelProvider {
                 httpTrace = request.httpTrace,
                 streamSink = request.streamSink,
                 eventSink = request.eventSink,
+                firstTokenTrace = request.firstTokenTrace,
             )
         )
         val messageRequest = AnthropicMessageRequest.fromRuntime(

@@ -78,21 +78,19 @@ internal object AgentBrowserManagement {
                 "title" to session.title,
                 "codingEnvironmentId" to session.codingEnvironmentId,
                 "agentId" to session.agentId,
-                "sessionType" to session.sessionType.value,
                 "projectPath" to session.projectPath,
                 "createdAt" to session.createdAt,
                 "updatedAt" to session.updatedAt,
             )
         }
         "session.create" -> {
-            val type = ChatSessionType.from(string(payload, "sessionType"))
             val environmentId = payload.longOrNull("codingEnvironmentId")
                 ?: payload.longOrNull("environmentId")
                 ?: throw IllegalArgumentException("创建会话必须指定编码环境")
             ChatSessionService.createSession(
                 title = payload.stringOrNull("title") ?: "新会话",
                 codingEnvironmentId = environmentId,
-                sessionType = type,
+                sessionType = ChatSessionType.PROJECT,
                 workspacePath = projectPath(project),
                 agentId = payload.longOrNull("agentId"),
                 providerId = payload.longOrNull("providerId"),

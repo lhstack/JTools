@@ -11,6 +11,7 @@ import com.lhstack.tools.agent.model.http.ModelHttpSupport
 import com.lhstack.tools.agent.model.http.ModelHttpTrace
 import com.lhstack.tools.agent.model.http.ModelRequestCancelledException
 import com.lhstack.tools.agent.model.http.SseParser
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import com.lhstack.tools.llm.Message
 import com.lhstack.tools.llm.ProviderRound
 import com.lhstack.tools.llm.ProviderToolCall
@@ -49,6 +50,7 @@ class OpenAiClientParams(
     val httpTrace: ModelHttpTrace?,
     val streamSink: ModelStreamSink = ModelStreamSink.NOOP,
     val eventSink: com.lhstack.tools.llm.provider.ToolEventSink? = null,
+    val firstTokenTrace: FirstTokenTrace? = null,
 )
 
 class OpenAiClient(private val params: OpenAiClientParams) {
@@ -545,7 +547,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         val serialized = ModelHttpSupport.serializedRequestBody(body)
         httpTrace?.request(url, serialized)
         return try {
-            executor.sendJsonStream(url, authHeaders(), serialized.toString(), cancel)
+            executor.sendJsonStream(url, authHeaders(), serialized.toString(), cancel, params.firstTokenTrace)
         } catch (e: ModelHttpStatusException) {
             httpTrace?.error(url, e.status.toString(), "model API returned non-success status", com.google.gson.JsonPrimitive(e.bodyText))
             throw IllegalStateException("model API returned ${e.status}: ${e.bodyText}")

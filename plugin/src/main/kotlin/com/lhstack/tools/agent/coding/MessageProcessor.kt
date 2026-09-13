@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.lhstack.tools.agent.model.http.ModelCancel
 import com.lhstack.tools.agent.model.http.ModelRequestCancelledException
 import com.lhstack.tools.agent.model.log.ModelLogContext
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import com.lhstack.tools.agent.model.log.ModelRequestException
 import com.lhstack.tools.agent.model.params.ModelResolver
 import com.lhstack.tools.concurrent.AgentExecutors
@@ -248,6 +249,8 @@ object MessageProcessor {
         }
         val session = ChatSessionService.sessionById(task.sessionId)
             ?: throw IllegalStateException("Coding 会话 `${task.sessionId}` 不存在")
+        val firstTokenTrace = FirstTokenTrace(task.sessionId, task.id, task.turnId)
+        firstTokenTrace.mark("task_started")
         val provider = CatalogService.providerById(session.providerId)
             ?: throw IllegalStateException("供应商 `${session.providerId}` 不存在")
         val snapshot = CodingSessionSupport.applyReasoningOverride(
@@ -266,6 +269,7 @@ object MessageProcessor {
             contextWindow = model.params.contextWindow,
             outputTokens = com.lhstack.tools.agent.model.params.ModelParams.runtimeOutputTokens(model),
         )
+        firstTokenTrace.mark("history_loaded")
         val promptMessage = if (task.resumed) {
             Message.user(MessageEventSupport.RESUMED_PROMPT)
         } else {
@@ -276,6 +280,9 @@ object MessageProcessor {
             )
         }
         val promptId = task.executionConfig.get("prompt_id")?.takeIf { it.isJsonPrimitive }?.asLong ?: session.promptId
+        val ideProject = CodingRuntimeSupport.projectForWorkspace(session.cwd)
+            ?: throw IllegalStateException("当前会话工作区 `${session.cwd}` 未对应已打开的 IDE 项目")
+        firstTokenTrace.mark("runtime_binding_resolved")
         val runtime = CodingRuntimeSupport.assemble(
             environment = environment,
             sessionId = task.sessionId,
@@ -283,18 +290,24 @@ object MessageProcessor {
             promptId = promptId,
             compactionSummary = session.config.get("coding_compaction_summary")?.takeIf { it.isJsonPrimitive }?.asString,
             cancel = ModelCancel(active.toolSlot),
-            project = CodingRuntimeSupport.currentIdeProject(),
+            project = ideProject,
             turnId = task.turnId,
             toolCancelSlot = active.toolSlot,
             broadcaster = ::broadcast,
         )
+        firstTokenTrace.mark("runtime_assembled")
         val history = MessageHistorySupport.toModelHistory(
             events = historyEvents,
             currentTurnId = task.turnId,
             includeCurrentTurn = false,
         )
-        val recorder = UnifiedMessageEventRecorder(task.sessionId, broadcaster = ::broadcast)
+        val recorder = UnifiedMessageEventRecorder(
+            sessionId = task.sessionId,
+            broadcaster = ::broadcast,
+            firstTokenTrace = firstTokenTrace,
+        )
         val continuation = MessageAppendContinuation(task.sessionId, task.turnId, model.params.modalities)
+        firstTokenTrace.mark("model_request_started")
         val result = ModelRuntime.execute(
             model = model,
             agentMaxTurns = model.params.executionParams.maxToolCallRounds,
@@ -316,6 +329,7 @@ object MessageProcessor {
             toolCancel = ModelCancel(active.toolSlot),
             toolCancelSlot = active.toolSlot,
             continuation = continuation,
+            firstTokenTrace = firstTokenTrace,
         )
         if (active.modelCancelRequested.get()) return
         result.value.get("usage")?.let { recorder.recordTurnUsage(task.turnId, com.lhstack.tools.llm.Usage.withoutAttribution(it)) }

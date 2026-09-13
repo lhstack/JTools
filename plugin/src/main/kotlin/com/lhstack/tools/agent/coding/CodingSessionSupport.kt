@@ -3,7 +3,6 @@ package com.lhstack.tools.agent.coding
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.lhstack.tools.agent.model.params.ModelResolver
-import com.lhstack.tools.const.Const
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ChatSessionType
@@ -18,7 +17,6 @@ import java.io.File
 object CodingSessionSupport {
     const val MESSAGE_SESSION_TYPE: String = "coding"
     const val VISIBILITY_PROJECT: String = "project"
-    const val VISIBILITY_GLOBAL: String = "global"
 
     data class CreateInput(
         val title: String,
@@ -33,8 +31,7 @@ object CodingSessionSupport {
 
     data class ParsedConfig(
         val cwd: String,
-        val visibility: ChatSessionType,
-        val projectPath: String?,
+        val projectPath: String,
         val codingEnvironmentId: Long,
         val agentId: Long,
         val providerId: Long,
@@ -52,14 +49,6 @@ object CodingSessionSupport {
         return File(path).canonicalFile.invariantSeparatorsPath
     }
 
-    fun globalWorkspacePath(): String {
-        val dir = File(Const.JTOOLS_PLUGIN_HOME, "global")
-        if (!dir.exists() && !dir.mkdirs()) {
-            throw IllegalStateException("无法创建全局会话工作区 `${dir.path}`")
-        }
-        return normalizeWorkspacePath(dir.path)
-    }
-
     fun normalizeWorkspacePath(path: String): String {
         val canonical = canonicalizePath(path)
         require(File(canonical).isDirectory) { "工作区路径 `$path` 不是目录" }
@@ -70,6 +59,7 @@ object CodingSessionSupport {
         val title = input.title.trim()
         require(title.isNotBlank()) { "会话名称不能为空" }
         require(title.length <= 80) { "会话名称不能超过 80 个字符" }
+        require(input.visibility == ChatSessionType.PROJECT) { "仅支持项目会话" }
         val cwd = normalizeWorkspacePath(input.workspacePath)
         val environment = CodingEnvironmentService.requireEnabled(input.codingEnvironmentId)
         val agent = input.agentId?.let {
@@ -90,9 +80,8 @@ object CodingSessionSupport {
         }
         return JsonObject().apply {
             addProperty("cwd", cwd)
-            addProperty("visibility", input.visibility.value)
-            if (input.visibility == ChatSessionType.PROJECT) addProperty("project_path", cwd)
-            else add("project_path", com.google.gson.JsonNull.INSTANCE)
+            addProperty("visibility", ChatSessionType.PROJECT.value)
+            addProperty("project_path", cwd)
             addProperty("coding_environment_id", environment.id)
             if (agent?.id != null) addProperty("agent_id", agent.id)
             else add("agent_id", com.google.gson.JsonNull.INSTANCE)
@@ -117,19 +106,17 @@ object CodingSessionSupport {
             throw IllegalStateException("会话$label 配置无效", error)
         }
         val cwd = requiredString(root, "cwd")
-        val visibility = ChatSessionType.from(requiredString(root, "visibility"))
         val projectPath = root.get("project_path")?.takeUnless { it.isJsonNull }?.asString
-        if (visibility == ChatSessionType.PROJECT) {
-            require(!projectPath.isNullOrBlank()) { "项目会话缺少 project_path" }
-        }
+        require(!projectPath.isNullOrBlank()) { "项目会话缺少 project_path" }
+        val normalizedProjectPath = canonicalizePath(projectPath)
+        require(normalizedProjectPath == canonicalizePath(cwd)) { "项目会话 project_path 必须与 cwd 一致" }
         val snapshot = root.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject
             ?: throw IllegalStateException("会话缺少 model_snapshot")
         val tokenUsage = root.get("token_usage")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
         val reasoningConfig = root.get("reasoning_config")?.takeIf { it.isJsonObject }?.asJsonObject
         return ParsedConfig(
-            cwd = cwd,
-            visibility = visibility,
-            projectPath = projectPath,
+            cwd = canonicalizePath(cwd),
+            projectPath = normalizedProjectPath,
             codingEnvironmentId = requiredLong(root, "coding_environment_id"),
             agentId = root.get("agent_id")?.takeUnless { it.isJsonNull }?.asLong ?: 0L,
             providerId = requiredLong(root, "provider_id"),

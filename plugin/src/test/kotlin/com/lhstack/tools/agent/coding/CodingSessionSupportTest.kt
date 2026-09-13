@@ -2,7 +2,6 @@ package com.lhstack.tools.agent.coding
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.lhstack.tools.db.service.ChatSessionType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -23,8 +22,7 @@ class CodingSessionSupportTest {
             add("token_usage", JsonObject())
         }
         val parsed = CodingSessionSupport.parseConfig(config.toString(), 9)
-        assertEquals("/tmp/project", parsed.cwd)
-        assertEquals(ChatSessionType.PROJECT, parsed.visibility)
+        assertEquals(CodingSessionSupport.canonicalizePath("/tmp/project"), parsed.cwd)
         assertEquals(8, parsed.codingEnvironmentId)
         assertEquals(1, parsed.agentId)
         assertEquals(2, parsed.providerId)
@@ -34,7 +32,7 @@ class CodingSessionSupportTest {
 
     @Test
     fun `parseConfig rejects missing snapshot`() {
-        val config = """{"cwd":"/tmp/p","visibility":"global","coding_environment_id":8,"agent_id":1,"provider_id":2,"model_id":3}"""
+        val config = """{"cwd":"/tmp/p","visibility":"project","project_path":"/tmp/p","coding_environment_id":8,"agent_id":1,"provider_id":2,"model_id":3}"""
         assertFailsWith<IllegalStateException> { CodingSessionSupport.parseConfig(config, 1) }
     }
 
@@ -54,7 +52,7 @@ class CodingSessionSupportTest {
     @Test
     fun `replaceAgent writes agent id without touching snapshot`() {
         val config = JsonParser.parseString(
-            """{"cwd":"/tmp/p","visibility":"global","agent_id":1,"provider_id":2,"model_id":3,"model_snapshot":{"model_id":"gpt"}}""",
+            """{"cwd":"/tmp/p","visibility":"project","project_path":"/tmp/p","agent_id":1,"provider_id":2,"model_id":3,"model_snapshot":{"model_id":"gpt"}}""",
         ).asJsonObject
         val updated = CodingSessionSupport.replaceAgent(config, 8)
         assertEquals(8L, updated.get("agent_id").asLong)
@@ -95,7 +93,7 @@ class CodingSessionSupportTest {
     @Test
     fun `applyModelSettings writes prompt and snapshot ids`() {
         val config = JsonParser.parseString(
-            """{"cwd":"/tmp/p","visibility":"global","coding_environment_id":8,"agent_id":1,"provider_id":2,"model_id":3,"model_snapshot":{"provider_id":2,"id":3,"model_id":"gpt"}}""",
+            """{"cwd":"/tmp/p","visibility":"project","project_path":"/tmp/p","coding_environment_id":8,"agent_id":1,"provider_id":2,"model_id":3,"model_snapshot":{"provider_id":2,"id":3,"model_id":"gpt"}}""",
         ).asJsonObject
         // CatalogService 需要数据库，这里只验证 replace 字段写入形状：snapshot 校验失败时不改 config。
         val original = config.deepCopy()

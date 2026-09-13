@@ -189,13 +189,16 @@ watch(
 const prompt = ref('')
 const messageList = ref(null)
 const autoFollowConversation = ref(true)
+const historyLoading = ref(false)
+const hasOlderHistory = ref(false)
+const nextHistoryBeforeId = ref(null)
+const HISTORY_PAGE_SIZE = 80
 let programmaticConversationScroll = false
 const sending = ref(false)
 const composerExpanded = ref(false)
 const dragging = ref(false)
 const sessionDialogVisible = ref(false)
 const sessionName = ref('')
-const sessionType = ref('project')
 const creatingSession = ref(false)
 const queueEditVisible = ref(false)
 const queueEditItem = ref(null)
@@ -302,6 +305,8 @@ watch(
   () => s.historyRevision,
   (revision, previous) => {
     if (!revision || revision === previous) return
+    hasOlderHistory.value = s.historyHasMore === true
+    nextHistoryBeforeId.value = s.historyBeforeId ?? null
     followIncomingConversation()
   },
   { flush: 'post' }
@@ -327,6 +332,8 @@ watch(
     persistSelectedSession(sessionId)
     if (sessionId !== previous[0]) {
       autoFollowConversation.value = true
+      hasOlderHistory.value = s.historyHasMore === true
+      nextHistoryBeforeId.value = s.historyBeforeId ?? null
       scrollMessagesToBottom()
     }
   },
@@ -356,9 +363,51 @@ function shouldFollowConversation() {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 96
 }
 
-function handleConversationScroll() {
+async function handleConversationScroll() {
   if (programmaticConversationScroll) return
   autoFollowConversation.value = shouldFollowConversation()
+  const element = messageList.value
+  if (!element || element.scrollTop > 96 || historyLoading.value || !hasOlderHistory.value || !events.value.length) return
+  await loadOlderHistory()
+}
+
+async function loadOlderHistory() {
+  if (historyLoading.value || !hasOlderHistory.value || !s.currentSessionId || !events.value.length) return
+  const beforeId = Number(nextHistoryBeforeId.value || events.value[0]?.id)
+  if (!Number.isFinite(beforeId)) return
+  const element = messageList.value
+  if (!element) return
+  historyLoading.value = true
+  const previousHeight = element.scrollHeight
+  const previousTop = element.scrollTop
+  try {
+    const page = await api('session.history.before', {
+      sessionId: String(s.currentSessionId),
+      beforeId: String(beforeId),
+      limit: HISTORY_PAGE_SIZE,
+    })
+    const incoming = Array.isArray(page?.events) ? page.events : []
+    const existingIds = new Set(events.value.map((event) => Number(event.id)))
+    const older = incoming.filter((event) => {
+      const id = Number(event?.id)
+      if (!Number.isFinite(id) || existingIds.has(id)) return false
+      existingIds.add(id)
+      return true
+    })
+    if (older.length) {
+      s.events = [...older, ...events.value]
+      await nextTick()
+      element.scrollTop = element.scrollHeight - previousHeight + previousTop
+    }
+    hasOlderHistory.value = page?.has_more === true
+    nextHistoryBeforeId.value = page?.next_before_id ?? null
+    s.historyHasMore = hasOlderHistory.value
+    s.historyBeforeId = nextHistoryBeforeId.value
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '加载历史消息失败')
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 function applyConversationBottom() {
@@ -717,6 +766,42 @@ async function send() {
     ElMessage.warning('请先创建编码环境和会话')
     return
   }
+  sending.value = true
+  let latestContext
+  try {
+    latestContext = await api('context.get')
+    Object.assign(s, { context: latestContext })
+  } catch (error) {
+    ElMessage.error(error?.message || String(error) || '读取上下文失败')
+    sending.value = false
+    return
+  }
+  if (Number(latestContext?.percent) >= 100) {
+    try {
+      const action = await ElMessageBox.confirm(
+        '当前上下文已达到或超过 100%，请选择继续发送或先压缩上下文。',
+        '上下文已满',
+        {
+          confirmButtonText: '发送',
+          cancelButtonText: '压缩',
+          distinguishCancelAndClose: true,
+          type: 'warning',
+        },
+      )
+      if (action !== 'confirm') {
+        sending.value = false
+        return
+      }
+    } catch (error) {
+      if (error === 'cancel') {
+        await compactContext()
+        sending.value = false
+        return
+      }
+      sending.value = false
+      return
+    }
+  }
   const sessionId = s.currentSessionId
   const attachmentItems = drafts.value.map((item) => ({ ...item }))
   sending.value = true
@@ -921,7 +1006,6 @@ async function saveQueueEdit() {
 
 function openSessionDialog() {
  sessionName.value = ''
- sessionType.value = 'project'
  sessionDialogVisible.value = true
 }
 
@@ -930,7 +1014,7 @@ async function createSession() {
   if (!name || creatingSession.value) return
   creatingSession.value = true
   try {
-    await invoke('session.new', { name, sessionType: sessionType.value })
+    await invoke('session.new', { name })
     sessionDialogVisible.value = false
   } catch (error) {
     ElMessage.error(error?.message || String(error) || '创建会话失败')
@@ -998,7 +1082,7 @@ function drop(event) {
   >
     <header class="chat-top">
       <el-select :model-value="s.currentSessionId" @change="id => invoke('session.select', { id })">
-        <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="`${item.sessionType === 'global' ? '[全局]' : '[项目]'} ${item.name}`" />
+        <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="`[项目] ${item.name}`" />
       </el-select>
       <el-button :icon="Plus" text @click="openSessionDialog" />
       <el-button :icon="Refresh" text title="刷新会话" @click="refreshCache" />
@@ -1391,12 +1475,6 @@ function drop(event) {
   <el-form label-position="top" @submit.prevent="createSession">
    <el-form-item label="会话名称" required>
     <el-input v-model="sessionName" maxlength="80" show-word-limit autofocus @keyup.enter="createSession" />
-   </el-form-item>
-   <el-form-item label="会话范围" required>
-    <el-radio-group v-model="sessionType" class="session-type-options">
-     <el-radio value="project"><div><strong>项目会话</strong><small>仅在当前项目中可见</small></div></el-radio>
-     <el-radio value="global"><div><strong>全局会话</strong><small>所有项目共享，可自由切换</small></div></el-radio>
-    </el-radio-group>
    </el-form-item>
   </el-form>
   <template #footer><el-button @click="sessionDialogVisible=false">取消</el-button><el-button type="primary" :disabled="!sessionName.trim()" :loading="creatingSession" @click="createSession">创建</el-button></template>

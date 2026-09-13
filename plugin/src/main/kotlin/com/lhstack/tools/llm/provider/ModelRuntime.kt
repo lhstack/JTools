@@ -4,6 +4,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.lhstack.tools.db.service.SettingService
 import com.lhstack.tools.agent.model.http.ModelCancel
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import com.lhstack.tools.agent.model.http.ModelHttpClientFactory
 import com.lhstack.tools.agent.model.http.ModelHttpTrace
 import com.lhstack.tools.llm.Message
@@ -54,6 +55,7 @@ object ModelRuntime {
         onLogCreated: ((Long) -> Unit)? = null,
         appendMessageChannel: AppendMessageChannel = AppendMessageChannel.NONE,
         continuation: ModelContinuationPort = appendMessageChannel.asContinuationPort(),
+        firstTokenTrace: FirstTokenTrace? = null,
     ): Result {
         val toolDefinitions = modelLogToolDefinitions(tools)
         val additionalParams = ModelParams.additionalParams(model, environmentId)
@@ -81,7 +83,7 @@ object ModelRuntime {
             retryIntervalMs = retryIntervalMs,
             streamed = streamed,
             hook = hook,
-            streamSink = EventForwardingStreamSink(partialOutput, eventSink),
+            streamSink = EventForwardingStreamSink(partialOutput, eventSink, firstTokenTrace),
             eventSink = eventSink,
             httpTrace = httpTrace,
             cancel = cancel,
@@ -89,6 +91,7 @@ object ModelRuntime {
             toolCancelSlot = toolCancelSlot,
             appendMessageChannel = recordedAppendMessages,
             continuation = continuation,
+            firstTokenTrace = firstTokenTrace,
         )
 
         val output = try {
@@ -197,8 +200,10 @@ object ModelRuntime {
     private class EventForwardingStreamSink(
         private val delegate: ModelStreamSink,
         private val eventSink: ToolEventSink?,
+        private val firstTokenTrace: FirstTokenTrace?,
     ) : ModelStreamSink {
         override fun onResponseDelta(text: String) {
+            firstTokenTrace?.mark("response_delta_received")
             delegate.onResponseDelta(text)
             emit("response_delta", text)
         }

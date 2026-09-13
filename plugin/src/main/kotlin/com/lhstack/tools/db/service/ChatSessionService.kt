@@ -8,12 +8,11 @@ import com.lhstack.tools.db.entity.ChatSessionEntity
 import com.lhstack.tools.db.mapper.ChatSessionMapper
 
 enum class ChatSessionType(val value: String) {
-    PROJECT("project"),
-    GLOBAL("global");
+    PROJECT("project");
 
     companion object {
         fun from(value: String): ChatSessionType = entries.firstOrNull { it.value == value }
-            ?: throw IllegalArgumentException("会话类型仅支持 project、global")
+            ?: throw IllegalArgumentException("会话类型仅支持 project")
     }
 }
 
@@ -50,7 +49,9 @@ object ChatSessionService {
     fun listSessions(): List<ChatSessionRecord> = listCodingSessions()
 
     fun sessionById(id: Long): ChatSessionRecord? = AgentDatabase.execute { session ->
-        session.getMapper(ChatSessionMapper::class.java).selectById(id)?.let(::toRecord)
+        session.getMapper(ChatSessionMapper::class.java)
+            .selectOne(projectSessionQuery().eq("id", id))
+            ?.let(::toRecord)
     }
 
     fun visibleSessionById(id: Long, projectPath: String): ChatSessionRecord? =
@@ -95,7 +96,8 @@ object ChatSessionService {
         require(normalizedTitle.isNotBlank()) { "会话名称不能为空" }
         require(normalizedTitle.length <= 80) { "会话名称不能超过 80 个字符" }
         val mapper = session.getMapper(ChatSessionMapper::class.java)
-        val entity = mapper.selectById(id) ?: throw IllegalArgumentException("会话 `$id` 不存在")
+        val entity = mapper.selectOne(projectSessionQuery().eq("id", id))
+            ?: throw IllegalArgumentException("会话 `$id` 不存在")
         entity.title = normalizedTitle
         mapper.updateById(entity)
         Unit
@@ -112,7 +114,8 @@ object ChatSessionService {
         maxHistoryRounds: Int? = null,
     ): ChatSessionRecord = AgentDatabase.execute { session ->
         val mapper = session.getMapper(ChatSessionMapper::class.java)
-        val entity = mapper.selectById(id) ?: throw IllegalArgumentException("会话 `$id` 不存在")
+        val entity = mapper.selectOne(projectSessionQuery().eq("id", id))
+            ?: throw IllegalArgumentException("会话 `$id` 不存在")
         val next = CodingSessionSupport.applyModelSettings(
             parsedToObject(entity.config),
             CodingSessionSupport.ModelSettingsInput(
@@ -132,7 +135,8 @@ object ChatSessionService {
 
     fun updateSessionCodingEnvironment(id: Long, environmentId: Long) = AgentDatabase.execute { session ->
         val mapper = session.getMapper(ChatSessionMapper::class.java)
-        val entity = mapper.selectById(id) ?: throw IllegalArgumentException("会话 `$id` 不存在")
+        val entity = mapper.selectOne(projectSessionQuery().eq("id", id))
+            ?: throw IllegalArgumentException("会话 `$id` 不存在")
         entity.config = CodingSessionSupport.replaceCodingEnvironment(parsedToObject(entity.config), environmentId).toString()
         mapper.updateById(entity)
         Unit
@@ -141,16 +145,18 @@ object ChatSessionService {
     fun updateSessionAgent(id: Long, agentId: Long) = AgentDatabase.execute { session ->
         AgentService.agentById(agentId) ?: throw IllegalArgumentException("Agent `$agentId` 不存在")
         val mapper = session.getMapper(ChatSessionMapper::class.java)
-        val entity = mapper.selectById(id) ?: throw IllegalArgumentException("会话 `$id` 不存在")
+        val entity = mapper.selectOne(projectSessionQuery().eq("id", id))
+            ?: throw IllegalArgumentException("会话 `$id` 不存在")
         entity.config = CodingSessionSupport.replaceAgent(parsedToObject(entity.config), agentId).toString()
         mapper.updateById(entity)
         Unit
     }
 
     fun deleteSession(id: Long) {
-        MessageStoreService.clearSession(id)
-        AgentDatabase.execute { session ->
-            val changed = session.getMapper(ChatSessionMapper::class.java).deleteById(id)
+        val session = sessionById(id) ?: throw IllegalArgumentException("会话 `$id` 不存在")
+        MessageStoreService.clearSession(session.id)
+        AgentDatabase.execute { databaseSession ->
+            val changed = databaseSession.getMapper(ChatSessionMapper::class.java).deleteById(session.id)
             require(changed > 0) { "会话 `$id` 不存在" }
             Unit
         }
@@ -158,20 +164,19 @@ object ChatSessionService {
 
     fun normalizeProjectPath(projectPath: String): String = CodingSessionSupport.canonicalizePath(projectPath)
 
+    private fun projectSessionQuery(): QueryWrapper<ChatSessionEntity> = QueryWrapper<ChatSessionEntity>()
+        .eq("session_type", CodingSessionSupport.MESSAGE_SESSION_TYPE)
+        .apply("json_extract(config, '$.visibility') = {0}", ChatSessionType.PROJECT.value)
+
     private fun listCodingSessions(): List<ChatSessionRecord> = AgentDatabase.execute { session ->
         session.getMapper(ChatSessionMapper::class.java)
             .selectList(
-                QueryWrapper<ChatSessionEntity>()
-                    .eq("session_type", CodingSessionSupport.MESSAGE_SESSION_TYPE)
-                    .orderByDesc("updated_at", "id"),
+                projectSessionQuery().orderByDesc("updated_at", "id"),
             )
             .map(::toRecord)
     }
 
-    private fun ChatSessionRecord.isVisibleIn(projectPath: String): Boolean = when (sessionType) {
-        ChatSessionType.GLOBAL -> true
-        ChatSessionType.PROJECT -> this.projectPath == projectPath
-    }
+    private fun ChatSessionRecord.isVisibleIn(projectPath: String): Boolean = projectPath == this.projectPath
 
     private fun parsedToObject(configText: String): JsonObject =
         com.google.gson.JsonParser.parseString(configText).asJsonObject
@@ -184,7 +189,7 @@ object ChatSessionService {
             title = entity.title,
             codingEnvironmentId = parsed.codingEnvironmentId,
             agentId = parsed.agentId,
-            sessionType = parsed.visibility,
+            sessionType = ChatSessionType.PROJECT,
             projectPath = parsed.projectPath,
             cwd = parsed.cwd,
             providerId = parsed.providerId,

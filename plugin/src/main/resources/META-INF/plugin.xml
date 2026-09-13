@@ -151,23 +151,21 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.5</h2>
+            <h2>🚀 Version v1.1.5.6</h2>
             <p><i>Latest Release / 最新版本</i></p>
             <ul>
-                <li>🧾 <b>Agent Event Persistence:</b> Added an independent <code>agent_events</code> store for user messages, reasoning, tool calls/results, model replies, and failures, keeping Agent history at Agent scope.</li>
-                <li>🧠 <b>Agent History Across Sessions:</b> Direct Agent runs restore history by Agent rather than by one chat session; isolated resource views, compaction, and subagent runs do not pollute regular history.</li>
-                <li>📐 <b>Context Budgeting:</b> Coding-session history is selected against the model context window, reserved output tokens, history limits, and retained tool-call rounds to keep requests within budget.</li>
-                <li>🔗 <b>Session-Aware Plugin Functions:</b> SDK plugin functions can receive the active session name, session ID, provider, and model, so integrations can identify their invocation context.</li>
-                <li>⚙️ <b>Execution Parameter Alignment:</b> Tool-call round limits and tool-history retention are now carried through model snapshots and applied consistently by coding and Agent runtimes.</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.5</code> and aligned SDK helper version metadata to <code>1155</code>.</li>
-                <li>🧾 <b>Agent 事件持久化：</b>新增独立 <code>agent_events</code> 存储，按 Agent 记录用户消息、推理、工具调用/结果、模型回复和失败事件，历史范围收敛到 Agent 维度。</li>
-                <li>🧠 <b>跨会话 Agent 历史：</b>通用 Agent 直接执行按 Agent 恢复历史，不再局限于单个聊天会话；资源查看、上下文压缩和 SubAgent 等隔离任务不污染普通历史。</li>
-                <li>📐 <b>上下文预算控制：</b>编码会话根据模型上下文窗口、输出 Token 预留、历史上限和工具调用保留轮次筛选历史，确保请求在预算内。</li>
-                <li>🔗 <b>会话感知的插件函数：</b>SDK 插件函数可接收当前会话名称、会话 ID、供应商和模型信息，准确识别调用上下文。</li>
-                <li>⚙️ <b>执行参数对齐：</b>工具调用轮次上限和工具历史保留策略通过模型快照传递，并由编码会话与 Agent 运行时统一应用。</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.5</code>，并同步 SDK Helper 版本元数据到 <code>1155</code>。</li>
+                <li>🛡️ <b>Strict Coding-Session Configuration:</b> Project sessions now require <code>project_path</code>, and its canonical path must match <code>cwd</code>; missing project paths no longer fall back silently.</li>
+                <li>🔒 <b>Project Session Isolation:</b> Session queries consistently limit coding-session CRUD to <code>session_type=coding</code> records with <code>visibility=project</code>, preventing unrelated sessions from being read or changed.</li>
+                <li>📂 <b>Canonical Project Visibility:</b> Session listing normalizes project paths before filtering, so a session is shown only in its owning project while equivalent path representations match reliably.</li>
+                <li>🧭 <b>Consistent Session Boundaries:</b> Session lookup, update, and deletion reuse the same project-session constraints, keeping management behavior aligned with project visibility.</li>
+                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.6</code> and aligned SDK helper version metadata to <code>1156</code>.</li>
+                <li>🛡️ <b>编码会话配置严格校验：</b>项目会话必须包含 <code>project_path</code>，且其规范化路径必须与 <code>cwd</code> 一致；缺少项目路径时不再静默回退。</li>
+                <li>🔒 <b>项目会话隔离：</b>会话查询统一限定为 <code>session_type=coding</code> 且 <code>visibility=project</code> 的项目会话，避免无关会话被读取或修改。</li>
+                <li>📂 <b>会话可见性路径规范化：</b>会话列表过滤前统一规范化项目路径，确保会话只在所属项目中显示，并可靠匹配等价的路径表示。</li>
+                <li>🧭 <b>会话边界统一：</b>会话获取、更新和删除复用同一套项目会话约束，使会话管理行为与项目可见性规则保持一致。</li>
+                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.6</code>，并同步 SDK Helper 版本元数据到 <code>1156</code>。</li>
             </ul>
-            <h2>🚀 Version v1.1.5.4</h2>
+            <h2>🚀 Version v1.1.5.5</h2>
             <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>♻️ <b>Coding Session Rewrite:</b> Rebuilt the chat dialog on the awake-claw coding-session path. Message events, processing tasks, append items, attachments, and context compaction replace the old message-card queue. This is a major version cut: no migration, no compatibility layer, no fallback. The plugin automatically rebuilds the database when it detects an older schema version; data in the old database is not retained.</li>
@@ -269,112 +267,6 @@
                 <li>🛡️ <b>润色失败显式暴露：</b>模型未按约定调用提交工具时直接报错并提示检查该模型是否支持工具调用，不解析回答正文凑结果</li>
                 <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.0</code>，并同步 SDK Helper 版本元数据到 <code>1150</code></li>
             </ul>
-
-            <h2>🚀 Version v1.1.4.9</h2>
-            <p><i>Previous Release / 上一版本</i></p>
-            <ul>
-                <li>🧩 <b>Cross-split Tab Drag:</b> Migrated the more polished two-pane drag: dragging out removes the tab from the source split, a ghost label follows the cursor, and a highlighted placeholder shows the drop position for WYSIWYG insertion</li>
-                <li>🧭 <b>Splitter Layout Convergence:</b> A single <code>refreshSplitterLayout</code> manages left/right mounting, divider visibility, and empty/content page switching, fixing the missing divider after moving tabs</li>
-                <li>📚 <b>VFS URL File Read:</b> <code>read_project_files</code> now accepts VFS URLs (<code>jar://</code>, <code>jrt://</code>, <code>file://</code>) returned by <code>find_project_files</code> / <code>find_project_classes</code> with <code>include_global=true</code>, for reading dependency or SDK sources</li>
-                <li>🏷️ <b>Content Source Marker:</b> Read results mark <code>content_kind</code> as <code>project</code> or <code>external</code></li>
-                <li>📝 <b>IDE Tool Descriptions Rewritten:</b> Rewrote descriptions of 9 IDE project tools to match their real capabilities, covering batch operations, unsaved content, index sources, and boundary constraints</li>
-                <li>🔗 <b>Open Chat Links Externally:</b> URLs in the chat now open in the system browser instead of navigating away inside JCEF; the frontend intercepts <code>&lt;a&gt;</code> clicks and a JCEF-level <code>onBeforeBrowse</code> fallback only intercepts user-gesture external links, leaving initial load and internal navigation untouched</li>
-                <li>⚡ <b>Stop Latency Fix:</b> The stop action now runs entirely on a background thread, avoiding OkHttp shutdown and log writeback on the EDT that froze the UI</li>
-                <li>✂️ <b>Truncated Tool Output:</b> Tool output over 8KB is no longer dropped entirely; the first 8KB is kept with a truncation note and next-step hint (safely truncated on UTF-8 character boundaries)</li>
-                <li>🔄 <b>bash refresh_vfs Option:</b> bash can optionally refresh the VFS after running (off by default); pass <code>true</code> when the command changed files that will be read via <code>read_project_files</code> to avoid stale IDE cache</li>
-                <li>🧩 <b>Stringified JSON Argument Tolerance:</b> Array/object arguments of IDE project tools tolerate models serializing them as JSON strings (e.g. <code>"[{...}]"</code>), accepting only when the parse result is truly an array/object and otherwise reporting a clear error</li>
-                <li>📐 <b>Unified Line Ranges:</b> Editor file context now reports selections as <code>startLine/endLine</code>, and <code>read_project_files</code> drops <code>offset_ranges</code> in favour of <code>line_ranges</code> only, removing the offset/line duality and its mutual-exclusion errors</li>
-                <li>🔢 <b>Zero Numeric Argument As Unspecified:</b> Optional integer arguments whose lower bound is 1 (<code>max_lines</code>, <code>max_results</code>, <code>max_results_per_query</code>, <code>timeout_secs</code>, <code>max_bytes</code>, <code>max_response_bytes</code>) fall back to their defaults when a model passes <code>0</code>, instead of being clamped to 1; <code>context_lines</code> still accepts <code>0</code> as a valid value</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.9</code> and aligned SDK helper version metadata to <code>1149</code></li>
-                <li>🧩 <b>插件面板跨分屏拖拽：</b>迁移更完善的双栏拖拽实现，拖出即从源分屏移除、幽灵标签随鼠标跟随、目标分屏按落点高亮占位并所见即所得插入</li>
-                <li>🧭 <b>分屏布局收敛：</b>统一 <code>refreshSplitterLayout</code> 管理左右分屏挂载、分隔条与空/内容页切换，修复移动标签后分隔条不显示的问题</li>
-                <li>📚 <b>read_project_files 支持 VFS URL：</b>可直接读取 <code>find_project_files</code> / <code>find_project_classes</code> 在 <code>include_global=true</code> 时返回的 <code>jar://</code>、<code>jrt://</code>、<code>file://</code> 路径，用于查看依赖或 SDK 源码</li>
-                <li>🏷️ <b>内容来源标记：</b>读取结果区分 <code>content_kind</code> 为 <code>project</code> 或 <code>external</code></li>
-                <li>📝 <b>IDE 工具描述重写：</b>按真实能力重写 9 个 IDE 项目工具的描述，补齐批量、未保存内容、索引来源、边界约束等信息</li>
-                <li>🔗 <b>对话链接外部浏览器打开：</b>对话框内的 URL 改为交给系统外部浏览器打开，避免在 JCEF 内跳走整个对话页无法返回；前端拦截 <code>&lt;a&gt;</code> 点击、JCEF 层 <code>onBeforeBrowse</code> 兜底，仅拦真实用户手势触发的外链，放行初始加载与内部导航</li>
-                <li>⚡ <b>停止对话卡顿修复：</b>停止动作整体放到后台线程，避免在 EDT 上触发 OkHttp 关闭与日志写回导致界面卡顿</li>
-                <li>✂️ <b>工具输出截断保留：</b>工具输出超过 8KB 时不再整段丢弃，改为保留前 8KB 并在末尾附截断说明与下一步提示，按 UTF-8 字符边界安全截断</li>
-                <li>🔄 <b>bash 新增 refresh_vfs 参数：</b>bash 执行后可选刷新 VFS（默认关闭），改动磁盘文件且随后要用 <code>read_project_files</code> 读取时传 <code>true</code>，避免读到 IDE 缓存旧内容</li>
-                <li>🧩 <b>工具参数兼容字符串化 JSON：</b>IDE 项目工具的数组/对象参数兼容部分模型序列化成 JSON 字符串（如 <code>"[{...}]"</code>）的情况，解析结果确实是数组/对象才接受，否则仍报清晰错误</li>
-                <li>📐 <b>统一为行区间：</b>文件上下文选区改为上报 <code>startLine/endLine</code>，<code>read_project_files</code> 移除 <code>offset_ranges</code> 只保留 <code>line_ranges</code>，消除 offset 与行号两套口径及其互斥报错</li>
-                <li>🔢 <b>数值参数 0 视为未指定：</b><code>max_lines</code>、<code>max_results</code>、<code>max_results_per_query</code>、<code>timeout_secs</code>、<code>max_bytes</code>、<code>max_response_bytes</code> 等下界为 1 的可选参数传 <code>0</code> 时取默认值，不再被夹成 1 导致只读一行或超时一秒；<code>context_lines</code> 的 <code>0</code> 仍是合法值</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.9</code>，并同步 SDK Helper 版本元数据到 <code>1149</code></li>
-            </ul>
-
-            <h2>🚀 Version v1.1.4.8</h2>
-            <ul>
-                <li>📁 <b>Editor File Context:</b> Chat composer can attach the currently opened editor file path to the start of user messages</li>
-                <li>✂️ <b>Selection Offsets:</b> Selected text is sent as <code>startOffset/endOffset</code>; supports multi-file and multi-caret / block selections within one file</li>
-                <li>🏷️ <b>Single Aggregated Chip:</b> Multiple selections are summarized into one chip; tooltip lists all paths and offsets</li>
-                <li>🗂️ <b>Project-Scoped Toggle:</b> File-context enablement is persisted per project path</li>
-                <li>📖 <b>Offset-aware File Read:</b> <code>read_project_files</code> now accepts <code>offset_ranges</code> to read by character offsets (mutually exclusive with <code>line_ranges</code>)</li>
-                <li>🛡️ <b>Read-action Safety:</b> Editor selection/document access for file context runs inside a read-action to avoid EDT timer crashes</li>
-                <li>🧰 <b>Lightweight Tool Detail:</b> Tool detail viewer uses <code>JBTextArea</code> instead of <code>LanguageTextField</code> (no editor dispose maintenance)</li>
-                <li>🎨 <b>Icon &amp; Interaction:</b> Dedicated file-context icon button; chip can be dismissed; updates follow active file/selection changes</li>
-                <li>🔢 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.8</code> and aligned SDK helper version metadata to <code>1148</code></li>
-                <li>📁 <b>文件上下文开关：</b>对话输入区支持开启文件上下文，将当前编辑器打开文件路径附加到用户消息开头</li>
-                <li>✂️ <b>选区 offset 上下文：</b>有选区时附带 <code>startOffset/endOffset</code>；支持多文件，以及同文件多光标/块选的多处选区</li>
-                <li>🏷️ <b>单标签汇总展示：</b>多处选区合并为一个 chip，悬停列出全部路径与 offset</li>
-                <li>🗂️ <b>项目维度开关：</b>文件上下文开关按项目路径独立持久化，互不影响</li>
-                <li>📖 <b>read_project_files 支持 offset：</b>读取工具新增 <code>offset_ranges</code>，可按编辑器选区 offset 读取内容，与 <code>line_ranges</code> 二选一</li>
-                <li>🛡️ <b>编辑器 read-action 修复：</b>同步文件上下文时在 read-action 内访问选区/文档，避免 EDT Timer 线程异常</li>
-                <li>🧰 <b>工具详情轻量化：</b>工具详情由 <code>LanguageTextField</code> 改为 <code>JBTextArea</code>，无需维护 Editor dispose</li>
-                <li>🎨 <b>图标与交互：</b>新增文件上下文图标按钮；chip 支持关闭；切换文件/选区实时刷新</li>
-                <li>🔢 <b>版本元数据同步：</b>插件版本号更新为 <code>v1.1.4.8</code>，并同步 SDK Helper 版本元数据到 <code>1148</code></li>
-            </ul>
-
-            <h2>🚀 Version v1.1.4.7</h2>
-            <ul>
-                <li>🧩 <b>Provider Custom Headers:</b> Supplier settings now support a custom request-header list that is sent with provider HTTP calls</li>
-                <li>💾 <b>provider_config Storage:</b> Headers are persisted under <code>providers.provider_config.custom_headers</code> without a schema migration</li>
-                <li>🔐 <b>Auth Header Guard:</b> Custom headers cannot override <code>Authorization</code>; system API Key / Anthropic auth headers take precedence</li>
-                <li>📜 <b>Fixed-Height Header List:</b> The header editor is capped to about five visible rows with internal scrolling to avoid layout push-down</li>
-                <li>📡 <b>Runtime Coverage:</b> Custom headers are applied to chat requests and remote model listing</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.7</code> and aligned SDK helper version metadata to <code>1147</code></li>
-                <li>🧩 <b>供应商自定义请求头：</b>供应商配置支持维护自定义 Header 列表，并随供应商请求一起发送</li>
-                <li>💾 <b>provider_config 持久化：</b>请求头存储于 <code>providers.provider_config.custom_headers</code>，无需新增数据库字段</li>
-                <li>🔐 <b>鉴权优先级保护：</b>自定义头禁止覆盖 <code>Authorization</code>，系统 API Key / Anthropic 鉴权头优先</li>
-                <li>📜 <b>请求头列表固定高度：</b>列表固定约 5 行可视高度，超出后内部滚动，避免把下方配置整体顶下去</li>
-                <li>📡 <b>运行时全链路生效：</b>对话请求与远程模型列表获取都会带上供应商自定义请求头</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.7</code>，并同步 SDK Helper 版本元数据到 <code>1147</code></li>
-            </ul>
-
-            <h2>🚀 Version v1.1.4.6</h2>
-            <ul>
-                <li>💬 <b>Composer Send Button:</b> Added a theme-aware primary "发送" text button at the bottom-right of the chat input, with loading/disabled states and retained Cmd/Ctrl+Enter shortcuts</li>
-                <li>🎨 <b>Theme-Matched Send Style:</b> Send button colors now follow the IDE accent token (<code>--jb-accent</code>) across hover, active, and disabled states in light/dark themes</li>
-                <li>✍️ <b>Textarea Resize Cleanup:</b> Disabled native vertical resize handles on chat input, agent description/extra prompt, persona fields, and related dialogs to keep layouts stable</li>
-                <li>📐 <b>Maximize Editor Fixes:</b> Fixed collapsed height and double scrollbars in the shared maximize editor used by Extra Prompt and Persona fields; only the editor body scrolls</li>
-                <li>🧭 <b>Counter/Maximize Layout:</b> Moved the maximize action for Extra Prompt to the field label so it no longer overlaps the character counter</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.6</code> and aligned SDK helper version metadata to <code>1146</code></li>
-                <li>💬 <b>对话发送按钮：</b>在输入框右下角增加主题色“发送”文字按钮，支持 loading/禁用状态，并保留 Cmd/Ctrl+Enter 快捷发送</li>
-                <li>🎨 <b>发送按钮主题适配：</b>按钮颜色跟随 IDE 主题强调色（<code>--jb-accent</code>），悬停/按下/禁用态同步适配浅色与深色主题</li>
-                <li>✍️ <b>输入区交互优化：</b>去掉对话输入框、Agent 描述/扩展提示、角色与人格等文本框右下角拖拽拉高，减少布局抖动</li>
-                <li>📐 <b>最大化编辑弹窗修复：</b>修复扩展提示、角色与人格最大化编辑时高度塌陷与双滚动条问题，仅保留编辑区内一条滚动条</li>
-                <li>🧭 <b>字数统计与最大化按钮布局：</b>扩展提示的最大化入口移到标签行，避免与右下角字数统计重叠</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.4.6</code>，并同步 SDK Helper 版本元数据到 <code>1146</code></li>
-            </ul>
-
-            <h2>📦 Version v1.1.4.5</h2>
-            <ul>
-                <li>🧠 <b>LLM Runtime Rewrite:</b> Reworked model calls onto a direct OkHttp/Okio HTTP client with a spec-compliant SSE parser (WHATWG/EventSource line handling) and a unified <code>ModelCancel</code> token that interrupts streaming reads, tool calls, and MCP connections together</li>
-                <li>🔌 <b>Structured MCP CLI Tool:</b> Consolidated MCP management into a single built-in <code>cli</code> tool, exposing <code>mcp.list</code>, <code>mcp.get</code>, <code>mcp.create</code>, <code>mcp.update</code>, <code>mcp.delete</code>, <code>mcp.test</code>, <code>mcp.tools</code>, <code>mcp.resources</code>, <code>mcp.read_resource</code>, and <code>mcp.call</code> on the official MCP Java SDK with stdio/SSE/streamable HTTP transports and persisted server configs</li>
-                <li>🧾 <b>CLI Doc Command:</b> Replaced per-command <code>--help</code> with a single <code>command='doc'</code> that returns the full parameter reference for every command at once</li>
-                <li>🌍 <b>Runtime Context In Prompt:</b> The system preamble now reports the operating system, JVM default charset, and JetBrains project file encoding so the model outputs content in the expected encoding</li>
-                <li>📎 <b>Unified Attachment Preview:</b> Draft and chat-history attachments now share the same interaction: click an image to preview it full size, click a file to open it in the IDE</li>
-                <li>🔎 <b>Root-Cause Tool Errors:</b> Tool and MCP failures now unwrap the full cause chain instead of surfacing only the outer wrapper (for example "Client failed to initialize by explicit API call")</li>
-                <li>🛠️ <b>UX Fixes:</b> Fixed the single-message delete button, nested dialogs closing together on Esc, default-select of built-in tools on agent creation, the add-skill button in Skill management, and a max-height scroll cap on long tool-call lists</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.4.5</code> and aligned SDK helper version metadata to <code>1145</code></li>
-                <li>🧠 <b>LLM 深度重构：</b>模型调用改为直接的 OkHttp/Okio HTTP 客户端，自研 SSE parser 按 WHATWG/EventSource 规则逐事件解析，统一 <code>ModelCancel</code> 取消令牌可同时中断流式读取、工具调用和 MCP 连接</li>
-                <li>🔌 <b>结构化 MCP CLI 工具：</b>MCP 管理收敛到单一内置 <code>cli</code> 工具，提供 <code>mcp.list</code>、<code>mcp.get</code>、<code>mcp.create</code>、<code>mcp.update</code>、<code>mcp.delete</code>、<code>mcp.test</code>、<code>mcp.tools</code>、<code>mcp.resources</code>、<code>mcp.read_resource</code>、<code>mcp.call</code>，基于官方 MCP Java SDK，支持 stdio/SSE/streamable HTTP 传输，服务配置持久化到本地库</li>
-                <li>🧾 <b>CLI doc 命令：</b>用单个 <code>command='doc'</code> 一次性返回所有命令的完整参数说明，取代逐条 <code>--help</code></li>
-                <li>🌍 <b>提示词补充运行环境：</b>系统 preamble 新增操作系统、JVM 默认编码和 JetBrains 项目文件编码，指导模型按目标编码输出内容</li>
-                <li>📎 <b>统一附件预览：</b>草稿区与聊天记录附件交互统一，点击图片预览大图，点击文件在 IDE 中打开</li>
-                <li>🔎 <b>工具错误根因暴露：</b>工具与 MCP 调用失败时展开完整 cause 链，暴露真实原因，而不是只显示外层包装信息（例如 "Client failed to initialize by explicit API call"）</li>
-                <li>🛠️ <b>体验修复：</b>修复单条消息删除按钮无效、嵌套弹窗按 Esc 同时关闭、Agent 创建时内置工具默认全选、技能管理新增技能按钮、以及长工具调用列表的最大高度滚动限制</li>
-                <li>📦 <b>版本元数据同步：</b>发布版本提升至 <code>v1.1.4.5</code>，并同步 SDK Helper 版本元数据到 <code>1145</code></li>
-            </ul>
-
         ]]>
     </change-notes>
 
