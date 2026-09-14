@@ -67,6 +67,8 @@ object CatalogService {
             "供应商 `${model.providerId}` 不存在"
         }
         val modelParams = model.modelParams?.takeIf { it.isNotBlank() }?.let(JsonParser::parseString)
+        val executionParams = model.executionParams?.takeIf { it.isNotBlank() }?.let(JsonParser::parseString)
+        ModelParams.configuredHistoryTokenRatio(executionParams)
         ModelParams.validateContextBudget(
             model.contextWindow,
             ModelParams.configuredOutputTokens(modelParams),

@@ -13,13 +13,15 @@ export function modelParamFields(providerKind, apiType, openaiCompatible = false
 export const executionParamFields = [
   { key: 'max_tool_call_rounds', label: 'max_tool_call_rounds', type: 'number', min: 1, step: 1 },
   { key: 'max_retries', label: 'max_retries', type: 'number', min: 0, step: 1 },
-  { key: 'tool_call_retention_rounds', label: 'tool_call_retention_rounds', type: 'number', min: 0, step: 1 }
+  { key: 'tool_call_retention_rounds', label: 'tool_call_retention_rounds', type: 'number', min: 0, step: 1 },
+  { key: 'history_token_ratio', label: 'history_token_ratio', type: 'number', min: 0.0001, step: 0.05 }
 ]
 
 export const DEFAULT_CONTEXT_WINDOW = 32000
 export const DEFAULT_MAX_HISTORY_MESSAGES = 0
 export const DEFAULT_MAX_TOOL_CALL_ROUNDS = 30
 export const DEFAULT_MAX_RETRIES = 0
+export const DEFAULT_HISTORY_TOKEN_RATIO = 0.4
 export const DEFAULT_MODALITIES = ['text']
 export const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096
 export const SESSION_RUNTIME_FIELDS = [
@@ -58,7 +60,8 @@ export function defaultModelParams(providerKind, apiType = 'completions') {
 export function defaultExecutionParams() {
   return {
     max_tool_call_rounds: DEFAULT_MAX_TOOL_CALL_ROUNDS,
-    max_retries: DEFAULT_MAX_RETRIES
+    max_retries: DEFAULT_MAX_RETRIES,
+    history_token_ratio: DEFAULT_HISTORY_TOKEN_RATIO
   }
 }
 

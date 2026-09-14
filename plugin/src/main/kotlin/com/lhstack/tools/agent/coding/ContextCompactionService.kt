@@ -13,7 +13,6 @@ import com.lhstack.tools.llm.Message
 import com.lhstack.tools.concurrent.AgentExecutors
 import com.lhstack.tools.llm.provider.ModelRuntime
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.ceil
 
 /**
  * 对齐 awake-claw compact_context：手动压缩当前会话水位后的事件。
@@ -83,7 +82,10 @@ object ContextCompactionService {
         val output = executeCompactionAgent(agentId, cwd, compactionId, prompt)
         val summary = CompactionTranscriptSupport.persistSummary(output.response, events)
         require(summary.isNotBlank()) { "上下文压缩 Agent 未返回摘要" }
-        val estimatedAfter = ceil(summary.length / 2.0).toLong()
+        val estimatedAfter = MessageEventSupport.estimateHistoryTokens(
+            summary,
+            MessageStoreService.historyTokenRatio(sessionId),
+        )
         val lastEventId = events.last().id
         val noticeId = MessageStoreService.completeContextCompaction(
             compactionId = compactionId,

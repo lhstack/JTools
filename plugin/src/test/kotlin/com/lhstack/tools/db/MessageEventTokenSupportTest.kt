@@ -35,10 +35,10 @@ class MessageEventTokenSupportTest {
     }
 
     @Test
-    fun `retry and failure do not retain an estimate`() {
-        val context = JsonParser.parseString("""{"estimated_tokens":100,"error":"failed"}""").asJsonObject
+    fun `event estimate follows the supplied model ratio`() {
+        val context = JsonParser.parseString("""{"content":"1234567890"}""").asJsonObject
 
-        assertFalse(MessageEventTokenSupport.reestimate(context, "model_retry", 0.4).has("estimated_tokens"))
-        assertFalse(MessageEventTokenSupport.reestimate(context, "task_failed", 0.4).has("estimated_tokens"))
+        assertEquals(4L, MessageEventTokenSupport.reestimate(context, "user_message", 0.4)["estimated_tokens"].asLong)
+        assertEquals(10L, MessageEventTokenSupport.reestimate(context, "user_message", 1.0)["estimated_tokens"].asLong)
     }
 }

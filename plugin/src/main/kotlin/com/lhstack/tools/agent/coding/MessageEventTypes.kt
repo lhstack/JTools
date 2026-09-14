@@ -136,7 +136,7 @@ object MessageEventSupport {
     fun latestSummary(value: String): String = value.takeLast(160)
 
     fun estimateHistoryTokens(text: String, ratio: Double = DEFAULT_HISTORY_TOKEN_RATIO): Long {
-        require(ratio.isFinite() && ratio > 0.0) { "全局消息历史 Token 比例必须大于 0" }
+        require(ratio.isFinite() && ratio > 0.0) { "消息历史 Token 字符比例必须大于 0" }
         return kotlin.math.ceil(text.length * ratio).toLong()
     }
 

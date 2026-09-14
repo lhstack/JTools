@@ -151,8 +151,24 @@
     <change-notes>
         <![CDATA[
             <!-- English Version -->
-            <h2>🚀 Version v1.1.5.6</h2>
+            <h2>🚀 Version v1.1.5.7</h2>
             <p><i>Latest Release / 最新版本</i></p>
+            <ul>
+                <li>🎛️ <b>Model-Level History Token Ratio:</b> History character-to-token estimation is now configured per model through the existing <code>execution_params.history_token_ratio</code> JSON field without adding a database column.</li>
+                <li>🧮 <b>Coding Context Budget Alignment:</b> Coding sessions read the ratio from <code>model_snapshot.execution_params.history_token_ratio</code> for history estimates, context budgeting, occupancy metrics, and compaction estimates.</li>
+                <li>♻️ <b>Legacy Compatibility:</b> Older models and session snapshots without the field use <code>0.4</code>; ordinary Agent history keeps its independent <code>2.0</code> default.</li>
+                <li>🖥️ <b>Unified Model Management:</b> Web, Swing, and CLI model management support editing, saving, and displaying the ratio, while the field is excluded from OpenAI/Anthropic request bodies.</li>
+                <li>🧹 <b>Global Setting Retired from Runtime:</b> Existing <code>message.history_token_ratio</code> data is retained, but it is no longer read or shown in global settings.</li>
+                <li>✅ <b>Validation:</b> Plugin build, targeted Kotlin tests, and Agent Web production build pass.</li>
+                <li>🎛️ <b>模型级历史 Token 字符比例：</b>历史消息字符到 Token 的估算比例改为按模型配置，复用已有 <code>execution_params.history_token_ratio</code> JSON 字段，不新增数据库列。</li>
+                <li>🧮 <b>编码会话上下文预算对齐：</b>编码会话从 <code>model_snapshot.execution_params.history_token_ratio</code> 读取比例，统一影响历史估算、上下文预算、占用统计和压缩估算。</li>
+                <li>♻️ <b>旧数据兼容：</b>旧模型和旧会话快照缺少字段时使用 <code>0.4</code>；普通 Agent 保持独立的 <code>2.0</code> 默认比例。</li>
+                <li>🖥️ <b>模型管理入口统一：</b>Web、Swing 和 CLI 模型管理支持配置、保存和回显该比例，且不会将其发送到 OpenAI/Anthropic 请求体。</li>
+                <li>🧹 <b>停止读取全局比例：</b>保留已有 <code>message.history_token_ratio</code> 数据，但运行时和全局设置页不再读取或展示。</li>
+                <li>✅ <b>验证：</b>插件构建、目标 Kotlin 测试和 Agent Web 生产构建均通过。</li>
+            </ul>
+            <h2>🚀 Version v1.1.5.6</h2>
+            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>🛡️ <b>Strict Coding-Session Configuration:</b> Project sessions now require <code>project_path</code>, and its canonical path must match <code>cwd</code>; missing project paths no longer fall back silently.</li>
                 <li>🔒 <b>Project Session Isolation:</b> Session queries consistently limit coding-session CRUD to <code>session_type=coding</code> records with <code>visibility=project</code>, preventing unrelated sessions from being read or changed.</li>

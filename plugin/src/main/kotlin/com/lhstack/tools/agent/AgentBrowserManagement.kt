@@ -58,7 +58,6 @@ internal object AgentBrowserManagement {
         ConfigField("model.max_tool_call_rounds", "默认工具调用轮次", "模型请求自动执行工具调用循环时允许的默认最大轮次。默认 30。", "number", "30"),
         ConfigField("model.max_retries", "默认模型重试次数", "模型 API 请求失败后的默认重试次数。0 表示不重试。", "number", "0"),
         ConfigField("model.retry_interval_ms", "模型重试间隔", "模型请求失败后的重试等待时间，单位毫秒。默认 2000。", "number", "2000"),
-        ConfigField("message.history_token_ratio", "历史 Token 估算比例", "估算消息历史占用时，字符数到 Token 的换算比例。默认 0.4。", "number", "0.4"),
         ConfigField("model.dns_servers", "模型请求 DNS", "模型 API 请求使用的自定义 DNS 服务器，多个用英文逗号分隔。支持 223.5.5.5 或 223.5.5.5:53；留空时不启用自定义 DNS。", "text", ""),
         ConfigField("model.http_request_timeout_secs", "模型 HTTP 请求超时", "模型 HTTP 客户端单次请求的总超时时间，单位秒。0 表示不设置总请求超时。", "number", "0"),
         ConfigField("model.http_pool_idle_timeout_secs", "模型连接池空闲秒数", "模型 HTTP 客户端连接池中空闲连接的保留时长，单位秒。默认 120。", "number", "120"),

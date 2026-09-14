@@ -7,7 +7,7 @@ const groups=ref([]),selectedId=ref(null),dialog=ref(false),sections=ref(['provi
 const selected=computed(()=>groups.value.find(x=>x.provider.id===selectedId.value));const models=computed(()=>selected.value?.models||[]);const isCompatible=computed(()=>provider.kind==='openai'&&provider.providerConfig?.openai_provider_type==='compatible');const effectiveApi=computed(()=>provider.kind==='anthropic'?'anthropic':(model.api||provider.api||'completions'));const filteredRemoteModels=computed(()=>remoteModels.value.filter(x=>x.id.toLowerCase().includes(remoteQuery.value.toLowerCase())));const isAnthropic=computed(()=>effectiveApi.value==='anthropic');const isResponses=computed(()=>effectiveApi.value==='responses')
 function emptyProvider(){return{id:null,name:'',kind:'openai',apiKey:'',baseUrl:'',api:'completions',anthropicVersion:'',providerConfig:{openai_provider_type:'official',proxy_url:'',custom_headers:[]},enabled:1}}
 function emptyModel(){return{id:null,providerId:null,alias:'',modelId:'',displayName:'',api:'',contextWindow:32000,modalities:['text'],additionalParams:'',enabled:1}}
-function defaultParams(){return{maxTokens:4096,reasoning:'',thinkingType:'disabled',thinkingBudget:null,outputEffort:'',outputFormat:'',outputSchema:'{}',parallelTools:true,stream:true,maxToolRounds:30,maxRetries:0}}
+function defaultParams(){return{maxTokens:4096,reasoning:'',thinkingType:'disabled',thinkingBudget:null,outputEffort:'',outputFormat:'',outputSchema:'{}',parallelTools:true,stream:true,maxToolRounds:30,maxRetries:0,historyTokenRatio:0.4}}
 function assign(target,value){Object.keys(target).forEach(k=>delete target[k]);Object.assign(target,value)}
 function object(text){try{return text?JSON.parse(text):{}}catch{return{}}}function nested(o,path){return path.split('.').reduce((v,k)=>v?.[k],o)}
 function hydrateParams(x){
@@ -28,6 +28,7 @@ function hydrateParams(x){
     stream:mp.stream??true,
     maxToolRounds:ep.max_tool_call_rounds??30,
     maxRetries:ep.max_retries??0,
+    historyTokenRatio:ep.history_token_ratio??0.4,
   })
 }
 function schemaFormat(){
@@ -64,7 +65,7 @@ function modelPayload(){
       if(params.outputEffort)mp.output_config={effort:params.outputEffort}
     }
   }
-  return{...model,providerId:provider.id,enabled:!!model.enabled,modelParams:JSON.stringify(mp,null,2),executionParams:JSON.stringify({max_tool_call_rounds:params.maxToolRounds,max_retries:params.maxRetries},null,2),additionalParams:model.additionalParams||'{}'}
+  return{...model,providerId:provider.id,enabled:!!model.enabled,modelParams:JSON.stringify(mp,null,2),executionParams:JSON.stringify({max_tool_call_rounds:params.maxToolRounds,max_retries:params.maxRetries,history_token_ratio:params.historyTokenRatio},null,2),additionalParams:model.additionalParams||'{}'}
 }
 async function load(){const data=await api('catalog.get');groups.value=data.providers||[];if(selectedId.value&&!groups.value.some(x=>x.provider.id===selectedId.value))selectedId.value=null}
 function openGroup(g){remoteModels.value=[];remoteQuery.value='';selectedId.value=g.provider.id;assign(provider,{...emptyProvider(),...g.provider});normalizeProviderHeaders(provider);const first=g.models[0];assign(model,first?hydrate(first):{...emptyModel(),providerId:g.provider.id});editing.value=!!first;if(first)hydrateParams(first);else assign(params,defaultParams());sections.value=['provider','models'];dialog.value=true}
@@ -204,7 +205,7 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
                     <el-form-item label="流式输出"><el-switch v-model="params.stream"/></el-form-item>
                   </div>
                   <el-form-item v-if="params.outputFormat==='json_schema'" label="输出结构 JSON Schema"><el-input v-model="params.outputSchema" type="textarea" :rows="4" resize="none"/></el-form-item><div class="section-caption"><strong>工具执行</strong><span>工具调用类型固定为自动</span></div>
-                  <div class="form-four"><el-form-item label="并发工具调用"><el-switch v-model="params.parallelTools"/></el-form-item><el-form-item label="工具调用类型"><el-input model-value="auto" disabled/></el-form-item><el-form-item label="最大工具调用轮次"><el-input-number v-model="params.maxToolRounds" :min="1"/></el-form-item><el-form-item label="失败重试次数"><el-input-number v-model="params.maxRetries" :min="0"/></el-form-item></div>
+                  <div class="form-four"><el-form-item label="并发工具调用"><el-switch v-model="params.parallelTools"/></el-form-item><el-form-item label="工具调用类型"><el-input model-value="auto" disabled/></el-form-item><el-form-item label="最大工具调用轮次"><el-input-number v-model="params.maxToolRounds" :min="1"/></el-form-item><el-form-item label="失败重试次数"><el-input-number v-model="params.maxRetries" :min="0"/></el-form-item><el-form-item label="历史 Token 字符比例"><el-input-number v-model="params.historyTokenRatio" :min="0.0001" :step="0.05"/></el-form-item></div>
                   <div class="section-caption"><strong>附加参数</strong><span>仅填写未被表单覆盖的 JSON 参数</span></div><el-form-item><el-input v-model="model.additionalParams" type="textarea" :rows="4" resize="none" placeholder="{}"/></el-form-item>
                   <div class="save-row"><div class="switch-label"><el-switch v-model="model.enabled" :active-value="1" :inactive-value="0"/><span>启用模型</span></div><el-button type="primary" @click="saveModel">保存模型</el-button></div>
                 </el-form>

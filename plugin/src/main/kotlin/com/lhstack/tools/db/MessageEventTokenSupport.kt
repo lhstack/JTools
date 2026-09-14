@@ -11,10 +11,9 @@ import kotlin.math.ceil
  */
 internal object MessageEventTokenSupport {
     private const val MAX_TOOL_RESULT_CHARS = 16_384
-    private const val DEFAULT_CONFIGURED_RATIO = 2.0
 
     fun reestimate(context: JsonObject, eventType: String, ratio: Double): JsonObject {
-        require(ratio.isFinite() && ratio > 0.0) { "全局消息历史 Token 比例必须大于 0" }
+        require(ratio.isFinite() && ratio > 0.0) { "消息历史 Token 字符比例必须大于 0" }
         val normalized = context.deepCopy()
         normalized.remove("estimated_tokens")
         if (eventType == "model_retry" || eventType == "task_failed") return normalized
@@ -37,7 +36,7 @@ internal object MessageEventTokenSupport {
 
     /** 将已有数据库中的旧估算值重算为当前投影规则。 */
     fun recalculateExistingEvents(connection: Connection, ratio: Double): Int {
-        require(ratio.isFinite() && ratio > 0.0) { "全局消息历史 Token 比例必须大于 0" }
+        require(ratio.isFinite() && ratio > 0.0) { "消息历史 Token 字符比例必须大于 0" }
         val events = connection.createStatement().use { query ->
             query.executeQuery("select id, event_type, context from message_events order by id").use { rows ->
                 buildList {
@@ -72,20 +71,6 @@ internal object MessageEventTokenSupport {
         val eventType: String,
         val rawContext: String,
     )
-
-    fun configuredRatio(connection: Connection): Double {
-        val raw = connection.prepareStatement(
-            "select value from global_config where key='message.history_token_ratio' limit 1",
-        ).use { statement ->
-            statement.executeQuery().use { rows ->
-                if (rows.next()) rows.getString(1) else null
-            }
-        }
-        if (raw.isNullOrBlank()) return DEFAULT_CONFIGURED_RATIO
-        val ratio = raw.toDoubleOrNull() ?: throw IllegalStateException("全局消息历史 Token 比例必须是正数")
-        require(ratio.isFinite() && ratio > 0.0) { "全局消息历史 Token 比例必须大于 0" }
-        return ratio
-    }
 
     private fun historicalUserText(payload: JsonObject): String {
         val attachments = payload.get("attachment_items")?.takeIf { it.isJsonArray }?.asJsonArray

@@ -108,7 +108,8 @@ const messages = {
         verbosity: '详细程度',
         max_tool_call_rounds: '工具调用轮次',
         max_retries: '重试次数',
-        tool_call_retention_rounds: '工具调用保留轮次'
+        tool_call_retention_rounds: '工具调用保留轮次',
+        history_token_ratio: '历史 Token 字符比例'
       },
       paramFieldTips: {
         temperature: '控制随机性。值越高回复越发散，值越低越稳定。',
@@ -159,7 +160,8 @@ const messages = {
         verbosity: '控制支持该参数模型的回复详细程度。',
         max_tool_call_rounds: '工具调用最多循环多少轮，超过后会停止本次执行。',
         max_retries: '模型请求失败后的重试次数。',
-        tool_call_retention_rounds: '未设置时保留截断后历史中的全部工具调用；设置为 N 时，仅保留最新 N 轮工具调用。'
+        tool_call_retention_rounds: '未设置时保留截断后历史中的全部工具调用；设置为 N 时，仅保留最新 N 轮工具调用。',
+        history_token_ratio: '按字符数估算历史 Token 的比例。默认 0.4；值必须大于 0。'
       },
       modalityText: '文本',
       modalityImage: '图片',

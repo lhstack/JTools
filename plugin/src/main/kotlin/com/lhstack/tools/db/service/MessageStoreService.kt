@@ -6,6 +6,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.lhstack.tools.agent.model.params.ModelParams
 import com.lhstack.tools.agent.coding.ClaimedAppendItem
 import com.lhstack.tools.agent.coding.MessageAppendStatus
 import com.lhstack.tools.agent.coding.MessageAttachmentRecord
@@ -151,6 +152,7 @@ object MessageStoreService {
         val attachmentItems = message.get("attachment_items") ?: JsonArray()
         val context = eventContextWithTokenBudget(
             session,
+            task.sessionId,
             MessageEventType.USER_MESSAGE,
             JsonObject().apply {
                 addProperty("content", content)
@@ -346,6 +348,7 @@ object MessageStoreService {
         val attachmentItems = attachmentItemsForIds(session, sessionId, attachments)
         val context = eventContextWithTokenBudget(
             session,
+            sessionId,
             MessageEventType.APPEND_MESSAGE,
             JsonObject().apply {
                 addProperty("content", content)
@@ -427,7 +430,7 @@ object MessageStoreService {
         val previous = context.get("text")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
         context.addProperty("text", previous + text)
         context.addProperty("streaming", true)
-        val budgeted = eventContextWithTokenBudget(session, eventType, context)
+        val budgeted = eventContextWithTokenBudget(session, sessionId, eventType, context)
         if (existing == null) {
             insertEvent(
                 session,
@@ -465,7 +468,7 @@ object MessageStoreService {
         val context = parseObject(existing.context)
         context.addProperty("streaming", false)
         existing.status = MessageEventStatus.COMPLETED.value
-        existing.context = eventContextWithTokenBudget(session, eventType, context).toString()
+        existing.context = eventContextWithTokenBudget(session, sessionId, eventType, context).toString()
         existing.revision += 1
         session.getMapper(MessageEventMapper::class.java).updateById(existing)
         touchSession(session, sessionId)
@@ -484,7 +487,7 @@ object MessageStoreService {
             val context = parseObject(event.context)
             context.addProperty("streaming", false)
             event.status = MessageEventStatus.COMPLETED.value
-            event.context = eventContextWithTokenBudget(session, MessageEventType.from(event.eventType), context).toString()
+            event.context = eventContextWithTokenBudget(session, sessionId, MessageEventType.from(event.eventType), context).toString()
             event.revision += 1
             mapper.updateById(event)
         }
@@ -568,7 +571,7 @@ object MessageStoreService {
         if (reason != null) context.addProperty("reason", reason)
         event.status = status.value
         event.summary = context.get("name")?.takeIf { it.isJsonPrimitive }?.asString ?: "tool"
-        event.context = eventContextWithTokenBudget(session, MessageEventType.TOOL_CALL, context).toString()
+        event.context = eventContextWithTokenBudget(session, sessionId, MessageEventType.TOOL_CALL, context).toString()
         event.revision += 1
         session.getMapper(MessageEventMapper::class.java).updateById(event)
         touchSession(session, sessionId)
@@ -769,6 +772,8 @@ object MessageStoreService {
     ): List<MessageEventRecord> = AgentDatabase.execute { session ->
         val config = sessionConfig(session, sessionId)
         val snapshot = config.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
+        val ratio = historyTokenRatio(config)
+        reestimateHistoryEvents(session, sessionId, ratio)
         val maxRounds = config.get("max_history_rounds")?.takeIf { it.isJsonPrimitive }?.asLong?.takeIf { it > 0 }
         val toolRetention = snapshot.get("execution_params")
             ?.takeIf { it.isJsonObject }
@@ -795,7 +800,9 @@ object MessageStoreService {
     }
 
     fun codingCompactionEvents(sessionId: Long): List<MessageEventRecord> = AgentDatabase.execute { session ->
-        val boundary = compactedThroughEventId(sessionConfig(session, sessionId))
+        val config = sessionConfig(session, sessionId)
+        reestimateHistoryEvents(session, sessionId, historyTokenRatio(config))
+        val boundary = compactedThroughEventId(config)
         session.getMapper(MessageEventMapper::class.java).selectList(
             QueryWrapper<MessageEventEntity>()
                 .eq("session_id", sessionId)
@@ -1101,7 +1108,7 @@ object MessageStoreService {
     private fun insertEvent(session: SqlSession, event: NewMessageEvent): Long {
         val mapper = session.getMapper(MessageEventMapper::class.java)
         val existing = findEvent(session, event.sessionId, event.turnId, event.parentEventId, event.eventType, event.eventId)
-        val context = eventContextWithTokenBudget(session, event.eventType, event.context)
+        val context = eventContextWithTokenBudget(session, event.sessionId, event.eventType, event.context)
         if (existing != null) {
             existing.status = event.status.value
             existing.summary = event.summary
@@ -1143,20 +1150,41 @@ object MessageStoreService {
 
     private fun eventContextWithTokenBudget(
         session: SqlSession,
+        sessionId: Long,
         eventType: MessageEventType,
         value: JsonObject,
     ): JsonObject = MessageEventTokenSupport.reestimate(
         context = value,
         eventType = eventType.value,
-        ratio = historyTokenRatio(),
+        ratio = historyTokenRatio(session, sessionId),
     )
 
-    private fun historyTokenRatio(): Double {
-        val raw = runCatching { SettingService.setting("message.history_token_ratio") }.getOrNull()
-        if (raw.isNullOrBlank()) return MessageEventSupport.DEFAULT_HISTORY_TOKEN_RATIO
-        val ratio = raw.toDoubleOrNull() ?: throw IllegalArgumentException("全局消息历史 Token 比例必须是正数")
-        require(ratio.isFinite() && ratio > 0.0) { "全局消息历史 Token 比例必须大于 0" }
-        return ratio
+    fun historyTokenRatio(sessionId: Long): Double = AgentDatabase.execute { session ->
+        historyTokenRatio(sessionConfig(session, sessionId))
+    }
+
+    private fun historyTokenRatio(session: SqlSession, sessionId: Long): Double =
+        historyTokenRatio(sessionConfig(session, sessionId))
+
+    private fun historyTokenRatio(config: JsonObject): Double {
+        val snapshot = config.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject
+        return ModelParams.configuredHistoryTokenRatio(snapshot?.get("execution_params"))
+    }
+
+    private fun reestimateHistoryEvents(session: SqlSession, sessionId: Long, ratio: Double) {
+        val mapper = session.getMapper(MessageEventMapper::class.java)
+        mapper.selectList(QueryWrapper<MessageEventEntity>().eq("session_id", sessionId)).forEach { event ->
+            val normalized = MessageEventTokenSupport.reestimate(
+                context = parseObject(event.context),
+                eventType = event.eventType,
+                ratio = ratio,
+            )
+            val context = normalized.toString()
+            if (context == event.context) return@forEach
+            event.context = context
+            event.revision += 1
+            mapper.updateById(event)
+        }
     }
 
     private fun taskExecutionConfig(
@@ -1281,6 +1309,8 @@ object MessageStoreService {
     private fun contextStatus(session: SqlSession, sessionId: Long): JsonObject {
         val config = sessionConfig(session, sessionId)
         val snapshot = config.get("model_snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
+        val ratio = historyTokenRatio(config)
+        reestimateHistoryEvents(session, sessionId, ratio)
         val contextWindow = snapshot.get("context_window")?.takeIf { it.isJsonPrimitive }?.asLong
         val reservedTokens = reservedContextTokens(session, sessionId, config)
         val historyTokens = remainingHistoryTokens(session, sessionId)
@@ -1325,7 +1355,7 @@ object MessageStoreService {
             compactionSummary = summary,
         )
         if (preamble.isBlank()) return 0
-        return MessageEventSupport.estimateHistoryTokens(preamble, historyTokenRatio())
+        return MessageEventSupport.estimateHistoryTokens(preamble, historyTokenRatio(config))
     }
 
     private fun compactedThroughEventId(config: JsonObject): Long =

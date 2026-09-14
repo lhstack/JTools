@@ -7,7 +7,7 @@ import PageShell from '../components/common/PageShell.vue'
 const fields = ref([])
 const definitions = [
   { title: '对话输入', desc: '输入框润色和上下文压缩的全局回退', keys: ['chat.polish.agent_id', 'coding.compaction_agent_id'] },
-  { title: '模型执行', desc: '模型调用循环、重试和历史占用估算', keys: ['model.max_tool_call_rounds', 'model.max_retries', 'model.retry_interval_ms', 'message.history_token_ratio'] },
+  { title: '模型执行', desc: '模型调用循环、重试和历史占用估算', keys: ['model.max_tool_call_rounds', 'model.max_retries', 'model.retry_interval_ms'] },
   { title: '模型网络', desc: '模型 HTTP 连接、DNS 与请求超时', prefixes: ['model.dns_', 'model.http_'] },
   { title: '网页获取', desc: 'web_fetch 的代理、超时和响应大小', prefixes: ['web_fetch.'] },
   { title: '命令工具', desc: 'bash 工具捕获输出上限', prefixes: ['bash.', 'coding.bash.'] },
@@ -54,7 +54,7 @@ onMounted(async () => {
             <small>{{ item.description || item.key }}</small>
           </div>
           <el-switch v-if="item.type === 'boolean'" v-model="item.value" />
-          <el-input-number v-else-if="item.type === 'number'" v-model="item.value" :step="item.key === 'message.history_token_ratio' ? 0.1 : 1" />
+          <el-input-number v-else-if="item.type === 'number'" v-model="item.value" :step="1" />
           <el-select v-else-if="item.type === 'select'" v-model="item.value" class="setting-select">
             <el-option v-for="option in item.options || []" :key="option.value" :value="option.value" :label="option.label" />
           </el-select>

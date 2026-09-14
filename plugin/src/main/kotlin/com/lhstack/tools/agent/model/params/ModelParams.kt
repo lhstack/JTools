@@ -62,6 +62,7 @@ data class ModelExecutionParams(
     val maxToolCallRounds: Int? = null,
     val maxRetries: Int? = null,
     val toolCallRetentionRounds: Int? = null,
+    val historyTokenRatio: Double? = null,
 )
 
 /**
@@ -97,6 +98,17 @@ data class ResolvedModelConfig(
 )
 
 object ModelParams {
+    const val DEFAULT_HISTORY_TOKEN_RATIO = 0.4
+
+    fun configuredHistoryTokenRatio(executionParams: JsonElement?): Double {
+        val value = executionParams?.asJsonObjectOrNull()?.get("history_token_ratio")
+            ?.takeUnless { it.isJsonNull }
+            ?: return DEFAULT_HISTORY_TOKEN_RATIO
+        val ratio = value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
+            ?: throw IllegalArgumentException("模型历史 Token 字符比例必须是数字")
+        require(ratio.isFinite() && ratio > 0.0) { "模型历史 Token 字符比例必须大于 0" }
+        return ratio
+    }
 
     fun defaultBaseUrl(): String = "https://api.openai.com/v1"
 
