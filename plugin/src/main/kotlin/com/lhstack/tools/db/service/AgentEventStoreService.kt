@@ -19,14 +19,20 @@ import com.lhstack.tools.llm.UserContent
 /** 对齐 awake `agent_events`：Agent 自身历史，不读会话 message_events。 */
 object AgentEventStoreService {
 
-    fun recordExecution(agentId: Long, turnId: String, prompt: String, response: JsonObject) {
+    fun recordExecution(
+        agentId: Long,
+        turnId: String,
+        prompt: String,
+        response: JsonObject,
+        historyTokenRatio: Double,
+    ) {
         AgentDatabase.execute { session ->
             val mapper = session.getMapper(AgentEventMapper::class.java)
             insert(
                 mapper, agentId, turnId, "user_message", "user", prompt,
                 JsonObject().apply {
                     addProperty("content", prompt)
-                    addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(prompt))
+                    addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(prompt, historyTokenRatio))
                 },
             )
             val reasoning = response.get("reasoning")?.takeIf { it.isJsonArray }?.asJsonArray
@@ -38,7 +44,7 @@ object AgentEventStoreService {
                     mapper, agentId, turnId, "model_reasoning", "reasoning", reasoning,
                     JsonObject().apply {
                         addProperty("text", reasoning)
-                        addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(reasoning))
+                        addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(reasoning, historyTokenRatio))
                     },
                 )
             }
@@ -54,7 +60,7 @@ object AgentEventStoreService {
                     JsonObject().apply {
                         add("tool_calls", calls)
                         add("tool_results", results)
-                        addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(serialized))
+                        addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(serialized, historyTokenRatio))
                     },
                 )
             }
@@ -65,7 +71,7 @@ object AgentEventStoreService {
                     JsonObject().apply {
                         addProperty("response", output)
                         response.get("usage")?.let { add("usage", it) }
-                        addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(output))
+                        addProperty("estimated_tokens", MessageEventSupport.estimateHistoryTokens(output, historyTokenRatio))
                     },
                 )
             }

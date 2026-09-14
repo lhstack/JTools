@@ -109,6 +109,8 @@ object AgentRuntime {
         require(model.providerId == providerId) { "模型 `$modelId` 不属于供应商 `$providerId`" }
 
         val runtimeModel = ModelResolver.resolveFromStore(provider, model)
+        val historyTokenRatio = runtimeModel.params.executionParams.historyTokenRatio
+            ?: ModelParams.DEFAULT_HISTORY_TOKEN_RATIO
         val enabledTools = enabledTools(agent.extConfig)
         val availableSkills = ResourceConfigService.listSkills()
         val enabledSkills = enabledSkills(agent.extConfig, availableSkills)
@@ -188,7 +190,13 @@ object AgentRuntime {
             throw error
         }
         if (!isIsolatedTrigger(request.triggerType)) {
-            AgentEventStoreService.recordExecution(request.agentId, conversationId, request.prompt, result.value)
+            AgentEventStoreService.recordExecution(
+                agentId = request.agentId,
+                turnId = conversationId,
+                prompt = request.prompt,
+                response = result.value,
+                historyTokenRatio = historyTokenRatio,
+            )
         }
         val output = result.value.get("response")?.takeIf { it.isJsonPrimitive }?.asString
             ?: result.value.toString()
