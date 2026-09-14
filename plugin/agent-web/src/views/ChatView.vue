@@ -340,9 +340,14 @@ watch(
   { flush: 'post' }
 )
 
+function conversationEventFollowSignature(items) {
+  return JSON.stringify((items || []).map((item) => [item.id, item.status, item.revision, item.summary]))
+}
+
 watch(
-  () => events.value.map((item) => [item.id, item.status, item.revision, item.summary]),
-  () => {
+  () => conversationEventFollowSignature(events.value),
+  (signature, previous) => {
+    if (signature === previous) return
     followIncomingConversation()
   },
   { flush: 'post' }
@@ -437,12 +442,26 @@ function followIncomingConversation() {
   scrollMessagesToBottom()
 }
 
-function onTimelineLayoutChanged() {
-  if (!(autoFollowConversation.value || shouldFollowConversation())) return
-  autoFollowConversation.value = true
+function compensateTimelineLayout(anchor) {
+  const element = messageList.value
+  if (!element || !anchor?.eventId || !Number.isFinite(Number(anchor.top))) return
+  const eventId = String(anchor.eventId)
+  const row = [...element.querySelectorAll('[data-event-id]')]
+    .find((item) => item.getAttribute('data-event-id') === eventId)
+  if (!row) return
+  const currentTop = row.getBoundingClientRect().top
+  const delta = currentTop - anchor.top
+  if (Number.isFinite(delta) && Math.abs(delta) > 0.5) element.scrollTop += delta
+}
+
+function onTimelineLayoutChanged(anchor) {
+  if (!anchor?.eventId) return
   nextTick(() => {
-    scrollMessagesToBottom()
-    requestAnimationFrame(() => scrollMessagesToBottom())
+    compensateTimelineLayout(anchor)
+    requestAnimationFrame(() => {
+      compensateTimelineLayout(anchor)
+      requestAnimationFrame(() => compensateTimelineLayout(anchor))
+    })
   })
 }
 

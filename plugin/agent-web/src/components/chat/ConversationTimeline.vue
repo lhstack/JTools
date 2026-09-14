@@ -29,6 +29,7 @@ const previewUrls = reactive({})
 
 const expandedMessageEventIds = ref(new Set())
 const loadingMessageEventIds = ref(new Set())
+const messageEventScrollAnchors = new Map()
 
 function formatEventTime(value) {
   if (!value) return ''
@@ -73,6 +74,24 @@ const conversationTurns = computed(() => {
     })
 })
 
+function captureMessageEventAnchor(eventId, source) {
+  const key = String(eventId ?? '')
+  if (!key) return null
+  const row = source?.closest?.('[data-event-id]')
+  if (!row) return null
+  const top = row.getBoundingClientRect().top
+  return Number.isFinite(top) ? { eventId: key, top } : null
+}
+
+function rememberMessageEventPosition(event) {
+  const target = event?.target
+  if (!(target instanceof Element)) return
+  const summary = target.closest('summary')
+  const row = summary?.closest('[data-event-id]')
+  const anchor = captureMessageEventAnchor(row?.getAttribute('data-event-id'), row)
+  if (anchor) messageEventScrollAnchors.set(anchor.eventId, anchor)
+}
+
 function toggleMessageEvent(eventId) {
   const next = new Set(expandedMessageEventIds.value)
   if (next.has(eventId)) next.delete(eventId)
@@ -84,12 +103,15 @@ function isMessageEventExpanded(eventId) {
   return expandedMessageEventIds.value.has(eventId)
 }
 
-function setMessageEventExpanded(eventId, expanded) {
+function setMessageEventExpanded(eventId, expanded, toggleEvent) {
+  const key = String(eventId ?? '')
+  const anchor = messageEventScrollAnchors.get(key) || captureMessageEventAnchor(key, toggleEvent?.target)
+  messageEventScrollAnchors.delete(key)
   const next = new Set(expandedMessageEventIds.value)
   if (expanded) next.add(eventId)
   else next.delete(eventId)
   expandedMessageEventIds.value = next
-  emit('layout-changed')
+  emit('layout-changed', anchor)
   if (!expanded || !props.loadEventDetail || !Number.isFinite(Number(eventId))) return
   const event = (props.events || []).find((item) => Number(item.id) === Number(eventId))
   if (event?.context || loadingMessageEventIds.value.has(eventId)) return
@@ -99,7 +121,7 @@ function setMessageEventExpanded(eventId, expanded) {
       if (detail) emit('event-loaded', detail)
     })
     .catch(() => {})
-    .finally(() => emit('layout-changed'))
+    .finally(() => emit('layout-changed', anchor))
     .finally(() => {
       const loading = new Set(loadingMessageEventIds.value)
       loading.delete(eventId)
@@ -572,7 +594,7 @@ function toolResult(event) {
 </script>
 
 <template>
-<section class="conversation-timeline">
+<section class="conversation-timeline" @click="rememberMessageEventPosition">
   <article v-for="turn in conversationTurns" :key="turn.turnId" class="conversation-turn">
     <template v-for="(item, itemIndex) in turn.items" :key="item.kind === 'user' ? item.event.id : `timeline-${itemIndex}`">
     <div v-if="item.kind === 'user'" :data-event-id="item.event.id" class="user-event-row">
@@ -619,7 +641,7 @@ function toolResult(event) {
               v-if="event.event_type === 'model_reasoning'"
               class="reasoning-event"
               :open="isMessageEventExpanded(event.id)"
-              @toggle="setMessageEventExpanded(event.id, $event.target.open)"
+              @toggle="setMessageEventExpanded(event.id, $event.target.open, $event)"
           >
             <summary>
               <span class="timeline-icon reasoning" aria-hidden="true"><el-icon><ChatLineRound /></el-icon></span>
@@ -633,7 +655,7 @@ function toolResult(event) {
               class="tool-event"
               :class="`status-${toolStatus(event)}`"
               :open="isMessageEventExpanded(event.id)"
-              @toggle="setMessageEventExpanded(event.id, $event.target.open)"
+              @toggle="setMessageEventExpanded(event.id, $event.target.open, $event)"
           >
             <summary>
               <span class="timeline-icon tool" :class="`status-${toolStatus(event)}`" aria-hidden="true"><el-icon><Tools /></el-icon></span>
@@ -656,7 +678,7 @@ function toolResult(event) {
               class="subagent-event"
               :class="`status-${event.status}`"
               :open="isMessageEventExpanded(event.id)"
-              @toggle="setMessageEventExpanded(event.id, $event.target.open)"
+              @toggle="setMessageEventExpanded(event.id, $event.target.open, $event)"
           >
             <summary>
               <span class="timeline-icon subagent" aria-hidden="true"><el-icon><ChatDotRound /></el-icon></span>
@@ -674,7 +696,7 @@ function toolResult(event) {
                     v-if="child.event_type === 'model_reasoning'"
                     class="reasoning-event"
                     :open="isMessageEventExpanded(child.id)"
-                    @toggle="setMessageEventExpanded(child.id, $event.target.open)"
+                    @toggle="setMessageEventExpanded(child.id, $event.target.open, $event)"
                 >
                   <summary>
                     <span class="timeline-icon reasoning" aria-hidden="true"><el-icon><ChatLineRound /></el-icon></span>
@@ -687,7 +709,7 @@ function toolResult(event) {
                     class="tool-event"
                     :class="`status-${toolStatus(child)}`"
                     :open="isMessageEventExpanded(child.id)"
-                    @toggle="setMessageEventExpanded(child.id, $event.target.open)"
+                    @toggle="setMessageEventExpanded(child.id, $event.target.open, $event)"
                 >
                   <summary>
                     <span class="timeline-icon tool" :class="`status-${toolStatus(child)}`" aria-hidden="true"><el-icon><Tools /></el-icon></span>
@@ -708,7 +730,7 @@ function toolResult(event) {
                     v-else-if="child.event_type === 'model_retry'"
                     class="retry-event"
                     :open="isMessageEventExpanded(child.id)"
-                    @toggle="setMessageEventExpanded(child.id, $event.target.open)"
+                    @toggle="setMessageEventExpanded(child.id, $event.target.open, $event)"
                 >
                   <summary>
                     <span class="timeline-icon retry" aria-hidden="true"><el-icon><RefreshRight /></el-icon></span>
@@ -729,7 +751,7 @@ function toolResult(event) {
                     class="system-event"
                     :class="{ failed: child.status === 'failed', cancelled: child.status === 'cancelled' }"
                     :open="isMessageEventExpanded(child.id)"
-                    @toggle="setMessageEventExpanded(child.id, $event.target.open)"
+                    @toggle="setMessageEventExpanded(child.id, $event.target.open, $event)"
                 >
                   <summary>
                     <span class="timeline-icon system" aria-hidden="true"><el-icon><WarningFilled /></el-icon></span>
@@ -745,7 +767,7 @@ function toolResult(event) {
               v-else-if="event.event_type === 'model_retry'"
               class="retry-event"
               :open="isMessageEventExpanded(event.id)"
-              @toggle="setMessageEventExpanded(event.id, $event.target.open)"
+              @toggle="setMessageEventExpanded(event.id, $event.target.open, $event)"
           >
             <summary>
               <span class="timeline-icon retry" aria-hidden="true"><el-icon><RefreshRight /></el-icon></span>
@@ -758,7 +780,7 @@ function toolResult(event) {
               v-else-if="event.event_type === 'attachment'"
               class="attachment-delivery-event"
               :open="isMessageEventExpanded(event.id)"
-              @toggle="setMessageEventExpanded(event.id, $event.target.open)"
+              @toggle="setMessageEventExpanded(event.id, $event.target.open, $event)"
           >
             <summary>
               <span class="attachment-delivery-marker"><el-icon><Paperclip /></el-icon></span>
@@ -823,7 +845,7 @@ function toolResult(event) {
               class="system-event"
               :class="{ failed: event.status === 'failed', cancelled: event.status === 'cancelled' }"
               :open="isMessageEventExpanded(event.id)"
-              @toggle="setMessageEventExpanded(event.id, $event.target.open)"
+              @toggle="setMessageEventExpanded(event.id, $event.target.open, $event)"
           >
             <summary>
               <span class="timeline-icon system" aria-hidden="true"><el-icon><WarningFilled /></el-icon></span>

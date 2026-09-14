@@ -134,6 +134,7 @@ JTools/
 - 🧮 **编码会话上下文预算对齐** - 编码会话从 `model_snapshot.execution_params.history_token_ratio` 读取比例，历史估算、上下文预算、上下文占用统计和压缩前后估算统一使用当前会话模型配置
 - ♻️ **旧数据兼容** - 旧模型和旧会话快照缺少比例字段时按 `0.4` 兼容；普通 Agent 也按当前模型配置的 `history_token_ratio` 估算，未配置时默认使用 `0.4`
 - 🖥️ **模型管理入口统一** - Web、Swing 和 CLI 模型管理均支持比例配置、保存和回显；该字段不会进入 OpenAI/Anthropic 请求体
+- 📍 **对话展开位置稳定** - 展开推理、工具和 SubAgent 详情时保持目标事件位置，避免详情加载或内容高度变化导致滚动漂移
 - 🧹 **停止读取全局比例** - 保留历史全局配置数据，但运行时和全局设置页不再读取或展示 `message.history_token_ratio`
 - ✅ **验证** - 完成插件构建、目标 Kotlin 测试和 Agent Web 前端构建
 
