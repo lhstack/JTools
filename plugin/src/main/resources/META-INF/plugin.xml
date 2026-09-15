@@ -159,6 +159,7 @@
                 <li>♻️ <b>Legacy Compatibility:</b> Older models and session snapshots without the field use <code>0.4</code>; ordinary Agent history also follows the active model's configured ratio and defaults to <code>0.4</code> when unset.</li>
                 <li>🖥️ <b>Unified Model Management:</b> Web, Swing, and CLI model management support editing, saving, and displaying the ratio, while the field is excluded from OpenAI/Anthropic request bodies.</li>
                 <li>📍 <b>Stable Timeline Expansion:</b> Expanding reasoning, tool, and SubAgent details preserves the target event position, preventing scroll drift when details load or content height changes.</li>
+                <li>🖼️ <b>Multimodal Resource Path Support:</b> <code>view_*</code> resource tools now accept workspace-relative paths, ordinary absolute paths, and IntelliJ VFS URLs such as <code>file://</code>, <code>jar://</code>, and <code>jrt://</code>, so images and other resources can be loaded correctly for resource-Agent analysis while ordinary project-file tools retain their workspace boundaries.</li>
                 <li>🧹 <b>Global Setting Retired from Runtime:</b> Existing <code>message.history_token_ratio</code> data is retained, but it is no longer read or shown in global settings.</li>
                 <li>✅ <b>Validation:</b> Plugin build, targeted Kotlin tests, and Agent Web production build pass.</li>
                 <li>🎛️ <b>模型级历史 Token 字符比例：</b>历史消息字符到 Token 的估算比例改为按模型配置，复用已有 <code>execution_params.history_token_ratio</code> JSON 字段，不新增数据库列。</li>
@@ -166,6 +167,7 @@
                 <li>♻️ <b>旧数据兼容：</b>旧模型和旧会话快照缺少字段时使用 <code>0.4</code>；普通 Agent 也按当前模型配置的比例估算，未配置时默认使用 <code>0.4</code>。</li>
                 <li>🖥️ <b>模型管理入口统一：</b>Web、Swing 和 CLI 模型管理支持配置、保存和回显该比例，且不会将其发送到 OpenAI/Anthropic 请求体。</li>
                 <li>📍 <b>对话展开位置稳定：</b>展开推理、工具和 SubAgent 详情时保持目标事件位置，避免详情加载或内容高度变化导致滚动漂移。</li>
+                <li>🖼️ <b>多模态资源路径支持：</b><code>view_*</code> 资源工具支持工作区相对路径、普通绝对路径及 <code>file://</code>、<code>jar://</code>、<code>jrt://</code> 等 IntelliJ VFS 协议路径，图片等资源可正确读取并交给资源 Agent 分析；普通项目文件工具仍保持工作区边界。</li>
                 <li>🧹 <b>停止读取全局比例：</b>保留已有 <code>message.history_token_ratio</code> 数据，但运行时和全局设置页不再读取或展示。</li>
                 <li>✅ <b>验证：</b>插件构建、目标 Kotlin 测试和 Agent Web 生产构建均通过。</li>
             </ul>

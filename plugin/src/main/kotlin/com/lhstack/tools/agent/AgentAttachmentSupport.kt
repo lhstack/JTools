@@ -1,11 +1,13 @@
 package com.lhstack.tools.agent
 
 import com.google.gson.JsonObject
+import com.lhstack.tools.agent.model.tools.ResourcePathSupport
 import com.lhstack.tools.llm.AudioMediaType
 import com.lhstack.tools.llm.ImageMediaType
 import com.lhstack.tools.llm.UserContent
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
+import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -58,9 +60,7 @@ object AgentAttachmentSupport {
         return draft.apply {
             mimeType = resolvedMime
             kind = resolvedKind.id
-            if (size <= 0 && path.isNotBlank()) {
-                runCatching { Files.size(Paths.get(path)) }.getOrNull()?.let { size = it }
-            }
+            if (size <= 0) resourceSize(path)?.let { size = it }
         }
     }
 
@@ -86,24 +86,22 @@ object AgentAttachmentSupport {
 
     private fun imageContent(draft: AgentAttachmentState): UserContent? {
         val optimized = optimizeImage(draft)
-        val path = Paths.get(optimized.path)
-        if (!Files.exists(path) || !Files.isRegularFile(path)) return null
-        val base64 = Base64.getEncoder().encodeToString(Files.readAllBytes(path))
+        val bytes = resourceBytes(optimized.path) ?: return null
+        val base64 = Base64.getEncoder().encodeToString(bytes)
         val mediaType = ImageMediaType.fromMimeType(optimized.mimeType) ?: ImageMediaType.PNG
         return UserContent.imageBase64(base64, mediaType, null)
     }
 
     private fun audioContent(draft: AgentAttachmentState): UserContent? {
-        val path = Paths.get(draft.path)
-        if (!Files.exists(path) || !Files.isRegularFile(path)) return null
+        val bytes = resourceBytes(draft.path) ?: return null
         val mediaType = AudioMediaType.fromMimeType(draft.mimeType) ?: return null
-        val base64 = Base64.getEncoder().encodeToString(Files.readAllBytes(path))
+        val base64 = Base64.getEncoder().encodeToString(bytes)
         return UserContent.audio(base64, mediaType)
     }
 
     private fun textContent(draft: AgentAttachmentState): UserContent? {
         val text = extractText(draft) ?: return null
-        val name = draft.name.ifBlank { Paths.get(draft.path).fileName?.toString().orEmpty() }
+        val name = draft.name.ifBlank { resourceName(draft.path).orEmpty() }
         return UserContent.text("[附件文件 $name]\n$text")
     }
 
@@ -125,7 +123,7 @@ object AgentAttachmentSupport {
     }
 
     private fun metadataContent(draft: AgentAttachmentState): UserContent {
-        val name = draft.name.ifBlank { Paths.get(draft.path).fileName?.toString().orEmpty() }
+        val name = draft.name.ifBlank { resourceName(draft.path).orEmpty() }
         return UserContent.text(
             metadataPrompt(
                 fileName = name,
@@ -140,20 +138,16 @@ object AgentAttachmentSupport {
 
     private fun extractText(draft: AgentAttachmentState): String? {
         if (draft.path.isBlank()) return null
-        val path = Paths.get(draft.path)
-        if (!Files.exists(path) || Files.isDirectory(path)) return null
+        val bytes = resourceBytes(draft.path) ?: return null
         val extension = extensionOf(draft)
         if (extension !in textExtensions && !draft.mimeType.startsWith("text/")) return null
-        return Files.readString(path, StandardCharsets.UTF_8).trim().takeIf { it.isNotBlank() }
+        return bytes.toString(StandardCharsets.UTF_8).trim().takeIf { it.isNotBlank() }
     }
 
     private fun resolveMimeType(draft: AgentAttachmentState): String {
         val explicit = draft.mimeType.trim()
         if (explicit.isNotBlank()) return explicit
-        if (draft.path.isNotBlank()) {
-            runCatching { Files.probeContentType(Paths.get(draft.path)) }.getOrNull()
-                ?.takeIf { it.isNotBlank() }?.let { return it }
-        }
+        resourceMimeType(draft.path)?.let { return it }
         return when (extensionOf(draft)) {
             in imageExtensions -> "image/${extensionOf(draft).replace("jpg", "jpeg")}"
             in audioExtensions -> "audio/${extensionOf(draft)}"
@@ -167,18 +161,48 @@ object AgentAttachmentSupport {
     }
 
     private fun extensionOf(draft: AgentAttachmentState): String {
-        val source = draft.name.ifBlank {
-            if (draft.path.isBlank()) "" else Paths.get(draft.path).fileName?.toString().orEmpty()
-        }
+        val source = draft.name.ifBlank { resourceName(draft.path).orEmpty() }
         return source.substringAfterLast('.', "").lowercase()
+    }
+
+    private fun resourceBytes(path: String): ByteArray? {
+        if (path.isBlank()) return null
+        if (ResourcePathSupport.isProtocolPath(path)) return ResourcePathSupport.readBytes(path)
+        val file = Paths.get(path)
+        return if (Files.exists(file) && Files.isRegularFile(file)) Files.readAllBytes(file) else null
+    }
+
+    private fun resourceName(path: String): String? {
+        if (path.isBlank()) return null
+        if (ResourcePathSupport.isProtocolPath(path)) return ResourcePathSupport.fileName(path)
+        return runCatching { Paths.get(path).fileName?.toString() }.getOrNull()
+    }
+
+    private fun resourceSize(path: String): Long? {
+        if (path.isBlank()) return null
+        if (ResourcePathSupport.isProtocolPath(path)) return ResourcePathSupport.size(path)
+        return runCatching { Files.size(Paths.get(path)) }.getOrNull()
+    }
+
+    private fun resourceMimeType(path: String): String? {
+        if (path.isBlank()) return null
+        if (ResourcePathSupport.isProtocolPath(path)) return ResourcePathSupport.mimeType(path)
+        return runCatching { Files.probeContentType(Paths.get(path)) }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     private fun optimizeImage(draft: AgentAttachmentState): AgentAttachmentState {
         if (draft.path.isBlank()) return draft
-        val path = Paths.get(draft.path)
-        if (!Files.exists(path) || Files.isDirectory(path)) return draft
-        val size = if (draft.size > 0) draft.size else runCatching { Files.size(path) }.getOrDefault(0)
-        val sourceImage = runCatching { ImageIO.read(path.toFile()) }.getOrNull() ?: return draft
+        val protocol = ResourcePathSupport.isProtocolPath(draft.path)
+        val localPath = if (protocol) null else Paths.get(draft.path)
+        if (localPath != null && (!Files.exists(localPath) || Files.isDirectory(localPath))) return draft
+        val protocolBytes = if (protocol) resourceBytes(draft.path) ?: return draft else null
+        val size = if (draft.size > 0) draft.size
+        else protocolBytes?.size?.toLong() ?: runCatching { Files.size(localPath!!) }.getOrDefault(0)
+        val sourceImage = if (protocol) {
+            runCatching { ImageIO.read(ByteArrayInputStream(protocolBytes)) }.getOrNull()
+        } else {
+            runCatching { ImageIO.read(localPath!!.toFile()) }.getOrNull()
+        } ?: return draft
         if (sourceImage.width <= MAX_IMAGE_DIMENSION && sourceImage.height <= MAX_IMAGE_DIMENSION && size in 1..MAX_IMAGE_BYTES) {
             return draft
         }
