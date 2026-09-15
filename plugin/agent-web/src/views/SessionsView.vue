@@ -5,23 +5,30 @@ import { api } from '../bridge/jcefBridge'
 import PageShell from '../components/common/PageShell.vue'
 
 const rows = ref([])
+const environments = ref([])
 const createVisible = ref(false)
-const sessionType = ref('project')
 const sessionName = ref('')
+const environmentId = ref(null)
 const creating = ref(false)
-const load = () => api('sessions.list').then(value => rows.value = value)
+const load = async () => {
+  const [sessionRows, catalog] = await Promise.all([api('sessions.list'), api('environments.catalog')])
+  rows.value = sessionRows
+  environments.value = catalog.environments || []
+  if (!environmentId.value) environmentId.value = environments.value[0]?.id || null
+}
 
 function openCreate() {
-  sessionType.value = 'project'
-  sessionName.value = ''
+   sessionName.value = ''
+  environmentId.value = environments.value[0]?.id || null
   createVisible.value = true
 }
 
 async function create() {
   if (creating.value) return
+  if (!environmentId.value) throw new Error('请选择编码环境')
   creating.value = true
   try {
-    await api('session.create', { title: sessionName.value.trim(), sessionType: sessionType.value })
+    await api('session.create', { title: sessionName.value.trim(), codingEnvironmentId: environmentId.value })
     createVisible.value = false
     await load()
   } finally {
@@ -49,13 +56,10 @@ onMounted(load)
     <template #actions><el-button type="primary" @click="openCreate">新建会话</el-button></template>
     <el-table :data="rows" height="100%">
       <el-table-column prop="title" label="名称" />
-      <el-table-column prop="sessionType" label="类型" width="100">
-        <template #default="{ row }">{{ row.sessionType === 'global' ? '全局' : '项目' }}</template>
-      </el-table-column>
       <el-table-column prop="projectPath" label="关联项目" min-width="220">
-        <template #default="{ row }">{{ row.sessionType === 'global' ? '所有项目' : row.projectPath }}</template>
+        <template #default="{ row }">{{ row.projectPath }}</template>
       </el-table-column>
-      <el-table-column prop="agentId" label="Agent" width="90" />
+      <el-table-column prop="agentId" label="环境/Agent" width="120" />
       <el-table-column prop="updatedAt" label="更新时间" width="180" />
       <el-table-column width="160">
         <template #default="{ row }">
@@ -67,16 +71,6 @@ onMounted(load)
 
     <el-dialog v-model="createVisible" title="新建会话" width="420px" append-to-body>
       <el-form-item label="会话名称" required><el-input v-model="sessionName" maxlength="80" show-word-limit /></el-form-item>
-      <el-form-item label="会话范围" required>
-      <el-radio-group v-model="sessionType" class="session-type-options">
-        <el-radio value="project">
-          <div><strong>项目会话</strong><small>仅在当前项目中可见</small></div>
-        </el-radio>
-        <el-radio value="global">
-          <div><strong>全局会话</strong><small>所有项目共享，可自由切换</small></div>
-        </el-radio>
-      </el-radio-group>
-      </el-form-item>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :disabled="!sessionName.trim()" :loading="creating" @click="create">创建</el-button>
@@ -84,11 +78,3 @@ onMounted(load)
     </el-dialog>
   </PageShell>
 </template>
-
-<style scoped>
-.session-type-options { display: grid; gap: 12px; width: 100%; }
-.session-type-options :deep(.el-radio) { height: auto; margin: 0; padding: 14px; border: 1px solid var(--jb-border); border-radius: 10px; }
-.session-type-options :deep(.el-radio.is-checked) { border-color: var(--jb-accent); background: color-mix(in srgb, var(--jb-accent) 10%, transparent); }
-.session-type-options div { display: grid; gap: 4px; }
-.session-type-options small { color: var(--jb-muted); }
-</style>

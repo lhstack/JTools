@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "1.1.5.3"
+version = "1.1.5.7"
 evaluationDependsOn(":sdk")
 repositories {
     intellijPlatform {
@@ -109,6 +109,10 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState { *; }",
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState\$State { *; }",
     "-keep class com.lhstack.tools.agent.AgentAttachmentState { *; }",
+    "-keep class com.lhstack.tools.agent.AgentBrowserCommand { *; }",
+    "-keep class com.lhstack.tools.agent.AgentChatPanel { *; }",
+    "-keep class com.lhstack.tools.agent.AgentChatPanel$* { *; }",
+    "-keepclassmembers class * { @com.google.gson.annotations.SerializedName <fields>; }",
     "-keepclassmembers class * implements com.intellij.openapi.Disposable { public void dispose(); }",
     "-keepclassmembers class * { void dispose(); }",
     "-keepclassmembers class com.lhstack.tools.plugins.PluginState** { *; }",

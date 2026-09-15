@@ -39,7 +39,7 @@ object ModelResolver {
         val executionParams = model.executionParams
             ?.let { parseJson(it) }
             ?.let { modelExecutionParams(it) }
-            ?: ModelExecutionParams()
+            ?: ModelExecutionParams(historyTokenRatio = ModelParams.DEFAULT_HISTORY_TOKEN_RATIO)
         return ResolvedModelConfig(
             providerId = provider.id ?: 0,
             providerName = provider.name,
@@ -88,7 +88,7 @@ object ModelResolver {
         val modelParams = snap.get("model_params")?.takeIf { !it.isJsonNull }
         val executionParams = snap.get("execution_params")
             ?.let { modelExecutionParams(it) }
-            ?: ModelExecutionParams()
+            ?: ModelExecutionParams(historyTokenRatio = ModelParams.DEFAULT_HISTORY_TOKEN_RATIO)
         return ResolvedModelConfig(
             providerId = provider.id ?: 0,
             providerName = provider.name,
@@ -151,6 +151,8 @@ object ModelResolver {
         add("execution_params", JsonObject().apply {
             add("max_tool_call_rounds", model.params.executionParams.maxToolCallRounds?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
             add("max_retries", model.params.executionParams.maxRetries?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+            add("tool_call_retention_rounds", model.params.executionParams.toolCallRetentionRounds?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+            addProperty("history_token_ratio", model.params.executionParams.historyTokenRatio ?: ModelParams.DEFAULT_HISTORY_TOKEN_RATIO)
         })
         add("context_window", model.params.contextWindow?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
         add("modalities", JsonArray().apply { model.params.modalities.forEach { add(it) } })
@@ -183,10 +185,13 @@ object ModelResolver {
 
     /** 照抄 model_execution_params。 */
     private fun modelExecutionParams(value: JsonElement): ModelExecutionParams {
-        val obj = value.asJsonObjectOrNull() ?: return ModelExecutionParams()
+        val obj = value.asJsonObjectOrNull()
+            ?: return ModelExecutionParams(historyTokenRatio = ModelParams.DEFAULT_HISTORY_TOKEN_RATIO)
         return ModelExecutionParams(
             maxToolCallRounds = obj.get("max_tool_call_rounds")?.asLongOrNull()?.toInt(),
             maxRetries = obj.get("max_retries")?.asLongOrNull()?.toInt(),
+            toolCallRetentionRounds = obj.get("tool_call_retention_rounds")?.asLongOrNull()?.toInt(),
+            historyTokenRatio = ModelParams.configuredHistoryTokenRatio(obj),
         )
     }
 

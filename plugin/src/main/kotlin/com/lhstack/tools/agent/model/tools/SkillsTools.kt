@@ -22,9 +22,9 @@ class SkillsListTool(
     private val workspace: WorkspaceTools,
     private val rootDir: File?,
     private val enabledSkills: Set<String>?,
-) : com.lhstack.tools.agent.model.llm.ToolDyn {
+) : com.lhstack.tools.llm.ToolDyn {
 
-    override fun definition(prompt: String) = com.lhstack.tools.agent.model.llm.ToolDefinition(
+    override fun definition(prompt: String) = com.lhstack.tools.llm.ToolDefinition(
         name = NAME,
         description = "列出可用技能及其可读文件；读取内容请使用 skills_view。",
         parameters = JsonParser.parseString(
@@ -72,9 +72,9 @@ class SkillsViewTool(
     private val workspace: WorkspaceTools,
     private val rootDir: File?,
     private val enabledSkills: Set<String>?,
-) : com.lhstack.tools.agent.model.llm.ToolDyn {
+) : com.lhstack.tools.llm.ToolDyn {
 
-    override fun definition(prompt: String) = com.lhstack.tools.agent.model.llm.ToolDefinition(
+    override fun definition(prompt: String) = com.lhstack.tools.llm.ToolDefinition(
         name = NAME,
         description = "读取技能文件。必须先调用 skills_list；省略 path 时读取 SKILL.md。",
         parameters = JsonParser.parseString(

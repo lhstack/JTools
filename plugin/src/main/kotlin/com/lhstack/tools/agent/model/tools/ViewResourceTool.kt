@@ -7,11 +7,11 @@ import com.google.gson.JsonParser
 import com.lhstack.tools.agent.AgentAttachmentState
 import com.lhstack.tools.agent.AgentAttachmentSupport
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
 import com.lhstack.tools.agent.model.provider.AgentRuntime
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 import java.io.File
 
 /** 多模态资源查看工具：把路径附件交给配置的资源 Agent 分析。 */
@@ -33,8 +33,8 @@ class ViewResourceTool(
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
-        val files = requestedPaths(obj).map(::resolveResourcePath)
-        require(files.isNotEmpty()) { "paths 不能为空" }
+        val resources = requestedPaths(obj).map(::resolveResourcePath)
+        require(resources.isNotEmpty()) { "paths 不能为空" }
         val prompt = obj.get("prompt")
             ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
             ?.asString
@@ -48,9 +48,14 @@ class ViewResourceTool(
         require(resourceAgentSupportsKind(modalities)) {
             "资源 Agent `${resourceAgent.name}` 绑定模型不支持 `${kind.asStr}` 多模态能力"
         }
-        val attachments = files.map { file ->
+        val attachments = resources.map { resource ->
             AgentAttachmentSupport.normalize(
-                AgentAttachmentState(name = file.name, path = file.absolutePath, size = file.length())
+                AgentAttachmentState(
+                    name = resource.name,
+                    path = resource.path,
+                    mimeType = resource.mimeType.orEmpty(),
+                    size = resource.size,
+                )
             )
         }
         val result = AgentRuntime.execute(
@@ -58,10 +63,10 @@ class ViewResourceTool(
                 agentId = resourceAgentId,
                 prompt = prompt,
                 triggerType = kind.toolName,
-                triggerId = files.joinToString(",") { workspaceTools.displayPath(it) },
+                triggerId = resources.joinToString(",") { it.displayPath },
                 workspace = workspaceTools.canonicalRoot().absolutePath,
                 skillsRootDir = skillsRootDir,
-                attachments = attachments.map { AgentAttachmentSupport.toUserContent(it, modalities) },
+                attachments = attachments.flatMap { AgentAttachmentSupport.toUserContents(it, modalities) },
                 attachmentSnapshots = attachments.map { AgentAttachmentSupport.snapshotOf(it) },
                 cancel = cancel,
                 toolCancel = cancel,
@@ -75,11 +80,36 @@ class ViewResourceTool(
         }
     }
 
-    private fun resolveResourcePath(path: String): File {
+    private data class ResolvedResource(
+        val path: String,
+        val name: String,
+        val size: Long,
+        val mimeType: String?,
+        val displayPath: String,
+    )
+
+    private fun resolveResourcePath(path: String): ResolvedResource {
+        if (ResourcePathSupport.isProtocolPath(path)) {
+            val virtualFile = ResourcePathSupport.requireFile(path)
+            return ResolvedResource(
+                path = path,
+                name = virtualFile.name,
+                size = virtualFile.length,
+                mimeType = ResourcePathSupport.mimeType(path),
+                displayPath = path,
+            )
+        }
         val file = File(path)
         val resolved = if (file.isAbsolute) file else workspaceTools.resolveExistingPath(path)
         require(resolved.exists() && resolved.isFile) { "资源文件不存在或不是普通文件: $path" }
-        return resolved.canonicalFile
+        val canonical = resolved.canonicalFile
+        return ResolvedResource(
+            path = canonical.absolutePath,
+            name = canonical.name,
+            size = canonical.length(),
+            mimeType = runCatching { java.nio.file.Files.probeContentType(canonical.toPath()) }.getOrNull(),
+            displayPath = if (file.isAbsolute) canonical.absolutePath else workspaceTools.displayPath(canonical),
+        )
     }
 
     private fun requestedPaths(obj: JsonObject): List<String> {
@@ -128,11 +158,11 @@ class ViewResourceTool(
             {
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "可选。单个工作区相对路径。" },
+                "path": { "type": "string", "description": "可选。工作区相对路径、普通绝对路径或协议路径（如 file://、jar://、jrt://）。" },
                 "paths": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "可选。一个或多个绝对路径或工作区相对路径。"
+                  "description": "可选。一个或多个工作区相对路径、普通绝对路径或协议路径（如 file://、jar://、jrt://）。"
                 },
                 "prompt": { "type": "string", "minLength": 1, "description": "必填。明确说明需要分析的内容。" }
               },

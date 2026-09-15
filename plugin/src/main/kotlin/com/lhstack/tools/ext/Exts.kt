@@ -381,7 +381,11 @@ private fun zipDirectoryHelper(rootDir: File, currentDir: File, zipOut: ZipArchi
 }
 
 fun Project.getConsoleLog(): BuildTextConsoleView {
-    return this.getUserData(Const.LOG_CONSOLE_KEY)!!
+    getUserData(Const.LOG_CONSOLE_KEY)?.let { return it }
+    val consoleView = BuildTextConsoleView(this, true, listOf())
+    consoleView.component
+    putUserData(Const.LOG_CONSOLE_KEY, consoleView)
+    return consoleView
 }
 
 /**

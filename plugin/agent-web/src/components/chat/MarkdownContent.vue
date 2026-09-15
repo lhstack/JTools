@@ -1,27 +1,33 @@
 <script setup>
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
-import { invoke } from '../../bridge/jcefBridge'
+import { api, invoke } from '../../bridge/jcefBridge'
+import { markdown } from '../../markdown.js'
 
-const props = defineProps({ content: String })
-const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[char]))
-const renderer = new marked.Renderer()
-renderer.code = ({ text, lang }) => {
-  const language = String(lang || '').trim().split(/\s+/)[0] || 'text'
-  return `<div class="code"><div class="code-head"><span>${escapeHtml(language)}</span><button type="button" data-copy>复制</button></div><pre><code class="language-${escapeHtml(language)}">${escapeHtml(text)}</code></pre></div>`
+const props = defineProps({ content: { type: String, default: '' } })
+const html = computed(() => markdown.render(props.content))
+
+function codeFileExtension(lang) {
+  const language = String(lang || '').toLowerCase()
+  const extensions = {
+    javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', json: 'json', rust: 'rs', rs: 'rs',
+    python: 'py', py: 'py', shell: 'sh', bash: 'sh', sh: 'sh', markdown: 'md', md: 'md', vue: 'vue',
+    sql: 'sql', yaml: 'yaml', yml: 'yml', html: 'html', css: 'css', java: 'java', kt: 'kt', kotlin: 'kt',
+  }
+  return extensions[language] || 'txt'
 }
-const html = computed(() => DOMPurify.sanitize(marked.parse(props.content || '', { renderer }), { ADD_ATTR: ['data-copy'] }))
 
-// 链接改为交给 IDE 用外部浏览器打开，避免在 JCEF 内导航导致整个对话页跳走无法返回。
+function codeBlockSource(block) {
+  const source = block.querySelector('.code-source')
+  if (source) return source.value || source.textContent || ''
+  return block.querySelector('code')?.textContent || ''
+}
+
+
 function openLinkExternally(event) {
   const anchor = event.target.closest('a')
   if (!anchor) return false
   const href = anchor.getAttribute('href') || ''
-  // 只接管带协议的外链（http/https/mailto 等），锚点与空链接交回默认行为。
   if (!/^[a-z][a-z0-9+.-]*:/i.test(href)) return false
   event.preventDefault()
   invoke('link.open', { text: href })
@@ -30,19 +36,38 @@ function openLinkExternally(event) {
 
 async function click(event) {
   if (openLinkExternally(event)) return
-  const button = event.target.closest('[data-copy]')
-  if (!button) return
-  const code = button.closest('.code')?.querySelector('code')?.textContent
-  if (code == null) return
-  button.disabled = true
-  try {
-    await invoke('code.copy', { text: code })
-    ElMessage.success('复制成功')
-  } catch (error) {
-    ElMessage.error(`复制失败：${error?.message || String(error)}`)
-  } finally {
-    button.disabled = false
+  const action = event.target?.closest?.('[data-code-action]')
+  if (!action) return
+  const block = action.closest('.rendered-code-block')
+  if (!block) return
+  event.preventDefault()
+  const source = codeBlockSource(block)
+  if (!source && action.dataset.codeAction !== 'toggle-html') return
+  if (action.dataset.codeAction === 'copy') {
+    try {
+      await invoke('code.copy', { text: source })
+      ElMessage.success('复制成功')
+    } catch (error) {
+      ElMessage.error(`复制失败：${error?.message || String(error)}`)
+    }
+  } else if (action.dataset.codeAction === 'download') {
+    try {
+      const data = await api('code.save', {
+        text: source,
+        filename: `code.${codeFileExtension(block.dataset.codeLang)}`,
+      })
+      if (data?.saved) ElMessage.success(`已保存到 ${data.path}`)
+    } catch (error) {
+      ElMessage.error(`保存失败：${error?.message || String(error)}`)
+    }
+  } else if (action.dataset.codeAction === 'toggle-html') {
+    const previewing = block.dataset.htmlView !== 'source'
+    block.dataset.htmlView = previewing ? 'source' : 'preview'
+    action.textContent = previewing ? '预览' : '源码'
   }
 }
 </script>
-<template><div class="markdown" v-html="html" @click="click" /></template>
+
+<template>
+  <div class="markdown-body" v-html="html" @click="click" />
+</template>

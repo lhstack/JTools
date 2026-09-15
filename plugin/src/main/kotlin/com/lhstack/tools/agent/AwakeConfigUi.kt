@@ -34,31 +34,10 @@ import javax.swing.*
 
 private val CONFIG_GSON = GsonBuilder().setPrettyPrinting().create()
 
-private fun jsonObjectText(value: String?): String = value?.takeIf { it.isNotBlank() }?.let {
-    runCatching { CONFIG_GSON.toJson(JsonParser.parseString(it)) }.getOrNull()
-} ?: "{}"
-
-private fun parseJsonObjectText(value: String, field: String): String {
-    val text = value.trim().ifBlank { "{}" }
-    val element = runCatching { JsonParser.parseString(text) }
-        .getOrElse { throw IllegalArgumentException("$field 必须是合法 JSON") }
-    if (!element.isJsonObject) throw IllegalArgumentException("$field 必须是 JSON object")
-    return CONFIG_GSON.toJson(element)
-}
-
 private fun configTextArea(rows: Int = 6): JBTextArea = JBTextArea(rows, 0).apply {
     lineWrap = true
     wrapStyleWord = false
     border = JBUI.Borders.empty(4)
-}
-
-private fun jsonEditor(area: JBTextArea, rows: Int = 6): JComponent = JBScrollPane(area).apply {
-    val height = JBUI.scale(rows * 22 + 28)
-    preferredSize = Dimension(0, height)
-    minimumSize = Dimension(0, height)
-    maximumSize = Dimension(Int.MAX_VALUE, height)
-    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-    verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
 }
 
 private fun formGrid(vararg rows: List<JComponent>): JPanel = JPanel(GridBagLayout()).apply {
@@ -88,12 +67,6 @@ private fun formGrid(vararg rows: List<JComponent>): JPanel = JPanel(GridBagLayo
     })
 }
 
-private fun configSection(title: String, content: JComponent): JComponent =
-    JPanel(BorderLayout(0, 6)).apply {
-        border = JBUI.Borders.empty(8)
-        add(JLabel(title), BorderLayout.NORTH)
-        add(content, BorderLayout.CENTER)
-    }
 
 private fun configField(label: String, component: JComponent): JComponent =
     JPanel(BorderLayout(0, 4)).apply {

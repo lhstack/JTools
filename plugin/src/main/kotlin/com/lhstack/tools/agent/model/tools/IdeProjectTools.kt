@@ -18,8 +18,8 @@ import com.intellij.task.ProjectTaskContext
 import com.intellij.task.ProjectTaskManager
 import com.intellij.profile.codeInspection.InspectionProfileManager
 import com.intellij.psi.PsiManager
-import com.lhstack.tools.agent.model.llm.ToolDefinition
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDyn
 import java.util.concurrent.Callable
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException

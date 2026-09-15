@@ -2,6 +2,7 @@ package com.lhstack.tools.agent.model.http
 
 import okhttp3.Response
 import okio.BufferedSource
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import java.io.EOFException
 
 /**
@@ -18,6 +19,7 @@ class SseParser(
     private val source: BufferedSource,
     private val cancel: ModelCancel?,
     private val cancelCall: (() -> Unit)? = null,
+    private val firstTokenTrace: FirstTokenTrace? = null,
 ) : AutoCloseable {
 
     private val interruptId = cancel?.registerInterrupt {
@@ -38,7 +40,10 @@ class SseParser(
                 if (line.startsWith("\uFEFF")) line = line.substring(1)
             }
             if (line.isEmpty()) {
-                event.dispatch()?.let { return it }
+                event.dispatch()?.let {
+                    firstTokenTrace?.mark("sse_event_received")
+                    return it
+                }
                 continue
             }
             event.accept(line)

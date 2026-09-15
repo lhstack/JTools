@@ -53,28 +53,113 @@ object ResourceConfigService {
         return root.toPath().relativize(directory.toPath()).toString().replace('\\', '/')
     }
 
-    fun createSkill(name: String): String {
+    fun createSkill(name: String, description: String): String {
         val root = skillsRootDir()
-        val childName = name.trim()
-        require(childName.isNotBlank()) { "技能名称不能为空" }
-        require(childName != "." && childName != ".." && !childName.startsWith('.') && !childName.contains('/') && !childName.contains('\\')) { "技能名称无效: $name" }
+        val childName = validateNewSkillName(name)
+        val desc = description.trim()
+        require(desc.isNotBlank()) { "SKILL.md 必须包含非空 description" }
         val dir = canonicalFile(root.resolve(childName))
         require(dir.toPath().startsWith(root.toPath())) { "Skill 路径越界: $name" }
         require(!dir.exists()) { "技能已存在: $childName" }
         require(dir.mkdirs()) { "技能目录创建失败: $childName" }
-        dir.resolve("SKILL.md").writeText(defaultSkillTemplate(childName), Charsets.UTF_8)
+        try {
+            dir.resolve("SKILL.md").writeText(skillMarkdownTemplate(desc), Charsets.UTF_8)
+        } catch (error: Throwable) {
+            dir.deleteRecursively()
+            throw error
+        }
         return childName
     }
 
-    private fun defaultSkillTemplate(name: String): String = """
-        |---
-        |description: $name
-        |---
-        |
-        |# $name
-        |
-        |在此填写技能说明。
-        |""".trimMargin()
+    fun importSkills(sourcePath: String): SkillImportReport {
+        val trimmed = sourcePath.trim()
+        require(trimmed.isNotBlank()) { "导入路径不能为空" }
+        val source = canonicalFile(File(trimmed))
+        require(source.isDirectory) { "导入路径必须是目录: ${source.path}" }
+        val root = canonicalFile(skillsRootDir())
+        val discovered = discoverImportSkillDirs(source)
+        require(discovered.isNotEmpty()) { "导入目录下没有包含 SKILL.md 的技能" }
+        val nameBase = if (File(source, "SKILL.md").isFile) source.parentFile ?: source else source
+        val imported = mutableListOf<SkillDirectoryRecord>()
+        val failed = mutableListOf<SkillImportFailure>()
+        for (skillDir in discovered) {
+            val relative = try {
+                nameBase.toPath().relativize(skillDir.toPath()).toString().replace('\\', '/').trim('/')
+            } catch (error: Throwable) {
+                failed += SkillImportFailure(skillDir.path, error.message ?: error.toString())
+                continue
+            }
+            try {
+                imported += importOneSkill(root, skillDir, relative)
+            } catch (error: Throwable) {
+                failed += SkillImportFailure(relative.ifBlank { skillDir.name }, error.message ?: error.toString())
+            }
+        }
+        return SkillImportReport(imported, failed)
+    }
+
+    private fun importOneSkill(root: File, skillDir: File, relative: String): SkillDirectoryRecord {
+        val destRelative = relative.trim('/').ifBlank { skillDir.name }
+        require(destRelative.isNotBlank() && !destRelative.split('/').contains("..")) { "Skill 路径无效: $destRelative" }
+        val content = File(skillDir, "SKILL.md").readText(Charsets.UTF_8)
+        require(content.contains("---")) { "SKILL.md 缺少 frontmatter" }
+        val dest = canonicalFile(root.resolve(destRelative))
+        require(dest.toPath().startsWith(root.toPath())) { "Skill 路径越界: $destRelative" }
+        require(!dest.exists()) { "Skill `$destRelative` 已存在" }
+        dest.parentFile?.mkdirs()
+        try {
+            copySkillDirectory(skillDir, dest)
+        } catch (error: Throwable) {
+            dest.deleteRecursively()
+            throw error
+        }
+        val canonical = canonicalFile(dest)
+        require(canonical.toPath().startsWith(root.toPath())) { "Skill 路径越界: $destRelative" }
+        return skillDirectoryRecord(root.toPath(), canonical.toPath())
+    }
+
+    private fun discoverImportSkillDirs(source: File): List<File> {
+        val dirs = mutableListOf<File>()
+        collectImportSkillDirs(source, dirs)
+        return dirs
+    }
+
+    private fun collectImportSkillDirs(current: File, dirs: MutableList<File>) {
+        if (File(current, "SKILL.md").isFile) {
+            dirs += current
+            return
+        }
+        current.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { child ->
+            collectImportSkillDirs(child, dirs)
+        }
+    }
+
+    private fun copySkillDirectory(source: File, destination: File) {
+        require(destination.mkdir()) { "创建 Skill 目录失败: ${destination.path}" }
+        val entries = source.listFiles() ?: return
+        for (entry in entries) {
+            val target = File(destination, entry.name)
+            when {
+                entry.isDirectory -> copySkillDirectory(entry, target)
+                entry.isFile -> entry.copyTo(target, overwrite = false)
+                else -> error("Skill 包含不支持的文件类型: ${entry.path}")
+            }
+        }
+    }
+
+    private fun validateNewSkillName(name: String): String {
+        val childName = name.trim()
+        require(childName.isNotBlank()) { "技能名称不能为空" }
+        require(childName != "." && childName != ".." && !childName.startsWith('.') && !childName.contains('/') && !childName.contains('\\')) {
+            "技能名称无效: $name"
+        }
+        return childName
+    }
+
+    private fun skillMarkdownTemplate(description: String): String {
+        val escaped = description.replace("\\", "\\\\").replace("\"", "\\\"")
+        return "---\ndescription: \"$escaped\"\n---\n"
+    }
 
     fun deleteSkill(name: String) {
         val dir = resolveSkillDir(name)
@@ -91,6 +176,9 @@ object ResourceConfigService {
         require(entry != root) { "不能删除 Skill 根目录" }
         require(entry.deleteRecursively()) { "删除失败: $relativePath" }
     }
+
+    data class SkillImportFailure(val name: String, val error: String)
+    data class SkillImportReport(val imported: List<SkillDirectoryRecord>, val failed: List<SkillImportFailure>)
 
     data class SkillDirectoryRecord(
         val name: String,

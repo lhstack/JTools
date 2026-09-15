@@ -10,17 +10,27 @@ import com.lhstack.tools.agent.PluginFunctionToolSupport
 import com.lhstack.tools.db.config.AgentCapabilityConfig
 import com.lhstack.tools.db.config.AgentDistillLogKind
 import com.lhstack.tools.db.config.AgentRuntimeConfig
+import com.lhstack.tools.db.service.AgentEventStoreService
 import com.lhstack.tools.db.service.AgentRecord
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.db.service.ResourceConfigService
 import com.lhstack.tools.agent.model.http.ModelCancel
-import com.lhstack.tools.agent.model.llm.Message
-import com.lhstack.tools.agent.model.llm.UserContent
-import com.lhstack.tools.agent.model.llm.ToolDyn
+import com.lhstack.tools.llm.AssistantContent
+import com.lhstack.tools.llm.Message
+import com.lhstack.tools.llm.ProviderToolCall
+import com.lhstack.tools.llm.ToolResult
+import com.lhstack.tools.llm.UserContent
+import com.lhstack.tools.llm.provider.AppendMessageChannel
+import com.lhstack.tools.llm.provider.ModelStreamSink
+import com.lhstack.tools.llm.provider.ToolEventSink
+import com.lhstack.tools.llm.ToolDyn
 import com.lhstack.tools.agent.model.log.ModelLogContext
 import com.lhstack.tools.agent.model.params.ModelResolver
 import com.lhstack.tools.agent.model.params.ModelParams
+import com.lhstack.tools.llm.provider.HistoryTrimmer
+import com.lhstack.tools.llm.provider.ModelRuntime
 import com.lhstack.tools.agent.model.tools.PluginFunctionTool
 import com.lhstack.tools.agent.model.tools.ResourceKind
 import com.lhstack.tools.agent.model.tools.RuntimeTools
@@ -36,6 +46,9 @@ import java.io.File
  * 不在这里兼容缺失数据。
  */
 object AgentRuntime {
+
+    /** Agent 运行/润色的工具事件回调。与通用 ToolEventSink 同一契约。 */
+    interface ToolEventSink : com.lhstack.tools.llm.provider.ToolEventSink
 
     data class ExecutionResult(
         val logId: Long,
@@ -59,7 +72,7 @@ object AgentRuntime {
         val attachmentSnapshots: List<JsonObject> = emptyList(),
         val extraTools: List<ToolDyn> = emptyList(),
         val toolEnvVars: Map<String, String> = emptyMap(),
-        val streamSink: ModelStreamSink = ModelStreamSink.NOOP,
+        val streamSink: com.lhstack.tools.llm.provider.ModelStreamSink = com.lhstack.tools.llm.provider.ModelStreamSink.NOOP,
         val eventSink: ToolEventSink? = null,
         val cancel: ModelCancel? = null,
         val toolCancel: ModelCancel? = null,
@@ -72,7 +85,7 @@ object AgentRuntime {
         val requestMetadata: JsonObject? = null,
         val userMessageAt: String? = null,
         val onLogCreated: ((Long) -> Unit)? = null,
-        val appendMessageChannel: AppendMessageChannel = AppendMessageChannel.NONE,
+        val appendMessageChannel: com.lhstack.tools.llm.provider.AppendMessageChannel = com.lhstack.tools.llm.provider.AppendMessageChannel.NONE,
     )
 
     /** 照抄 execute_agent_prompt：按 Agent id 执行一次直接提示。 */
@@ -96,9 +109,11 @@ object AgentRuntime {
         require(model.providerId == providerId) { "模型 `$modelId` 不属于供应商 `$providerId`" }
 
         val runtimeModel = ModelResolver.resolveFromStore(provider, model)
-        val enabledTools = effectiveTools(agent.extConfig)
+        val historyTokenRatio = runtimeModel.params.executionParams.historyTokenRatio
+            ?: ModelParams.DEFAULT_HISTORY_TOKEN_RATIO
+        val enabledTools = enabledTools(agent.extConfig)
         val availableSkills = ResourceConfigService.listSkills()
-        val enabledSkills = effectiveSkills(agent.extConfig, availableSkills)
+        val enabledSkills = enabledSkills(agent.extConfig, availableSkills)
         val tools = RuntimeTools.create(
             workspace = request.workspace,
             enabledTools = enabledTools,
@@ -107,7 +122,7 @@ object AgentRuntime {
             toolEnvVars = request.toolEnvVars,
             cancel = request.toolCancel ?: request.cancel,
             project = request.project,
-        ) + pluginFunctionTools(agent.extConfig, request) + viewResourceTools(agent.extConfig, request) + request.extraTools
+        ) + pluginFunctionTools(agent.extConfig, request, provider.name, model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId) + viewResourceTools(agent.extConfig, request) + request.extraTools
 
         ModelParams.validateContextBudget(
             runtimeModel.params.contextWindow,
@@ -149,32 +164,59 @@ object AgentRuntime {
             },
         )
 
-        val result = ModelRuntime.execute(
-            model = runtimeModel,
-            agentMaxTurns = null,
-            preamble = preamble,
-            promptMessage = promptMessage,
-            history = prepareHistory(agent, request, runtimeModel, preamble, promptMessage),
-            tools = tools,
-            logContext = logContext,
-            environmentId = null,
-            streamed = runtimeModel.stream,
-            streamSink = request.streamSink,
-            eventSink = request.eventSink,
-            cancel = request.cancel,
-            toolCancel = request.toolCancel,
-            onLogCreated = request.onLogCreated,
-            appendMessageChannel = request.appendMessageChannel,
-        )
+        val conversationId = "agent-${request.agentId}-${System.currentTimeMillis()}"
+        val result = try {
+            ModelRuntime.execute(
+                model = runtimeModel,
+                agentMaxTurns = runtimeModel.params.executionParams.maxToolCallRounds,
+                preamble = preamble,
+                promptMessage = promptMessage,
+                history = prepareHistory(agent, request, runtimeModel, preamble, promptMessage),
+                tools = tools,
+                logContext = logContext,
+                environmentId = null,
+                streamed = runtimeModel.stream,
+                streamSink = request.streamSink,
+                eventSink = request.eventSink,
+                cancel = request.cancel,
+                toolCancel = request.toolCancel,
+                onLogCreated = request.onLogCreated,
+                appendMessageChannel = request.appendMessageChannel,
+            )
+        } catch (error: Throwable) {
+            if (!isIsolatedTrigger(request.triggerType)) {
+                AgentEventStoreService.recordFailure(request.agentId, conversationId, error.message ?: error.toString())
+            }
+            throw error
+        }
+        if (!isIsolatedTrigger(request.triggerType)) {
+            AgentEventStoreService.recordExecution(
+                agentId = request.agentId,
+                turnId = conversationId,
+                prompt = request.prompt,
+                response = result.value,
+                historyTokenRatio = historyTokenRatio,
+            )
+        }
         val output = result.value.get("response")?.takeIf { it.isJsonPrimitive }?.asString
             ?: result.value.toString()
         return ExecutionResult(result.modelLogId, result.value, output, result.assistantMessageAt)
     }
 
     private fun effectiveHistory(agent: AgentRecord, request: Request): List<Message> {
+        if (isIsolatedTrigger(request.triggerType)) return emptyList()
         if (request.triggerType == "chat") return request.history
-        return if (agent.runtimeParams.includeHistory) request.history else emptyList()
+        return AgentEventStoreService.loadHistory(
+            agentId = request.agentId,
+            includeHistory = agent.runtimeParams.includeHistory,
+            maxTurns = agent.runtimeParams.maxHistoryMessages,
+        )
     }
+
+    private fun isIsolatedTrigger(triggerType: String): Boolean = triggerType in setOf(
+        "view_image", "view_audio", "view_video", "view_files", "view_resources",
+        "coding_context_compaction", "coding_subagent",
+    )
 
     private fun prepareHistory(
         agent: AgentRecord,
@@ -195,7 +237,7 @@ object AgentRuntime {
     private fun Message.textForHistory(): String = when (this) {
         is Message.System -> content
         is Message.User -> content.filterIsInstance<UserContent.Text>().joinToString(" ") { it.text }
-        is Message.Assistant -> content.filterIsInstance<com.lhstack.tools.agent.model.llm.AssistantContent.Text>()
+        is Message.Assistant -> content.filterIsInstance<AssistantContent.Text>()
             .joinToString(" ") { it.text }
     }
 
@@ -210,13 +252,33 @@ object AgentRuntime {
     }
 
 
-    private fun pluginFunctionTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> =
-        PluginFunctionToolSupport.enabledEntries(
-            project = request.project,
+    private fun pluginFunctionTools(
+        config: AgentCapabilityConfig,
+        request: Request,
+        providerName: String,
+        modelName: String,
+    ): List<ToolDyn> {
+        val session = request.sessionId?.let { ChatSessionService.sessionById(it) }
+        val sessionName = session?.title?.takeIf { it.isNotBlank() } ?: request.sessionId?.let { "agent-$it" }
+        val sessionKey = request.sessionId?.toString()
+        return PluginFunctionToolSupport.enabledEntries(
             enabled = config.pluginFunctions.enabled,
             includeNew = config.pluginFunctions.includeNew,
             disabled = config.pluginFunctions.disabled,
-        ).map { entry -> PluginFunctionTool(entry.toolName, entry.function) }
+            project = request.project,
+            sessionName = sessionName,
+            sessionId = sessionKey,
+        ).map { entry ->
+            PluginFunctionTool(
+                toolName = entry.toolName,
+                function = entry.function,
+                sessionName = sessionName,
+                sessionId = sessionKey,
+                provider = providerName,
+                model = modelName,
+            )
+        }
+    }
 
     private fun viewResourceTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> = buildList {
         addViewResourceTool(ResourceKind.IMAGE, config.viewResources.image, request)
@@ -243,14 +305,14 @@ object AgentRuntime {
         )
     }
 
-    private fun effectiveTools(config: AgentCapabilityConfig): Set<String> = effectiveEnabledItems(
+    internal fun enabledTools(config: AgentCapabilityConfig): Set<String> = effectiveEnabledItems(
         current = RuntimeTools.REGISTERED_BUILTIN_TOOL_NAMES,
         enabled = config.tools.enabled,
         includeNew = config.tools.includeNew,
         disabled = config.tools.disabled,
     )
 
-    private fun effectiveSkills(
+    internal fun enabledSkills(
         config: AgentCapabilityConfig,
         availableSkills: List<ResourceConfigService.SkillDirectoryRecord>,
     ): Set<String> = effectiveEnabledItems(

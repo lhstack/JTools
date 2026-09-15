@@ -3,7 +3,7 @@ package com.lhstack.tools.agent.model.tools
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.intellij.openapi.project.Project
-import com.lhstack.tools.agent.model.llm.ToolDefinition
+import com.lhstack.tools.llm.ToolDefinition
 import java.lang.reflect.Proxy
 import kotlin.test.Test
 import kotlin.test.assertEquals

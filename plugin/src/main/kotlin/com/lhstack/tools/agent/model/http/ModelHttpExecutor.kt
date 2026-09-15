@@ -2,6 +2,7 @@ package com.lhstack.tools.agent.model.http
 
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import com.lhstack.tools.agent.model.log.FirstTokenTrace
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -77,12 +78,14 @@ class ModelHttpExecutor(
         headers: Map<String, String>,
         body: String,
         cancel: ModelCancel?,
+        firstTokenTrace: FirstTokenTrace? = null,
     ): SseParser {
         if (cancel?.isCancelled() == true) {
             throw ModelRequestCancelledException()
         }
         val call = client.newCall(jsonRequest(url, headers, body))
         val interruptId = cancel?.registerInterrupt { call.cancel() }
+        firstTokenTrace?.mark("http_request_started")
         val response = try {
             call.execute()
         } catch (error: IOException) {
@@ -92,6 +95,7 @@ class ModelHttpExecutor(
             }
             throw error
         }
+        firstTokenTrace?.mark("http_response_headers")
         try {
             val responseBody = response.body ?: throw IOException("model API stream response has no body")
             if (!response.isSuccessful) {
@@ -99,7 +103,7 @@ class ModelHttpExecutor(
                 throw ModelHttpStatusException(response.code, text)
             }
             interruptId?.let { cancel?.clearInterrupt(it) }
-            return SseParser(response, responseBody.source(), cancel, call::cancel)
+            return SseParser(response, responseBody.source(), cancel, call::cancel, firstTokenTrace)
         } catch (error: Throwable) {
             interruptId?.let { cancel?.clearInterrupt(it) }
             response.close()

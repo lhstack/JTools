@@ -91,6 +91,8 @@ class AwakeModelParamsPanel {
             ?.let { result.addProperty("max_tool_call_rounds", it) }
         numberValue(executionParams, "max_retries")?.takeIf { it != 0L }
             ?.let { result.addProperty("max_retries", it) }
+        doubleValue(executionParams, "history_token_ratio")?.takeIf { it != 0.4 }
+            ?.let { result.addProperty("history_token_ratio", it) }
         return MODEL_PARAMS_GSON.toJson(result)
     }
 
@@ -105,6 +107,7 @@ class AwakeModelParamsPanel {
         if (!modelParams.has("stream")) modelParams.addProperty("stream", true)
         if (!executionParams.has("max_tool_call_rounds")) executionParams.addProperty("max_tool_call_rounds", 30)
         if (!executionParams.has("max_retries")) executionParams.addProperty("max_retries", 0)
+        if (!executionParams.has("history_token_ratio")) executionParams.addProperty("history_token_ratio", 0.4)
     }
 
     // -------- 字段清单 --------
@@ -180,6 +183,9 @@ class AwakeModelParamsPanel {
             }) to false,
             labeledEditor("最大重试次数", numberField(numberValue(executionParams, "max_retries")) { value ->
                 value?.takeIf { it >= 0 }?.let { executionParams.addProperty("max_retries", it) }
+            }) to false,
+            labeledEditor("历史 Token 字符比例", decimalField(doubleValue(executionParams, "history_token_ratio")) { value ->
+                value?.takeIf { it > 0.0 }?.let { executionParams.addProperty("history_token_ratio", it) }
             }) to false,
         )
         return titledGrid(groupLabel("execution"), cells)
@@ -283,6 +289,11 @@ class AwakeModelParamsPanel {
             bindNumberChanges(this) { commit(it.trim().toLongOrNull()) }
         }
 
+    private fun decimalField(current: Double?, commit: (Double?) -> Unit): JComponent =
+        JBTextField(current?.toString().orEmpty()).apply {
+            bindNumberChanges(this) { commit(it.trim().toDoubleOrNull()) }
+        }
+
     /** 数字输入在编辑、回车、失焦三种时机统一提交，避免保存时丢失尚未回车的值。 */
     private fun bindNumberChanges(field: JTextField, commit: (String) -> Unit) {
         fun update() = commit(field.text)
@@ -367,6 +378,9 @@ class AwakeModelParamsPanel {
     private fun numberValue(root: JsonObject, path: String): Long? =
         elementValue(root, path)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
 
+    private fun doubleValue(root: JsonObject, path: String): Double? =
+        elementValue(root, path)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
+
     private fun elementValue(root: JsonObject, path: String): JsonElement? {
         var current: JsonElement = root
         path.split('.').forEach { key ->
@@ -420,19 +434,19 @@ class AwakeModelParamsPanel {
     private fun optionLabel(key: String, value: String): String = when (key) {
         "reasoning_effort", "reasoning.effort" -> when (value) {
             "" -> "未设置"; "none" -> "不推理"; "minimal" -> "极低"; "low" -> "低"
-            "medium" -> "中"; "high" -> "高"; "xhigh" -> "极高"; else -> value
+            "medium" -> "中"; "high" -> "高"; "xhigh" -> "超高"; "max" -> "最大"; else -> value
         }
         "thinking.type" -> when (value) {
             "" -> "未设置"; "enabled" -> "启用"; "disabled" -> "禁用"; "adaptive" -> "自适应"; else -> value
         }
         "output_config.effort" -> when (value) {
-            "" -> "未设置"; "low" -> "低"; "medium" -> "中"; "high" -> "高"; "xhigh" -> "极高"; "max" -> "最大"; else -> value
+            "" -> "未设置"; "low" -> "低"; "medium" -> "中"; "high" -> "高"; "xhigh" -> "超高"; "max" -> "最大"; else -> value
         }
         else -> value.ifBlank { "未设置" }
     }
 
     private companion object {
-        val REASONING_EFFORTS = listOf("none", "minimal", "low", "medium", "high", "xhigh")
+        val REASONING_EFFORTS = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max")
         val OUTPUT_EFFORTS = listOf("low", "medium", "high", "xhigh", "max")
     }
 }
