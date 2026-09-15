@@ -1216,6 +1216,10 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                     ?: return@let MessageProcessor.cancelActiveTaskForSession(sessionId)?.let { target ->
                         mapOf("cancelled" to true, "target" to target.name.lowercase())
                     } ?: mapOf("cancelled" to false, "target" to "none")
+                val activeTarget = MessageProcessor.cancelActiveTask(sessionId, taskId)
+                if (activeTarget != null) {
+                    return@let mapOf("cancelled" to true, "target" to activeTarget.name.lowercase())
+                }
                 when (MessageStoreService.messageTaskStatus(sessionId, taskId)) {
                     MessageTaskStatus.PENDING -> if (MessageProcessor.cancelPending(sessionId, taskId)) {
                         mapOf("cancelled" to true, "deleted" to true, "target" to "queue")

@@ -503,7 +503,18 @@ async function cancelProcessing(task) {
   if (!key || cancellingTaskIds.has(key)) return
   cancellingTaskIds.add(key)
   try {
-    await invoke('queue.stop', { id: key })
+    const result = await api('queue.stop', { id: key })
+    if (result?.deleted === true) {
+      consumeMessageTask({
+        type: 'message_task',
+        id: task.id,
+        session_id: s.currentSessionId,
+        status: 'cancelled',
+        deleted: true,
+      })
+    } else if (result?.cancelled !== true || ['completed', 'none'].includes(result?.target)) {
+      await loadMessageTasks()
+    }
   } catch (error) {
     ElMessage.error(error?.message || String(error) || '取消失败')
   } finally {
@@ -516,14 +527,18 @@ async function cancelQueued(task) {
   if (!key || cancellingTaskIds.has(key)) return
   cancellingTaskIds.add(key)
   try {
-    await invoke('queue.stop', { id: key })
-    consumeMessageTask({
-      type: 'message_task',
-      id: task.id,
-      session_id: s.currentSessionId,
-      status: 'cancelled',
-      deleted: true,
-    })
+    const result = await api('queue.stop', { id: key })
+    if (result?.deleted === true) {
+      consumeMessageTask({
+        type: 'message_task',
+        id: task.id,
+        session_id: s.currentSessionId,
+        status: 'cancelled',
+        deleted: true,
+      })
+    } else {
+      await loadMessageTasks()
+    }
   } catch (error) {
     ElMessage.error(error?.message || String(error) || '取消失败')
     loadMessageTasks().catch(() => {})

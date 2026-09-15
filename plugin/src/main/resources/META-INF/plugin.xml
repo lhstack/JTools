@@ -161,6 +161,7 @@
                 <li>📍 <b>Stable Timeline Expansion:</b> Expanding reasoning, tool, and SubAgent details preserves the target event position, preventing scroll drift when details load or content height changes.</li>
                 <li>🖼️ <b>Multimodal Resource Path Support:</b> <code>view_*</code> resource tools now accept workspace-relative paths, ordinary absolute paths, and IntelliJ VFS URLs such as <code>file://</code>, <code>jar://</code>, and <code>jrt://</code>, so images and other resources can be loaded correctly for resource-Agent analysis while ordinary project-file tools retain their workspace boundaries.</li>
                 <li>🧹 <b>Global Setting Retired from Runtime:</b> Existing <code>message.history_token_ratio</code> data is retained, but it is no longer read or shown in global settings.</li>
+                <li>⏹️ <b>Responsive Model Cancellation:</b> The stop action now cancels the active model or tool batch from memory before querying task state, so it is not blocked by the database's global write lock; the task list refreshes when the task has already completed or its state is ambiguous.</li>
                 <li>✅ <b>Validation:</b> Plugin build, targeted Kotlin tests, and Agent Web production build pass.</li>
                 <li>🎛️ <b>模型级历史 Token 字符比例：</b>历史消息字符到 Token 的估算比例改为按模型配置，复用已有 <code>execution_params.history_token_ratio</code> JSON 字段，不新增数据库列。</li>
                 <li>🧮 <b>编码会话上下文预算对齐：</b>编码会话从 <code>model_snapshot.execution_params.history_token_ratio</code> 读取比例，统一影响历史估算、上下文预算、占用统计和压缩估算。</li>
@@ -169,6 +170,7 @@
                 <li>📍 <b>对话展开位置稳定：</b>展开推理、工具和 SubAgent 详情时保持目标事件位置，避免详情加载或内容高度变化导致滚动漂移。</li>
                 <li>🖼️ <b>多模态资源路径支持：</b><code>view_*</code> 资源工具支持工作区相对路径、普通绝对路径及 <code>file://</code>、<code>jar://</code>、<code>jrt://</code> 等 IntelliJ VFS 协议路径，图片等资源可正确读取并交给资源 Agent 分析；普通项目文件工具仍保持工作区边界。</li>
                 <li>🧹 <b>停止读取全局比例：</b>保留已有 <code>message.history_token_ratio</code> 数据，但运行时和全局设置页不再读取或展示。</li>
+                <li>⏹️ <b>模型回复停止响应修复：</b>停止操作优先从内存取消活动模型或工具批次，避免任务状态查询被数据库全局写锁阻塞；任务已完成或状态不明确时自动刷新任务列表。</li>
                 <li>✅ <b>验证：</b>插件构建、目标 Kotlin 测试和 Agent Web 生产构建均通过。</li>
             </ul>
             <h2>🚀 Version v1.1.5.6</h2>
