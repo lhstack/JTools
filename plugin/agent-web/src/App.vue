@@ -5,6 +5,8 @@ import LogsView from './views/LogsView.vue'
 import CatalogView from './views/CatalogView.vue'
 import PromptsView from './views/PromptsView.vue'
 import AgentsView from './views/AgentsView.vue'
+import McpView from './views/McpView.vue'
+import ProjectSubagentsView from './views/ProjectSubagentsView.vue'
 import SkillsView from './views/SkillsView.vue'
 import SettingsView from './views/SettingsView.vue'
 import EnvironmentsView from './views/EnvironmentsView.vue'
@@ -17,6 +19,8 @@ const pages = {
   prompts: PromptsView,
   agents: AgentsView,
   skills: SkillsView,
+  mcp: McpView,
+  subagents: ProjectSubagentsView,
   environments: EnvironmentsView,
   settings: SettingsView,
 }

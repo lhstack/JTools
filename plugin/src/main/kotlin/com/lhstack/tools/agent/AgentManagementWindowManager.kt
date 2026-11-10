@@ -124,6 +124,8 @@ internal class AgentManagementWindowManager(
             "prompts" to "提示词管理",
             "agents" to "Agent 管理",
             "skills" to "Skills 管理",
+            "mcp" to "MCP 管理",
+            "subagents" to "项目 SubAgents",
             "environments" to "编码环境",
             "settings" to "全局设置",
         )

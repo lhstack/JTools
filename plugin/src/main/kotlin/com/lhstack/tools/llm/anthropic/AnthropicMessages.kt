@@ -92,10 +92,7 @@ internal object AnthropicMessages {
             addProperty("content", formatToolResultContent(content.toolResult.content))
         }
 
-        else -> JsonObject().apply {
-            addProperty("type", "text")
-            addProperty("text", com.google.gson.Gson().toJson(content))
-        }
+        else -> error("Anthropic 不支持此输入模态: ${content::class.simpleName}")
     }
 
     /** 照抄 assistant_content。 */

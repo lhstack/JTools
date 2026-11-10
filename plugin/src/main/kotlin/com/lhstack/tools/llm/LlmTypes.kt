@@ -320,12 +320,29 @@ data class ToolDefinition(
  */
 interface ToolDyn {
     fun definition(prompt: String): ToolDefinition
+
     fun callJsonBlocking(args: JsonElement): JsonElement
+
+    fun executeBlocking(args: JsonElement): ToolExecutionResult =
+        ToolExecutionResult(callJsonBlocking(args))
 
     /** Maximum time a single tool call may occupy the shared tool runtime. */
     val executionTimeoutSeconds: Long
         get() = 120L
 }
+
+/** Content exists only in this turn; result is the durable tool summary. */
+data class ToolExecutionResult(
+    val result: JsonElement,
+    val resources: List<ToolResource> = emptyList(),
+)
+
+data class ToolResource(val identity: String, val content: List<UserContent>)
+
+data class ToolExecutionBatch(
+    val currentMessages: List<Message>,
+    val historyMessages: List<Message>,
+)
 
 // ---------------- Usage ----------------
 

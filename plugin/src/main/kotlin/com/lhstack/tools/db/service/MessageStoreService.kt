@@ -684,6 +684,20 @@ object MessageStoreService {
         val nextBeforeId: Long?,
     )
 
+    fun subagentHistoryEvents(sessionId: Long, agentId: String, maxRuns: Int?): List<MessageEventRecord> = AgentDatabase.execute { session ->
+        val query=QueryWrapper<com.lhstack.tools.db.entity.MessageEventEntity>()
+            .eq("session_id",sessionId).eq("event_type","subagent").eq("status","completed")
+            .apply("json_extract(context, '$.agent_id') = {0}",agentId).orderByDesc("id")
+        if(maxRuns!=null)query.last("limit ${maxRuns.also {require(it>0)}}")
+        val runs=session.getMapper(com.lhstack.tools.db.mapper.MessageEventMapper::class.java).selectList(query).reversed()
+        if(runs.isEmpty())return@execute emptyList()
+        val ids=runs.map {requireNotNull(it.id)}
+        val children=session.getMapper(com.lhstack.tools.db.mapper.MessageEventMapper::class.java).selectList(
+            QueryWrapper<com.lhstack.tools.db.entity.MessageEventEntity>().eq("session_id",sessionId).`in`("parent_event_id",ids).orderByAsc("id")
+        )
+        (runs+children).sortedBy {it.id}.map {toRecord(it,true)}
+    }
+
     fun listMessageEvents(
         sessionId: Long,
         beforeId: Long? = null,
@@ -1002,6 +1016,10 @@ object MessageStoreService {
         if (remaining > 0) {
             throw IllegalStateException("清空消息事件失败：仍有 $remaining 条事件因 parent_event_id 外键无法删除")
         }
+    }
+
+    fun sessionAttachments(sessionId: Long): List<MessageAttachmentRecord> = AgentDatabase.execute { session ->
+        session.getMapper(MessageAttachmentMapper::class.java).selectList(QueryWrapper<MessageAttachmentEntity>().eq("session_id",sessionId)).map(::toAttachmentRecord)
     }
 
         fun listAttachmentsByIds(sessionId: Long, ids: List<Long>): List<MessageAttachmentRecord> =

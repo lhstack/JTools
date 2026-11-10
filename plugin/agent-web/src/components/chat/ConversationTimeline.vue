@@ -2,9 +2,10 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, ChatLineRound, InfoFilled, Paperclip, RefreshRight, Tools, WarningFilled } from '@element-plus/icons-vue'
+import ImagePreview from './ImagePreview.vue'
 import MarkdownContent from './MarkdownContent.vue'
 import { useI18n } from '../../composables/useI18n.js'
-import { attachmentUrl as defaultAttachmentUrl, invokeErrorMessage, isDesktopApp, isImageAttachment, loadAttachmentPreview, openDesktopAttachment } from './attachmentUtils.js'
+import { attachmentUrl as defaultAttachmentUrl, invokeErrorMessage, isDesktopApp, isImageAttachment, attachmentImageSource, loadAttachmentPreview, openDesktopAttachment } from './attachmentUtils.js'
 
 const { t } = useI18n()
 
@@ -360,7 +361,7 @@ async function previewEventAttachment(event, attachment) {
   if (!isImageAttachment(attachment)) return
   const url = previewSrc(attachment, event) || await loadAttachmentPreview(attachment, props.sessionId || event?.session_id)
   if (!url) return
-  attachmentPreview.value = { ...attachment, url }
+  attachmentPreview.value = { url, source: attachmentImageSource(attachment, props.sessionId || event?.session_id) }
   attachmentPreviewVisible.value = true
   emit('preview-attachment', { event, attachment, url })
 }
@@ -742,7 +743,7 @@ function toolResult(event) {
                   <div class="markdown-event-row">
                     <span class="markdown-timeline-marker" aria-hidden="true"><el-icon><ChatDotRound /></el-icon></span>
                     <div class="model-reply-body">
-                      <MarkdownContent :content="modelReplyText(child)" />
+                      <MarkdownContent :session-id="sessionId" :content="modelReplyText(child)" />
                     </div>
                   </div>
                 </div>
@@ -829,7 +830,7 @@ function toolResult(event) {
             <div class="markdown-event-row">
               <span class="markdown-timeline-marker" aria-hidden="true"><el-icon><ChatDotRound /></el-icon></span>
               <div class="model-reply-body">
-                <MarkdownContent :content="modelReplyText(event)" />
+                <MarkdownContent :session-id="sessionId" :content="modelReplyText(event)" />
                 <div class="model-reply-actions">
                   <span class="model-reply-action-right">
                     <el-button link size="small" @click="openRawMessage(event)">{{ t('chat.raw') }}</el-button>
@@ -884,15 +885,7 @@ function toolResult(event) {
     </div>
   </article>
 </section>
-    <el-dialog
-      v-model="attachmentPreviewVisible"
-      :title="attachmentPreview?.file_name || t('chat.timeline.imagePreview')"
-      width="min(900px, 92vw)"
-      append-to-body
-      :lock-scroll="false"
-    >
-      <img v-if="attachmentPreview" class="attachment-preview-image" :src="attachmentPreview.url" :alt="attachmentPreview.file_name" />
-    </el-dialog>
+    <ImagePreview v-if="attachmentPreviewVisible && attachmentPreview" :image="attachmentPreview" @close="attachmentPreviewVisible=false" />
     <el-dialog v-model="rawMessageDialogVisible" width="720px" append-to-body @keydown="handleRawDialogKeydown" :lock-scroll="false">
       <template #header>
         <div class="raw-dialog-header">
@@ -1473,11 +1466,5 @@ function toolResult(event) {
 .raw-dialog-hint {
   font-size: 12px;
   color: var(--jb-muted);
-}
-.attachment-preview-image {
-  display: block;
-  width: 100%;
-  max-height: 70vh;
-  object-fit: contain;
 }
 </style>

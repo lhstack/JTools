@@ -13,23 +13,17 @@ import com.lhstack.tools.agent.model.tools.RuntimeTools
 import com.lhstack.tools.agent.model.tools.SelectedShell
 import com.lhstack.tools.agent.model.tools.ViewResourceTool
 import com.lhstack.tools.db.config.AgentCapabilityConfig
-import com.lhstack.tools.db.service.AgentRecord
-import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
 import com.lhstack.tools.db.service.ChatSessionService
 import com.lhstack.tools.db.service.CodingEnvironmentConfig
 import com.lhstack.tools.db.service.CodingEnvironmentRecord
 import com.lhstack.tools.db.service.CodingEnvironmentService
 import com.lhstack.tools.db.service.ResourceConfigService
-import com.lhstack.tools.llm.ToolDefinition
 import com.lhstack.tools.llm.ToolDyn
 import java.io.File
 import java.nio.charset.Charset
 
-/**
- * 编码会话运行时：按当前 Agent 能力包组装 preamble 与工具。
- * MCP 不进模型工具列表，由 cli 工具调用。会话 prompt_id 覆盖 Agent 默认提示词。
- */
+/** 编码会话运行时：按当前 Agent 能力包组装 preamble 与工具。 MCP 不进模型工具列表，由 cli 工具调用。会话 prompt_id 覆盖 Agent 默认提示词。 */
 object CodingRuntimeSupport {
 
     data class SkillSummary(
@@ -54,19 +48,41 @@ object CodingRuntimeSupport {
         compactionSummary: String?,
         project: Project? = projectForWorkspace(cwd),
     ): String {
-        val skillsRoot = ResourceConfigService.skillsRootDir()
-        val availableSkills = ResourceConfigService.listSkills()
-        val enabledSkillNames = CodingEnvironmentService.enabledSkillNames(
-            environment.config,
-            availableSkills.map { it.name }.toSet(),
-        )
+        val skillsRoot = ResourceConfigService.global.skillsRootDir()
+        val availableSkills = ResourceConfigService.global.listSkills()
+        val enabledSkillNames =
+            CodingEnvironmentService.enabledSkillNames(
+                environment.config,
+                availableSkills.map { it.name }.toSet(),
+            )
+        val resources =
+            com.lhstack.tools.agent.resources.RuntimeResourceResolver.resolve(
+                project,
+                enabledSkillNames,
+                environment.config,
+                refreshEnvironment = {
+                    CodingEnvironmentService.environmentById(environment.id)
+                        ?.takeIf { it.enabled }
+                        ?.config ?: error("编码环境不存在或已停用")
+                },
+            )
         return CompactionTranscriptSupport.appendSummary(
-            buildPreamble(environment, sessionId, cwd, promptId, skillsRoot, enabledSkillNames, availableSkills, project),
+            buildPreamble(
+                environment,
+                sessionId,
+                cwd,
+                promptId,
+                skillsRoot,
+                enabledSkillNames,
+                availableSkills,
+                project,
+            ),
             compactionSummary,
-        )
+        ) + resources.prompt()
     }
 
     fun assemble(
+        model: com.lhstack.tools.agent.model.params.ResolvedModelConfig,
         environment: CodingEnvironmentRecord,
         sessionId: Long,
         cwd: String,
@@ -78,55 +94,132 @@ object CodingRuntimeSupport {
         toolCancelSlot: java.util.concurrent.atomic.AtomicReference<ModelCancel>? = null,
         broadcaster: (JsonObject) -> Unit = {},
     ): AssembledRuntime {
-        val skillsRoot = ResourceConfigService.skillsRootDir()
-        val availableSkills = ResourceConfigService.listSkills()
-        val enabledSkillNames = CodingEnvironmentService.enabledSkillNames(environment.config, availableSkills.map { it.name }.toSet())
-        val enabledSkills = availableSkills
-            .filter { it.name in enabledSkillNames }
-            .map { SkillSummary(it.name, it.description?.trim().orEmpty().ifBlank { "无描述" }, it.available, it.failReason) }
-        val preamble = CompactionTranscriptSupport.appendSummary(
-            buildPreamble(environment, sessionId, cwd, promptId, skillsRoot, enabledSkillNames, availableSkills, project),
-            compactionSummary,
-        )
-        val tools = RuntimeTools.create(
-            workspace = cwd,
-            enabledTools = CodingEnvironmentService.enabledTools(environment.config),
-            enabledSkills = enabledSkillNames,
-            skillsRootDir = skillsRoot,
-            cancel = cancel,
-            project = project,
-            codingSession = true,
-        ) + pluginFunctionTools(environment.config, project, sessionId) + viewResourceTools(environment.config, cwd, skillsRoot, cancel) +
-            if (turnId != null) CodingSubagentTools.create(
-                environment = environment.config,
-                sessionId = sessionId,
-                turnId = turnId,
-                cwd = cwd,
-                toolCancelSlot = toolCancelSlot,
-                broadcaster = broadcaster,
+        val skillsRoot = ResourceConfigService.global.skillsRootDir()
+        val availableSkills = ResourceConfigService.global.listSkills()
+        val enabledSkillNames =
+            CodingEnvironmentService.enabledSkillNames(
+                environment.config,
+                availableSkills.map { it.name }.toSet(),
+            )
+        val resources =
+            com.lhstack.tools.agent.resources.RuntimeResourceResolver.resolve(
+                project,
+                enabledSkillNames,
+                environment.config,
+                refreshEnvironment = {
+                    CodingEnvironmentService.environmentById(environment.id)
+                        ?.takeIf { it.enabled }
+                        ?.config ?: error("编码环境不存在或已停用")
+                },
+            )
+        val enabledSkills =
+            availableSkills
+                .filter { it.name in enabledSkillNames }
+                .map {
+                    SkillSummary(
+                        it.name,
+                        it.description?.trim().orEmpty().ifBlank { "无描述" },
+                        it.available,
+                        it.failReason,
+                    )
+                }
+        val preamble =
+            CompactionTranscriptSupport.appendSummary(
+                buildPreamble(
+                    environment,
+                    sessionId,
+                    cwd,
+                    promptId,
+                    skillsRoot,
+                    enabledSkillNames,
+                    availableSkills,
+                    project,
+                ),
+                compactionSummary,
+            ) + resources.prompt()
+        val tools =
+            RuntimeTools.create(
+                workspace = cwd,
+                enabledTools = CodingEnvironmentService.enabledTools(environment.config),
+                enabledSkills = enabledSkillNames,
+                skillsRootDir = skillsRoot,
+                cancel = cancel,
                 project = project,
-            ) else emptyList()
-        return AssembledRuntime(preamble, tools, enabledSkills.filter { it.available }, project)
+                codingSession = true,
+                skillSources = resources.skills,
+                resourceLookup = resources.refresh,
+            ) +
+                pluginFunctionTools(environment.config, project, sessionId) +
+                com.lhstack.tools.agent.model.tools.ResourceToolPlanner.plan(
+                    model,
+                    cwd,
+                    sessionId,
+                    viewResourceTools(environment.config, cwd, skillsRoot, cancel),
+                ) +
+                if (turnId != null)
+                    CodingSubagentTools.create(
+                        environment = environment.config,
+                        resources = resources,
+                        sessionId = sessionId,
+                        turnId = turnId,
+                        cwd = cwd,
+                        toolCancelSlot = toolCancelSlot,
+                        broadcaster = broadcaster,
+                        project = project,
+                    )
+                else emptyList()
+        return AssembledRuntime(
+            preamble,
+            tools,
+            enabledSkills.filter { it.available } +
+                resources.projectSkills
+                    .filter { it.available }
+                    .map {
+                        SkillSummary("project:${it.name}", it.description.orEmpty(), true, null)
+                    },
+            project,
+        )
     }
 
-    fun runtimeSkills(environmentId: Long): List<SkillSummary> {
-        val environment = CodingEnvironmentService.environmentById(environmentId) ?: return emptyList()
-        val available = ResourceConfigService.listSkills()
-        val enabled = CodingEnvironmentService.enabledSkillNames(environment.config, available.map { it.name }.toSet())
-        return available
-            .filter { it.name in enabled && it.available }
-            .map { SkillSummary(it.name, it.description?.trim().orEmpty().ifBlank { "无描述" }, true, it.failReason) }
+    fun runtimeSkills(environmentId: Long, cwd: String? = null): List<SkillSummary> {
+        val environment =
+            CodingEnvironmentService.environmentById(environmentId) ?: return emptyList()
+        val available = ResourceConfigService.global.listSkills()
+        val enabled =
+            CodingEnvironmentService.enabledSkillNames(
+                environment.config,
+                available.map { it.name }.toSet(),
+            )
+        val global =
+            available
+                .filter { it.name in enabled && it.available }
+                .map { SkillSummary(it.name, it.description.orEmpty(), true, it.failReason) }
+        val local =
+            if (cwd == null) emptyList()
+            else
+                com.lhstack.tools.agent.resources
+                    .ProjectResourceStore(File(cwd))
+                    .skills()
+                    .listSkills()
+                    .filter { it.available }
+                    .map {
+                        SkillSummary("project:${it.name}", it.description.orEmpty(), true, null)
+                    }
+        return global + local
     }
 
-    fun runtimeSkillsJson(environmentId: Long): JsonArray = JsonArray().apply {
-        runtimeSkills(environmentId).forEach { skill ->
-            add(JsonObject().apply {
-                addProperty("name", skill.name)
-                addProperty("description", skill.description)
-                addProperty("available", skill.available)
-            })
+    fun runtimeSkillsJson(environmentId: Long, cwd: String? = null): JsonArray =
+        JsonArray().apply {
+            runtimeSkills(environmentId, cwd).forEach { skill ->
+                add(
+                    JsonObject().apply {
+                        addProperty("name", skill.name)
+                        addProperty("description", skill.description)
+                        addProperty("available", skill.available)
+                    }
+                )
+            }
         }
-    }
 
     fun projectForWorkspace(cwd: String): Project? {
         val canonical = File(cwd).canonicalFile.invariantSeparatorsPath
@@ -136,22 +229,24 @@ object CodingRuntimeSupport {
         }
     }
 
-    internal fun effectiveTools(config: AgentCapabilityConfig): Set<String> = effectiveEnabledItems(
-        current = RuntimeTools.REGISTERED_BUILTIN_TOOL_NAMES,
-        enabled = config.tools.enabled,
-        includeNew = config.tools.includeNew,
-        disabled = config.tools.disabled,
-    )
+    internal fun effectiveTools(config: AgentCapabilityConfig): Set<String> =
+        effectiveEnabledItems(
+            current = RuntimeTools.REGISTERED_BUILTIN_TOOL_NAMES,
+            enabled = config.tools.enabled,
+            includeNew = config.tools.includeNew,
+            disabled = config.tools.disabled,
+        )
 
     internal fun effectiveSkills(
         config: AgentCapabilityConfig,
         availableSkills: List<ResourceConfigService.SkillDirectoryRecord>,
-    ): Set<String> = effectiveEnabledItems(
-        current = availableSkills.map { it.name }.toSet(),
-        enabled = config.skills.enabled,
-        includeNew = config.skills.includeNew,
-        disabled = config.skills.disabled,
-    )
+    ): Set<String> =
+        effectiveEnabledItems(
+            current = availableSkills.map { it.name }.toSet(),
+            enabled = config.skills.enabled,
+            includeNew = config.skills.includeNew,
+            disabled = config.skills.disabled,
+        )
 
     internal fun effectiveEnabledItems(
         current: Set<String>,
@@ -159,25 +254,26 @@ object CodingRuntimeSupport {
         includeNew: Boolean,
         disabled: Collection<String>,
     ): Set<String> {
-        val enabledSet = enabled.asSequence().map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-        if (includeNew) {
-            val disabledSet = disabled.asSequence().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-            enabledSet.addAll(current.filter { it !in disabledSet })
-        }
-        return enabledSet
+        return com.lhstack.tools.agent.resources.ResourceSelection.enabled(
+            current,
+            com.lhstack.tools.agent.resources.ResourceSelection.fromLists(enabled, disabled),
+            includeNew,
+        )
     }
 
     internal fun enabledSkillSummaries(
         enabledSkills: Set<String>,
         availableSkills: List<ResourceConfigService.SkillDirectoryRecord>,
-    ): List<String> = availableSkills
-        .asSequence()
-        .filter { it.name in enabledSkills && it.available }
-        .map { skill ->
-            val description = skill.description?.trim().takeUnless { it.isNullOrEmpty() } ?: "无描述"
-            "- ${skill.name}: $description"
-        }
-        .toList()
+    ): List<String> =
+        availableSkills
+            .asSequence()
+            .filter { it.name in enabledSkills && it.available }
+            .map { skill ->
+                val description =
+                    skill.description?.trim().takeUnless { it.isNullOrEmpty() } ?: "无描述"
+                "- ${skill.name}: $description"
+            }
+            .toList()
 
     private fun buildPreamble(
         environment: CodingEnvironmentRecord,
@@ -196,17 +292,26 @@ object CodingRuntimeSupport {
         append("- 当前会话 ID：$sessionId\n")
         append("- CWD规则：工作空间就是默认 cwd；当工具调用或命令没有显式指定 cwd 时，cwd 等于工作空间。\n")
         append("- 技能目录：${skillsRoot.canonicalPath}\n")
-        append("- 操作系统：${System.getProperty("os.name")} ${System.getProperty("os.version")}（${System.getProperty("os.arch")}）\n")
+        append(
+            "- 操作系统：${System.getProperty("os.name")} ${System.getProperty("os.version")}（${System.getProperty("os.arch")}）\n"
+        )
         append("- bash 工具系统编码：${SelectedShell.current().outputCharset.name()}\n")
         append("- 项目环境编码：${projectFileEncodingName(project)}\n")
         append("\n## 项目文件操作工具\n")
         append("- 涉及项目文件读写,查找相关的操作，你必须优先考虑使用 bash，并且项目编译你优先考虑使用build_project进行项目构建 ,其次再考虑使用 bash\n")
-        append("- 项目文件/路径查找使用 `find_project_files`；类或语言插件支持的等价类型查找使用 `find_project_classes`；项目文本内容搜索使用 `search_project_text`。\n")
-        append("- 已知项目文件路径后，读取使用 `read_project_files`；创建或完整覆盖使用 `write_project_files`；精确修改已有文本使用 `replace_project_text`。\n")
-        append("- 需要 IDE 格式化时使用 `format_project_files`；需要当前 IDE Inspection Profile 检查文件时使用 `inspect_project_files`；需要当前 IDE 构建项目时使用 `build_project`。\n")
+        append(
+            "- 项目文件/路径查找使用 `find_project_files`；类或语言插件支持的等价类型查找使用 `find_project_classes`；项目文本内容搜索使用 `search_project_text`。\n"
+        )
+        append(
+            "- 已知项目文件路径后，读取使用 `read_project_files`；创建或完整覆盖使用 `write_project_files`；精确修改已有文本使用 `replace_project_text`。\n"
+        )
+        append(
+            "- 需要 IDE 格式化时使用 `format_project_files`；需要当前 IDE Inspection Profile 检查文件时使用 `inspect_project_files`；需要当前 IDE 构建项目时使用 `build_project`。\n"
+        )
         append("- 这些项目工具只操作当前项目根目录内的文件。多个目标通过工具的数组参数一次提交。\n")
         appendSection("以下是编码环境系统提示词", environment.config.systemPrompt)
-        val template = promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
+        val template =
+            promptId?.let { CatalogService.promptTemplateById(it)?.preamble.orEmpty() }.orEmpty()
         appendSection("以下是会话提示词", template)
         appendEnvironmentContexts(environment.config)
         if (environment.config.skillPromptEnabled) {
@@ -237,22 +342,31 @@ object CodingRuntimeSupport {
         val sessionName = session?.title?.takeIf { it.isNotBlank() } ?: "coding-$sessionId"
         val sessionKey = sessionId.toString()
         val providerName = session?.let { CatalogService.providerById(it.providerId)?.name }
-        val modelName = session?.let { item ->
-            CatalogService.modelById(item.modelId)?.let { model -> model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId }
-        }
+        val modelName =
+            session?.let { item ->
+                CatalogService.modelById(item.modelId)?.let { model ->
+                    model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId
+                }
+            }
         val known = PluginFunctionToolSupport.entries(project, sessionName, sessionKey)
-        return known.filter { entry ->
-            CodingEnvironmentService.pluginFunctionEnabled(config, entry.key, entry.functionName)
-        }.map { entry ->
-            PluginFunctionTool(
-                toolName = entry.toolName,
-                function = entry.function,
-                sessionName = sessionName,
-                sessionId = sessionKey,
-                provider = providerName,
-                model = modelName,
-            )
-        }
+        return known
+            .filter { entry ->
+                CodingEnvironmentService.pluginFunctionEnabled(
+                    config,
+                    entry.key,
+                    entry.functionName,
+                )
+            }
+            .map { entry ->
+                PluginFunctionTool(
+                    toolName = entry.toolName,
+                    function = entry.function,
+                    sessionName = sessionName,
+                    sessionId = sessionKey,
+                    provider = providerName,
+                    model = modelName,
+                )
+            }
     }
 
     private fun viewResourceTools(
@@ -261,10 +375,38 @@ object CodingRuntimeSupport {
         skillsRoot: File,
         cancel: ModelCancel?,
     ) = buildList {
-        addViewResourceTool(this, ResourceKind.IMAGE, config.viewResources.image, cwd, skillsRoot, cancel)
-        addViewResourceTool(this, ResourceKind.AUDIO, config.viewResources.audio, cwd, skillsRoot, cancel)
-        addViewResourceTool(this, ResourceKind.VIDEO, config.viewResources.video, cwd, skillsRoot, cancel)
-        addViewResourceTool(this, ResourceKind.FILE, config.viewResources.file, cwd, skillsRoot, cancel)
+        addViewResourceTool(
+            this,
+            ResourceKind.IMAGE,
+            config.viewResources.image,
+            cwd,
+            skillsRoot,
+            cancel,
+        )
+        addViewResourceTool(
+            this,
+            ResourceKind.AUDIO,
+            config.viewResources.audio,
+            cwd,
+            skillsRoot,
+            cancel,
+        )
+        addViewResourceTool(
+            this,
+            ResourceKind.VIDEO,
+            config.viewResources.video,
+            cwd,
+            skillsRoot,
+            cancel,
+        )
+        addViewResourceTool(
+            this,
+            ResourceKind.FILE,
+            config.viewResources.file,
+            cwd,
+            skillsRoot,
+            cancel,
+        )
     }
 
     private fun addViewResourceTool(
@@ -277,30 +419,33 @@ object CodingRuntimeSupport {
     ) {
         val agentId = ref.agentId ?: return
         if (!ref.enabled) return
-        tools += ViewResourceTool(
-            kind = kind,
-            resourceAgentId = agentId,
-            workspace = cwd,
-            skillsRootDir = skillsRoot,
-            cancel = cancel,
-        )
+        tools +=
+            ViewResourceTool(
+                kind = kind,
+                resourceAgentId = agentId,
+                timeoutSecs = ref.timeoutSecs,
+                workspace = cwd,
+                skillsRootDir = skillsRoot,
+                cancel = cancel,
+                project = projectForWorkspace(cwd),
+            )
     }
 
     private fun projectFileEncodingName(project: Project?): String {
         if (project == null) return Charset.defaultCharset().name()
         return runCatching { EncodingProjectManager.getInstance(project).defaultCharsetName }
             .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?: Charset.defaultCharset().name()
+            ?.takeIf { it.isNotBlank() } ?: Charset.defaultCharset().name()
     }
 
     private fun StringBuilder.appendEnvironmentContexts(config: CodingEnvironmentConfig) {
-        val labels = mapOf(
-            "user_profile" to "用户画像",
-            "coding_style" to "编码风格",
-            "workflow" to "工作流习惯",
-            "interaction" to "交互偏好",
-        )
+        val labels =
+            mapOf(
+                "user_profile" to "用户画像",
+                "coding_style" to "编码风格",
+                "workflow" to "工作流习惯",
+                "interaction" to "交互偏好",
+            )
         labels.forEach { (key, label) ->
             val item = config.contexts[key] ?: return@forEach
             val value = item.content.trim()
@@ -312,13 +457,33 @@ object CodingRuntimeSupport {
     }
 
     private fun StringBuilder.appendPersonaSections(config: AgentCapabilityConfig) {
-        appendPersona("以下是当前 Agent 的角色定义。", "角色设定", config.persona.soul, config.persona.soulMaxChars)
+        appendPersona(
+            "以下是当前 Agent 的角色定义。",
+            "角色设定",
+            config.persona.soul,
+            config.persona.soulMaxChars,
+        )
         appendPersona("", "能力画像", config.persona.profile, config.persona.profileMaxChars)
-        appendPersona("以下是历史运行记录蒸馏得到的长期专业上下文。", "专业记忆", config.persona.memory, config.persona.memoryMaxChars)
-        appendPersona("", "工作方法", config.persona.behaviorHabits, config.persona.behaviorHabitsMaxChars)
+        appendPersona(
+            "以下是历史运行记录蒸馏得到的长期专业上下文。",
+            "专业记忆",
+            config.persona.memory,
+            config.persona.memoryMaxChars,
+        )
+        appendPersona(
+            "",
+            "工作方法",
+            config.persona.behaviorHabits,
+            config.persona.behaviorHabitsMaxChars,
+        )
     }
 
-    private fun StringBuilder.appendPersona(header: String, label: String, text: String, maxChars: Int) {
+    private fun StringBuilder.appendPersona(
+        header: String,
+        label: String,
+        text: String,
+        maxChars: Int,
+    ) {
         val value = text.trim().takeIf { it.isNotEmpty() } ?: return
         if (header.isNotEmpty()) appendSection(header, "")
         append("\n[$label]\n")

@@ -284,6 +284,7 @@ object MessageProcessor {
             ?: throw IllegalStateException("当前会话工作区 `${session.cwd}` 未对应已打开的 IDE 项目")
         firstTokenTrace.mark("runtime_binding_resolved")
         val runtime = CodingRuntimeSupport.assemble(
+            model = model,
             environment = environment,
             sessionId = task.sessionId,
             cwd = session.cwd,
@@ -299,8 +300,8 @@ object MessageProcessor {
         val history = MessageHistorySupport.toModelHistory(
             events = historyEvents,
             currentTurnId = task.turnId,
-            includeCurrentTurn = false,
-        )
+            includeCurrentTurn = task.resumed,
+        ) + if(task.resumed) ResourceReplaySupport.restore(MessageStoreService.messageEventsForTurn(task.sessionId,task.turnId,true),runtime.tools) else emptyList()
         val recorder = UnifiedMessageEventRecorder(
             sessionId = task.sessionId,
             broadcaster = ::broadcast,

@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import com.lhstack.tools.agent.model.params.ModelResolver
 import com.lhstack.tools.db.service.AgentService
 import com.lhstack.tools.db.service.CatalogService
+import com.lhstack.tools.db.service.ProviderModels
 import com.lhstack.tools.db.service.ChatSessionType
 import com.lhstack.tools.db.service.CodingEnvironmentService
 import java.io.File
@@ -54,6 +55,15 @@ object CodingSessionSupport {
         require(File(canonical).isDirectory) { "工作区路径 `$path` 不是目录" }
         return canonical
     }
+
+    fun firstEnabledModel(catalog: List<ProviderModels>): Pair<Long, Long>? =
+        catalog.asSequence()
+            .filter { it.provider.enabled == 1 }
+            .mapNotNull { entry ->
+                entry.models.firstOrNull { it.enabled == 1 }?.let { model ->
+                    requireNotNull(entry.provider.id) to requireNotNull(model.id)
+                }
+            }.firstOrNull()
 
     fun buildConfig(input: CreateInput): JsonObject {
         val title = input.title.trim()

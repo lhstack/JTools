@@ -121,14 +121,16 @@ internal object OpenAiMessages {
             addProperty("type", "input_audio")
             add("input_audio", JsonObject().apply {
                 addProperty("data", LlmJson.sourceData(content.audio.data))
-                content.audio.mediaType?.let { addProperty("format", it.toMimeType()) }
+                content.audio.mediaType?.let {media ->
+                    addProperty("format",when(media){com.lhstack.tools.llm.AudioMediaType.MP3->"mp3";com.lhstack.tools.llm.AudioMediaType.WAV->"wav";else->error("Completions input_audio 仅支持 mp3/wav")})
+                }
             })
         }
 
-        is UserContent.Document -> JsonObject().apply {
+        is UserContent.Document -> if(content.document.data is com.lhstack.tools.llm.DocumentSourceKind.Str) JsonObject().apply {addProperty("type","text");addProperty("text",content.document.data.data)} else JsonObject().apply {
             addProperty("type", "file")
             add("file", JsonObject().apply {
-                addProperty("file_data", LlmJson.sourceData(content.document.data))
+                addProperty("file_data", "data:${content.document.mediaType?.toMimeType() ?: error("文档缺少 MIME")};base64,${if(content.document.data is com.lhstack.tools.llm.DocumentSourceKind.Base64) content.document.data.data else java.util.Base64.getEncoder().encodeToString(content.document.data.data.toByteArray(Charsets.UTF_8))}")
                 filenameOf(content.document.additionalParams)?.let { addProperty("filename", it) }
             })
         }
@@ -243,16 +245,13 @@ internal object OpenAiMessages {
             )
         }
 
-        is UserContent.Document -> JsonObject().apply {
+        is UserContent.Document -> if(content.document.data is com.lhstack.tools.llm.DocumentSourceKind.Str) JsonObject().apply {addProperty("type","input_text");addProperty("text",content.document.data.data)} else JsonObject().apply {
             addProperty("type", "input_file")
-            addProperty("file_data", LlmJson.sourceData(content.document.data))
+            addProperty("file_data", "data:${content.document.mediaType?.toMimeType() ?: error("文档缺少 MIME")};base64,${if(content.document.data is com.lhstack.tools.llm.DocumentSourceKind.Base64) content.document.data.data else java.util.Base64.getEncoder().encodeToString(content.document.data.data.toByteArray(Charsets.UTF_8))}")
             filenameOf(content.document.additionalParams)?.let { addProperty("filename", it) }
         }
 
-        else -> JsonObject().apply {
-            addProperty("type", "input_text")
-            addProperty("text", com.google.gson.Gson().toJson(content))
-        }
+        else -> error("Responses 不支持此输入模态: ${content::class.simpleName}")
     }
 
     // -------- tools --------

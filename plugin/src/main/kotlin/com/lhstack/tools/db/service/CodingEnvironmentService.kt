@@ -22,8 +22,10 @@ data class CodingEnvironmentRecord(
 data class CodingEnvironmentConfig(
     @SerializedName("system_prompt") val systemPrompt: String = "",
     @SerializedName("contexts") val contexts: Map<String, CodingContextConfig> = emptyMap(),
+    @SerializedName("tools_include_new") val toolsIncludeNew: Boolean = true,
     @SerializedName("tools") val tools: Map<String, Boolean> = emptyMap(),
-    @SerializedName("view_resources") val viewResources: CodingViewResourcesConfig = CodingViewResourcesConfig(),
+    @SerializedName("view_resources")
+    val viewResources: CodingViewResourcesConfig = CodingViewResourcesConfig(),
     @SerializedName("resources") val resources: CodingResourcesConfig = CodingResourcesConfig(),
     @SerializedName("plugin_functions") val pluginFunctions: Map<String, Boolean> = emptyMap(),
     @SerializedName("plugin_functions_include_new") val pluginFunctionsIncludeNew: Boolean = false,
@@ -55,9 +57,7 @@ data class CodingResourcesConfig(
     @SerializedName("skills_include_new") val skillsIncludeNew: Boolean = true,
 )
 
-data class CodingCompactionConfig(
-    @SerializedName("agent_id") val agentId: Long? = null,
-)
+data class CodingCompactionConfig(@SerializedName("agent_id") val agentId: Long? = null)
 
 data class CodingViewResourcesConfig(
     @SerializedName("image") val image: CodingViewResourceRef = CodingViewResourceRef(),
@@ -69,6 +69,7 @@ data class CodingViewResourcesConfig(
 data class CodingViewResourceRef(
     @SerializedName("enabled") val enabled: Boolean = false,
     @SerializedName("agent_id") val agentId: Long? = null,
+    @SerializedName("timeout_secs") val timeoutSecs: Long? = null,
 )
 
 object CodingEnvironmentService {
@@ -77,21 +78,33 @@ object CodingEnvironmentService {
     val contextKinds = listOf("user_profile", "coding_style", "workflow", "interaction")
     val toolNames: List<String> = RuntimeTools.REGISTERED_BUILTIN_TOOL_NAMES.sorted()
 
-    fun listEnabled(): List<CodingEnvironmentRecord> = AgentDatabase.execute { session ->
-        session.getMapper(CodingEnvironmentMapper::class.java)
-            .selectList(QueryWrapper<CodingEnvironmentEntity>().eq("enabled", 1).orderByAsc("name").orderByAsc("id"))
-            .map(::toRecord)
-    }
+    fun listEnabled(): List<CodingEnvironmentRecord> =
+        AgentDatabase.execute { session ->
+            session
+                .getMapper(CodingEnvironmentMapper::class.java)
+                .selectList(
+                    QueryWrapper<CodingEnvironmentEntity>()
+                        .eq("enabled", 1)
+                        .orderByAsc("name")
+                        .orderByAsc("id")
+                )
+                .map(::toRecord)
+        }
 
-    fun listAll(): List<CodingEnvironmentRecord> = AgentDatabase.execute { session ->
-        session.getMapper(CodingEnvironmentMapper::class.java)
-            .selectList(QueryWrapper<CodingEnvironmentEntity>().orderByAsc("name").orderByAsc("id"))
-            .map(::toRecord)
-    }
+    fun listAll(): List<CodingEnvironmentRecord> =
+        AgentDatabase.execute { session ->
+            session
+                .getMapper(CodingEnvironmentMapper::class.java)
+                .selectList(
+                    QueryWrapper<CodingEnvironmentEntity>().orderByAsc("name").orderByAsc("id")
+                )
+                .map(::toRecord)
+        }
 
-    fun environmentById(id: Long): CodingEnvironmentRecord? = AgentDatabase.execute { session ->
-        session.getMapper(CodingEnvironmentMapper::class.java).selectById(id)?.let(::toRecord)
-    }
+    fun environmentById(id: Long): CodingEnvironmentRecord? =
+        AgentDatabase.execute { session ->
+            session.getMapper(CodingEnvironmentMapper::class.java).selectById(id)?.let(::toRecord)
+        }
 
     fun requireEnabled(id: Long): CodingEnvironmentRecord {
         val record = environmentById(id) ?: throw IllegalArgumentException("编码环境 `$id` 不存在")
@@ -104,13 +117,15 @@ object CodingEnvironmentService {
         require(normalized.isNotBlank()) { "环境名称不能为空" }
         return AgentDatabase.execute { session ->
             val mapper = session.getMapper(CodingEnvironmentMapper::class.java)
-            val exists = mapper.selectCount(QueryWrapper<CodingEnvironmentEntity>().eq("name", normalized))
+            val exists =
+                mapper.selectCount(QueryWrapper<CodingEnvironmentEntity>().eq("name", normalized))
             require(exists == 0L) { "环境名称 `$normalized` 已存在" }
-            val entity = CodingEnvironmentEntity().apply {
-                this.name = normalized
-                enabled = 1
-                config = gson.toJson(defaultConfig())
-            }
+            val entity =
+                CodingEnvironmentEntity().apply {
+                    this.name = normalized
+                    enabled = 1
+                    config = gson.toJson(defaultConfig())
+                }
             mapper.insert(entity)
             toRecord(entity)
         }
@@ -122,9 +137,10 @@ object CodingEnvironmentService {
         AgentDatabase.execute { session ->
             val mapper = session.getMapper(CodingEnvironmentMapper::class.java)
             val entity = mapper.selectById(id) ?: throw IllegalArgumentException("编码环境 `$id` 不存在")
-            val clash = mapper.selectCount(
-                QueryWrapper<CodingEnvironmentEntity>().eq("name", normalized).ne("id", id),
-            )
+            val clash =
+                mapper.selectCount(
+                    QueryWrapper<CodingEnvironmentEntity>().eq("name", normalized).ne("id", id)
+                )
             require(clash == 0L) { "环境名称 `$normalized` 已存在" }
             entity.name = normalized
             mapper.updateById(entity)
@@ -132,15 +148,25 @@ object CodingEnvironmentService {
         }
     }
 
-    fun updateConfig(id: Long, config: JsonObject): CodingEnvironmentRecord = AgentDatabase.execute { session ->
-        val mapper = session.getMapper(CodingEnvironmentMapper::class.java)
-        val entity = mapper.selectById(id) ?: throw IllegalArgumentException("编码环境 `$id` 不存在")
-        val parsed = parseConfig(config.toString())
-        validateConfig(parsed)
-        entity.config = gson.toJson(parsed)
-        mapper.updateById(entity)
-        toRecord(entity)
-    }
+    fun updateConfig(id: Long, config: JsonObject): CodingEnvironmentRecord =
+        AgentDatabase.execute { session ->
+            val mapper = session.getMapper(CodingEnvironmentMapper::class.java)
+            val entity = mapper.selectById(id) ?: throw IllegalArgumentException("编码环境 `$id` 不存在")
+            val parsed = parseConfig(config.toString())
+            validateConfig(parsed)
+            entity.config = gson.toJson(parsed)
+            mapper.updateById(entity)
+            toRecord(entity)
+        }
+
+    fun setEnabled(id: Long, enabled: Boolean) =
+        AgentDatabase.execute { session ->
+            val mapper = session.getMapper(CodingEnvironmentMapper::class.java)
+            val entity = mapper.selectById(id) ?: error("编码环境不存在")
+            entity.enabled = if (enabled) 1 else 0
+            mapper.updateById(entity)
+            toRecord(entity)
+        }
 
     fun delete(id: Long) {
         AgentDatabase.execute { session ->
@@ -150,40 +176,65 @@ object CodingEnvironmentService {
         }
     }
 
-    fun defaultConfig(): CodingEnvironmentConfig = CodingEnvironmentConfig(
-        systemPrompt = "",
-        contexts = contextKinds.associateWith { kind ->
-            CodingContextConfig(content = "", maxChars = if (kind == "user_profile" || kind == "interaction") 2000 else 4000)
-        },
-        tools = toolNames.associateWith { true },
-        viewResources = CodingViewResourcesConfig(),
-        resources = CodingResourcesConfig(),
-        pluginFunctions = emptyMap(),
-        pluginFunctionsIncludeNew = false,
-        skillPromptEnabled = false,
-        compaction = CodingCompactionConfig(),
-        subagents = CodingSubagentsConfig(),
-    )
+    fun defaultConfig(): CodingEnvironmentConfig =
+        CodingEnvironmentConfig(
+            systemPrompt = "",
+            contexts =
+                contextKinds.associateWith { kind ->
+                    CodingContextConfig(
+                        content = "",
+                        maxChars =
+                            if (kind == "user_profile" || kind == "interaction") 2000 else 4000,
+                    )
+                },
+            tools = emptyMap(),
+            viewResources = CodingViewResourcesConfig(),
+            resources = CodingResourcesConfig(),
+            pluginFunctions = emptyMap(),
+            pluginFunctionsIncludeNew = false,
+            skillPromptEnabled = false,
+            compaction = CodingCompactionConfig(),
+            subagents = CodingSubagentsConfig(),
+        )
 
     fun enabledSkillNames(config: CodingEnvironmentConfig, available: Set<String>): Set<String> {
         val explicit = config.resources.skills
-        return available.filter { name ->
-            explicit[name] ?: config.resources.skillsIncludeNew
-        }.toSet()
+        return available
+            .filter { name -> explicit[name] ?: config.resources.skillsIncludeNew }
+            .toSet()
     }
 
     fun enabledTools(config: CodingEnvironmentConfig): Set<String> =
-        toolNames.filter { config.tools[it] ?: true }.toSet()
+        com.lhstack.tools.agent.resources.ResourceSelection.enabled(
+            toolNames,
+            config.tools,
+            config.toolsIncludeNew,
+        )
 
-    fun enabledPluginFunctionKeys(config: CodingEnvironmentConfig, knownKeys: Set<String>): Set<String> =
-        knownKeys.filter { key -> pluginFunctionEnabled(config, key) }.toSet()
+    fun enabledPluginFunctionKeys(
+        config: CodingEnvironmentConfig,
+        knownKeys: Set<String>,
+    ): Set<String> = knownKeys.filter { key -> pluginFunctionEnabled(config, key) }.toSet()
 
-    fun pluginFunctionEnabled(config: CodingEnvironmentConfig, key: String, functionName: String? = null): Boolean {
+    fun pluginFunctionEnabled(
+        config: CodingEnvironmentConfig,
+        key: String,
+        functionName: String? = null,
+    ): Boolean {
         val stored = config.pluginFunctions
-        stored[key]?.let { return it }
+        stored[key]?.let {
+            return it
+        }
         if (!functionName.isNullOrBlank()) {
-            stored[functionName]?.let { return it }
-            stored.entries.firstOrNull { it.key.endsWith(":$functionName") }?.value?.let { return it }
+            stored[functionName]?.let {
+                return it
+            }
+            stored.entries
+                .firstOrNull { it.key.endsWith(":$functionName") }
+                ?.value
+                ?.let {
+                    return it
+                }
         }
         return config.pluginFunctionsIncludeNew
     }
@@ -197,6 +248,10 @@ object CodingEnvironmentService {
             require(value.maxChars > 0) { "`$key` 的最大长度必须大于 0" }
             require(value.content.length <= value.maxChars) { "`$key` 超过最大长度 ${value.maxChars}" }
         }
+        config.resources.mcp.forEach { (id, enabled) ->
+            require(id.toLongOrNull() != null) { "全局 MCP ID 无效: $id" }
+            if (enabled) require(McpService.get(id.toLong()) != null) { "MCP $id 不存在" }
+        }
         config.tools.keys.forEach { require(it in toolNames) { "不支持的工具 `$it`" } }
         config.compaction.agentId?.let { id ->
             if (id > 0) {
@@ -208,45 +263,77 @@ object CodingEnvironmentService {
             config.subagents.agents.forEach { entry ->
                 val agentId = entry.agentId ?: throw IllegalArgumentException("SubAgent 必须指定 Agent")
                 require(agentId > 0) { "SubAgent Agent id 无效" }
-                AgentService.agentById(agentId) ?: throw IllegalArgumentException("SubAgent `$agentId` 不存在")
+                AgentService.agentById(agentId)
+                    ?: throw IllegalArgumentException("SubAgent `$agentId` 不存在")
                 require(entry.accessMode in setOf("read_only", "workspace_write")) {
                     "SubAgent access_mode 仅支持 read_only、workspace_write"
                 }
             }
         }
-        listOf(config.viewResources.image, config.viewResources.audio, config.viewResources.video, config.viewResources.file).forEach { ref ->
-            if (ref.enabled) {
-                val agentId = ref.agentId ?: throw IllegalArgumentException("启用的多模态工具必须指定 Agent")
-                AgentService.agentById(agentId) ?: throw IllegalArgumentException("多模态 Agent `$agentId` 不存在")
+        listOf(
+                config.viewResources.image,
+                config.viewResources.audio,
+                config.viewResources.video,
+                config.viewResources.file,
+            )
+            .forEach { ref ->
+                require(ref.timeoutSecs == null || ref.timeoutSecs in 1..Int.MAX_VALUE.toLong()) {
+                    "工具超时必须为 1–2147483647 秒"
+                }
+                if (ref.enabled) {
+                    val agentId =
+                        ref.agentId ?: throw IllegalArgumentException("启用的多模态工具必须指定 Agent")
+                    AgentService.agentById(agentId)
+                        ?: throw IllegalArgumentException("多模态 Agent `$agentId` 不存在")
+                }
             }
-        }
     }
 
     internal fun toRecordForContext(entity: CodingEnvironmentEntity) = toRecord(entity)
 
-    private fun toRecord(entity: CodingEnvironmentEntity) = CodingEnvironmentRecord(
-        id = entity.id ?: 0,
-        name = entity.name,
-        enabled = entity.enabled == 1,
-        config = parseConfig(entity.config),
-        createdAt = entity.createdAt,
-        updatedAt = entity.updatedAt,
-    )
+    private fun toRecord(entity: CodingEnvironmentEntity) =
+        CodingEnvironmentRecord(
+            id = entity.id ?: 0,
+            name = entity.name,
+            enabled = entity.enabled == 1,
+            config = parseConfig(entity.config),
+            createdAt = entity.createdAt,
+            updatedAt = entity.updatedAt,
+        )
 
     internal fun parseConfig(raw: String): CodingEnvironmentConfig {
-        val parsed = runCatching { JsonParser.parseString(raw) }.getOrNull()
-            ?.takeIf { it.isJsonObject }
-            ?: throw IllegalArgumentException("环境配置必须是 JSON object")
+        val parsed =
+            runCatching { JsonParser.parseString(raw) }.getOrNull()?.takeIf { it.isJsonObject }
+                ?: throw IllegalArgumentException("环境配置必须是 JSON object")
         val config = gson.fromJson(parsed, CodingEnvironmentConfig::class.java)
         val defaults = defaultConfig()
         return defaults.copy(
             systemPrompt = config.systemPrompt,
-            contexts = defaults.contexts.mapValues { (key, fallback) -> config.contexts[key] ?: fallback },
-            tools = defaults.tools.mapValues { (key, fallback) -> config.tools[key] ?: fallback },
+            contexts =
+                defaults.contexts.mapValues { (key, fallback) -> config.contexts[key] ?: fallback },
+            tools = booleanMap(parsed.asJsonObject.get("tools")),
+            toolsIncludeNew =
+                parsed.asJsonObject.get("tools_include_new")?.let {
+                    require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean) {
+                        "tools_include_new 必须为 boolean"
+                    }
+                    it.asBoolean
+                } ?: true,
             viewResources = config.viewResources,
-            resources = config.resources,
+            resources =
+                CodingResourcesConfig(
+                    mcp = booleanMap(parsed.asJsonObject.getAsJsonObject("resources")?.get("mcp")),
+                    mcpIncludeNew = config.resources.mcpIncludeNew,
+                    skills =
+                        booleanMap(parsed.asJsonObject.getAsJsonObject("resources")?.get("skills")),
+                    skillsIncludeNew = config.resources.skillsIncludeNew,
+                ),
             pluginFunctions = booleanMap(parsed.asJsonObject.get("plugin_functions")),
-            pluginFunctionsIncludeNew = parsed.asJsonObject.get("plugin_functions_include_new")?.takeIf { it.isJsonPrimitive }?.asBoolean == true,
+            pluginFunctionsIncludeNew =
+                parsed.asJsonObject
+                    .get("plugin_functions_include_new")
+                    ?.takeIf { it.isJsonPrimitive }
+                    ?.asBoolean == true,
             skillPromptEnabled = config.skillPromptEnabled,
             compaction = config.compaction,
             subagents = parseSubagents(parsed.asJsonObject.get("subagents")),
@@ -256,29 +343,41 @@ object CodingEnvironmentService {
     private fun parseSubagents(value: com.google.gson.JsonElement?): CodingSubagentsConfig {
         val obj = value?.takeIf { it.isJsonObject }?.asJsonObject ?: return CodingSubagentsConfig()
         val enabled = obj.get("enabled")?.takeIf { it.isJsonPrimitive }?.asBoolean == true
-        val agents = obj.get("agents")?.takeIf { it.isJsonArray }?.asJsonArray?.mapNotNull { item ->
-            val entry = item.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-            CodingSubagentEntry(
-                agentId = entry.get("agent_id")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong,
-                accessMode = entry.get("access_mode")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() } ?: "read_only",
-                bashEnabled = entry.get("bash_enabled")?.takeIf { it.isJsonPrimitive }?.asBoolean == true,
-            )
-        } ?: emptyList()
+        val agents =
+            obj.get("agents")
+                ?.takeIf { it.isJsonArray }
+                ?.asJsonArray
+                ?.mapNotNull { item ->
+                    val entry =
+                        item.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                    CodingSubagentEntry(
+                        agentId =
+                            entry
+                                .get("agent_id")
+                                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+                                ?.asLong,
+                        accessMode =
+                            entry
+                                .get("access_mode")
+                                ?.takeIf { it.isJsonPrimitive }
+                                ?.asString
+                                ?.takeIf { it.isNotBlank() } ?: "read_only",
+                        bashEnabled =
+                            entry.get("bash_enabled")?.takeIf { it.isJsonPrimitive }?.asBoolean ==
+                                true,
+                    )
+                } ?: emptyList()
         return CodingSubagentsConfig(enabled = enabled, agents = agents)
     }
 
     private fun booleanMap(value: com.google.gson.JsonElement?): Map<String, Boolean> {
-        val obj = value?.takeIf { it.isJsonObject }?.asJsonObject ?: return emptyMap()
-        return obj.entrySet().mapNotNull { entry ->
-            val flag = entry.value.takeIf { it.isJsonPrimitive }?.asJsonPrimitive ?: return@mapNotNull null
-            val enabled = when {
-                flag.isBoolean -> flag.asBoolean
-                flag.isNumber -> flag.asInt != 0
-                flag.isString -> flag.asString.equals("true", ignoreCase = true)
-                else -> return@mapNotNull null
+        if (value == null) return emptyMap()
+        require(value.isJsonObject) { "资源选择必须是 object" }
+        return value.asJsonObject.entrySet().associate { (key, flag) ->
+            require(flag.isJsonPrimitive && flag.asJsonPrimitive.isBoolean) {
+                "资源选择 $key 必须是 boolean"
             }
-            entry.key to enabled
-        }.toMap()
+            key to flag.asBoolean
+        }
     }
-    
 }

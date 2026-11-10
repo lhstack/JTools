@@ -77,7 +77,7 @@ class UnifiedMessageEventRecorder(
             sessionId: Long,
             turnId: String,
             runId: String,
-            agentId: Long,
+            agentId: String,
             agentName: String,
             title: String,
             task: String,

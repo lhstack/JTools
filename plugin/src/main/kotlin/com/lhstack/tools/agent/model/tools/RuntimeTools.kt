@@ -9,29 +9,29 @@ import java.io.File
 /**
  * 运行时工具注册入口。照抄 awake-claw tool_runtime.rs 的 runtime_tools。
  *
- * enabledTools 是 Agent 能力策略的唯一输入；未启用的工具不会进入工具定义。
- * send_files、view_* 需要当前插件尚未提供的 runtime 上下文，因此由调用方通过
+ * enabledTools 是 Agent 能力策略的唯一输入；未启用的工具不会进入工具定义。 send_files、view_* 需要当前插件尚未提供的 runtime 上下文，因此由调用方通过
  * extraTools 显式注入，不在这里伪造注册。
  */
 object RuntimeTools {
 
-    val REGISTERED_BUILTIN_TOOL_NAMES: Set<String> = setOf(
-        GetTimeTool.NAME,
-        BashTool.NAME,
-        WebFetchTool.NAME,
-        SkillsListTool.NAME,
-        SkillsViewTool.NAME,
-        CliTool.NAME,
-        ReadProjectFilesTool.NAME,
-        WriteProjectFilesTool.NAME,
-        ReplaceProjectTextTool.NAME,
-        FindProjectFilesTool.NAME,
-        FindProjectClassesTool.NAME,
-        SearchProjectTextTool.NAME,
-        FormatProjectFilesTool.NAME,
-        BuildProjectTool.NAME,
-        InspectProjectFilesTool.NAME,
-    )
+    val REGISTERED_BUILTIN_TOOL_NAMES: Set<String> =
+        setOf(
+            GetTimeTool.NAME,
+            BashTool.NAME,
+            WebFetchTool.NAME,
+            SkillsListTool.NAME,
+            SkillsViewTool.NAME,
+            CliTool.NAME,
+            ReadProjectFilesTool.NAME,
+            WriteProjectFilesTool.NAME,
+            ReplaceProjectTextTool.NAME,
+            FindProjectFilesTool.NAME,
+            FindProjectClassesTool.NAME,
+            SearchProjectTextTool.NAME,
+            FormatProjectFilesTool.NAME,
+            BuildProjectTool.NAME,
+            InspectProjectFilesTool.NAME,
+        )
 
     fun create(
         workspace: String,
@@ -42,6 +42,10 @@ object RuntimeTools {
         cancel: ModelCancel? = null,
         project: Project? = null,
         codingSession: Boolean = false,
+        subagentSession: Boolean = false,
+        readOnly: Boolean = false,
+        skillSources: List<com.lhstack.tools.agent.resources.SkillSource>? = null,
+        resourceLookup: (() -> com.lhstack.tools.agent.resources.RuntimeResourceSnapshot)? = null,
     ): List<ToolDyn> {
         val workspaceTools = WorkspaceTools(workspace)
         val tools = mutableListOf<ToolDyn>()
@@ -49,7 +53,14 @@ object RuntimeTools {
 
         if (enabled(GetTimeTool.NAME)) tools.add(GetTimeTool())
         if (enabled(BashTool.NAME)) {
-            tools.add(BashTool(workspaceTools, toolEnvVars, cancel, maxOutputChars = bashMaxOutputChars(codingSession)))
+            tools.add(
+                BashTool(
+                    workspaceTools,
+                    toolEnvVars,
+                    cancel,
+                    maxOutputChars = bashMaxOutputChars(codingSession),
+                )
+            )
         }
         if (enabled(WebFetchTool.NAME)) {
             val fetch = webFetchDefaults()
@@ -63,13 +74,43 @@ object RuntimeTools {
                 )
             )
         }
+        val sources =
+            skillSources
+                ?: listOf(
+                    com.lhstack.tools.agent.resources.SkillSource(
+                        "global",
+                        skillsRootDir
+                            ?: com.lhstack.tools.db.service.ResourceConfigService.global
+                                .skillsRootDir(),
+                        enabledSkills
+                            ?: com.lhstack.tools.db.service.ResourceConfigService.global
+                                .listSkills()
+                                .map { it.name }
+                                .toSet(),
+                    )
+                )
         if (enabled(SkillsListTool.NAME)) {
-            tools.add(SkillsListTool(workspaceTools, skillsRootDir, enabledSkills))
+            tools.add(
+                com.lhstack.tools.agent.resources.ScopedSkillsTool(
+                    false,
+                    workspaceTools,
+                    sources,
+                    resourceLookup?.let { lookup -> { lookup().skills } },
+                )
+            )
         }
         if (enabled(SkillsViewTool.NAME)) {
-            tools.add(SkillsViewTool(workspaceTools, skillsRootDir, enabledSkills))
+            tools.add(
+                com.lhstack.tools.agent.resources.ScopedSkillsTool(
+                    true,
+                    workspaceTools,
+                    sources,
+                    resourceLookup?.let { lookup -> { lookup().skills } },
+                )
+            )
         }
-        if (enabled(CliTool.NAME)) tools.add(CliTool(cancel))
+        if (enabled(CliTool.NAME))
+            tools.add(CliTool(cancel, project, resourceLookup, subagentSession, readOnly))
         if (project != null) {
             val ide = IdeProjectSupport(workspaceTools, project)
             if (enabled(ReadProjectFilesTool.NAME)) tools.add(ReadProjectFilesTool(ide))
@@ -85,11 +126,19 @@ object RuntimeTools {
         return tools
     }
 
-    private data class WebFetchDefaults(val proxy: String?, val timeoutSecs: Long, val maxResponseBytes: Long)
+    private data class WebFetchDefaults(
+        val proxy: String?,
+        val timeoutSecs: Long,
+        val maxResponseBytes: Long,
+    )
 
     private fun webFetchDefaults(): WebFetchDefaults {
-        val enabled = SettingService.setting("web_fetch.proxy_enabled")?.trim()?.equals("true", ignoreCase = true) == true
-        val proxy = SettingService.setting("web_fetch.proxy")?.trim()?.takeIf { enabled && it.isNotEmpty() }
+        val enabled =
+            SettingService.setting("web_fetch.proxy_enabled")
+                ?.trim()
+                ?.equals("true", ignoreCase = true) == true
+        val proxy =
+            SettingService.setting("web_fetch.proxy")?.trim()?.takeIf { enabled && it.isNotEmpty() }
         return WebFetchDefaults(
             proxy = proxy,
             timeoutSecs = positiveLong("web_fetch.timeout_secs", 30),

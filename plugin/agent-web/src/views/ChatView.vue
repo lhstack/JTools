@@ -4,10 +4,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Cpu, Delete, EditPen, MagicStick, MoreFilled, Paperclip, Plus, Refresh, Setting, VideoPause } from '@element-plus/icons-vue'
 import { hostState as s, api, invoke } from '../bridge/jcefBridge'
 import { consumeMessageTask, messageTasksForSession, replaceMessageTasks } from '../realtime/messageTaskStore.js'
+import ImagePreview from '../components/chat/ImagePreview.vue'
 import ConversationTimeline from '../components/chat/ConversationTimeline.vue'
 import MessageTaskPanel from '../components/chat/MessageTaskPanel.vue'
 import ModelParamsForm from '../components/model/ModelParamsForm.vue'
-import { isImageAttachment, attachmentUrl, loadAttachmentPreview } from '../components/chat/attachmentUtils.js'
+import { isImageAttachment, attachmentUrl, loadAttachmentPreview, attachmentImageSource } from '../components/chat/attachmentUtils.js'
 import { effectiveModelApi, promptCacheKeyFor, visibleAdditionalParamsText } from '../modelParams.js'
 import {
   defaultContextWindow,
@@ -217,7 +218,6 @@ const polishActive = ref(0)
 const polishTaskId = ref('')
 const POLISH_POLL_INTERVAL = 600
 let polishPollTimer = null
-const SELECTED_SESSION_CACHE_KEY = 'jtools:selected-session:v1'
 const drafts = computed(() => s.drafts || [])
 const draftPreviewUrls = reactive({})
 watch(
@@ -278,7 +278,7 @@ async function closeFileContextChip() {
 const events = computed(() => s.events || [])
 const tasks = computed(() => messageTasksForSession(s.currentSessionId))
 const processingTask = computed(() => tasks.value.find((item) => item.status === 'processing') || null)
-const previewSrc = ref('')
+const previewImage = ref(null)
 const previewVisible = ref(false)
 function openAttachment(att) {
   previewAttachment(att)
@@ -289,7 +289,7 @@ async function previewAttachment(att) {
   if (isImageAttachment(att)) {
     const url = att.previewUrl || att.url || await loadAttachmentPreview(att, s.currentSessionId)
     if (url) {
-      previewSrc.value = url
+      previewImage.value = { url, source: attachmentImageSource(att, s.currentSessionId) }
       previewVisible.value = true
       return
     }
@@ -329,7 +329,6 @@ watch(
 watch(
   () => [s.currentSessionId, events.value.length],
   ([sessionId], previous = []) => {
-    persistSelectedSession(sessionId)
     if (sessionId !== previous[0]) {
       autoFollowConversation.value = true
       hasOlderHistory.value = s.historyHasMore === true
@@ -352,15 +351,6 @@ watch(
   },
   { flush: 'post' }
 )
-
-function persistSelectedSession(sessionId) {
-  try {
-    if (sessionId) localStorage.setItem(SELECTED_SESSION_CACHE_KEY, String(sessionId))
-    else localStorage.removeItem(SELECTED_SESSION_CACHE_KEY)
-  } catch {
-    // Browser cache is only an initial rendering optimization.
-  }
-}
 
 function shouldFollowConversation() {
   const element = messageList.value
@@ -1115,7 +1105,7 @@ function drop(event) {
     @drop="drop"
   >
     <header class="chat-top">
-      <el-select :model-value="s.currentSessionId" @change="id => invoke('session.select', { id })">
+      <el-select :model-value="s.currentSessionId" placeholder="暂无会话" @change="id => invoke('session.select', { id })">
         <el-option v-for="item in s.sessions" :key="item.id" :value="item.id" :label="`[项目] ${item.name}`" />
       </el-select>
       <el-button :icon="Plus" text @click="openSessionDialog" />
@@ -1127,19 +1117,21 @@ function drop(event) {
           <el-button text :icon="MoreFilled" title="更多" @click="moreMenuVisible = !moreMenuVisible" />
         </template>
         <div class="chat-more-menu">
-          <button type="button" @click="moreMenuVisible = false; open('catalog')">模型管理</button>
-          <button type="button" @click="moreMenuVisible = false; open('agents')">Agent</button>
-          <button type="button" @click="moreMenuVisible = false; open('prompts')">提示词</button>
-          <button type="button" @click="moreMenuVisible = false; open('skills')">技能</button>
-          <button type="button" @click="moreMenuVisible = false; open('environments')">环境管理</button>
-          <button type="button" @click="moreMenuVisible = false; open('settings')">设置</button>
-          <button type="button" @click="moreMenuVisible = false; open('logs')">日志</button>
+          <button type="button" @click="moreMenuVisible = false; open('catalog')">模型配置</button>
+          <button type="button" @click="moreMenuVisible = false; open('agents')">Agent 管理</button>
+          <button type="button" @click="moreMenuVisible = false; open('prompts')">提示词管理</button>
+          <button type="button" @click="moreMenuVisible = false; open('skills')">Skills 管理</button>
+          <button type="button" @click="moreMenuVisible = false; open('mcp')">MCP 管理</button>
+          <button type="button" @click="moreMenuVisible = false; open('subagents')">项目子代理</button>
+          <button type="button" @click="moreMenuVisible = false; open('environments')">编码环境</button>
+          <button type="button" @click="moreMenuVisible = false; open('settings')">通用设置</button>
+          <button type="button" @click="moreMenuVisible = false; open('logs')">运行日志</button>
         </div>
       </el-popover>
     </header>
 
     <section ref="messageList" class="message-list" @scroll="handleConversationScroll">
-      <el-empty v-if="!s.currentSessionId" :image-size="72" description="请先在右上角创建会话。如果还没有编码环境，请打开「环境管理」新建一个。" />
+      <el-empty v-if="!s.currentSessionId" :image-size="72" description="暂无会话。请先配置可用的编码环境和模型，再点击右上角新建会话。" />
       <el-empty v-else-if="!events.length" :image-size="72" description="开始一段新的对话" />
       <ConversationTimeline
         v-else
@@ -1371,7 +1363,7 @@ function drop(event) {
 
     <div v-if="dragging" class="drop-overlay"><div>释放文件以添加附件</div></div>
 
-    <el-image-viewer v-if="previewVisible" :url-list="[previewSrc]" @close="previewVisible=false"/>
+    <ImagePreview v-if="previewVisible && previewImage" :image="previewImage" @close="previewVisible=false" />
   <el-dialog
     v-model="appendDialogVisible"
     class="append-message-dialog"
@@ -1502,9 +1494,7 @@ function drop(event) {
       <el-button type="primary" :loading="advancedParamsSaving" :disabled="!selectedModelId" @click="saveAdvancedParams">保存</el-button>
     </template>
   </el-dialog>
-  <el-dialog v-model="previewVisible" title="图片预览" width="min(900px, 92vw)" append-to-body>
-    <img v-if="previewSrc" :src="previewSrc" alt="preview" style="display:block;width:100%;max-height:80vh;object-fit:contain" />
-  </el-dialog>
+
   <el-dialog v-model="sessionDialogVisible" title="新建会话" width="440px" append-to-body>
   <el-form label-position="top" @submit.prevent="createSession">
    <el-form-item label="会话名称" required>

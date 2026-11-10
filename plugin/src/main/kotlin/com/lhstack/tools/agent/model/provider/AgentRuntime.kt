@@ -68,6 +68,7 @@ object AgentRuntime {
         val history: List<Message> = emptyList(),
         /** 附件内容块，作为多模态用户内容拼进本轮 prompt 消息。 */
         val attachments: List<UserContent> = emptyList(),
+        val resourceAttachments: List<com.lhstack.tools.agent.AgentAttachmentState> = emptyList(),
         /** 附件回显快照，写入 model_log 的 request_snapshot.attachments，供会话历史还原。 */
         val attachmentSnapshots: List<JsonObject> = emptyList(),
         val extraTools: List<ToolDyn> = emptyList(),
@@ -112,8 +113,12 @@ object AgentRuntime {
         val historyTokenRatio = runtimeModel.params.executionParams.historyTokenRatio
             ?: ModelParams.DEFAULT_HISTORY_TOKEN_RATIO
         val enabledTools = enabledTools(agent.extConfig)
-        val availableSkills = ResourceConfigService.listSkills()
+        val availableSkills = ResourceConfigService.global.listSkills()
         val enabledSkills = enabledSkills(agent.extConfig, availableSkills)
+        val resources=com.lhstack.tools.agent.resources.RuntimeResourceResolver.resolve(request.project,enabledSkills,null,refreshGlobalSkills={
+            val current=agent.id?.let {id -> AgentService.agentById(id)?.takeIf {it.enabled} ?: error("Agent 不存在或已停用") } ?: agent
+            enabledSkills(current.extConfig,ResourceConfigService.global.listSkills())
+        })
         val tools = RuntimeTools.create(
             workspace = request.workspace,
             enabledTools = enabledTools,
@@ -122,14 +127,16 @@ object AgentRuntime {
             toolEnvVars = request.toolEnvVars,
             cancel = request.toolCancel ?: request.cancel,
             project = request.project,
-        ) + pluginFunctionTools(agent.extConfig, request, provider.name, model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId) + viewResourceTools(agent.extConfig, request) + request.extraTools
+            skillSources = resources.skills,
+            resourceLookup = resources.refresh,
+        ) + pluginFunctionTools(agent.extConfig, request, provider.name, model.displayName?.takeIf { it.isNotBlank() } ?: model.modelId) + resourceTools(agent.extConfig, request,runtimeModel) + request.extraTools
 
         ModelParams.validateContextBudget(
             runtimeModel.params.contextWindow,
             ModelParams.runtimeOutputTokens(runtimeModel),
         )
-        val preamble = buildPreamble(agent, request, enabledSkills, availableSkills)
-        val promptMessage = buildPromptMessage(request.prompt, request.attachments)
+        val preamble = buildPreamble(agent, request, enabledSkills, availableSkills) + resources.prompt()
+        val promptMessage = buildPromptMessage(request.prompt, if(request.resourceAttachments.isNotEmpty()) request.resourceAttachments.map(com.lhstack.tools.agent.AgentAttachmentSupport::metadataContent) else request.attachments.also {contents ->require(contents.all {it is UserContent.Text}) {"附件必须通过资源引用按需读取"}})
         val logContext = ModelLogContext(
             sourceType = request.logSourceType ?: sourceType(request.triggerType),
             sourceId = request.logSourceId ?: sourceId(request, agent.id ?: request.agentId),
@@ -280,7 +287,10 @@ object AgentRuntime {
         }
     }
 
-    private fun viewResourceTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> = buildList {
+    internal fun resourceTools(config:AgentCapabilityConfig,request:Request,model:com.lhstack.tools.agent.model.params.ResolvedModelConfig):List<ToolDyn> =
+        com.lhstack.tools.agent.model.tools.ResourceToolPlanner.plan(model,request.workspace,request.sessionId,viewResourceTools(config,request),request.resourceAttachments)
+
+    internal fun viewResourceTools(config: AgentCapabilityConfig, request: Request): List<ToolDyn> = buildList {
         addViewResourceTool(ResourceKind.IMAGE, config.viewResources.image, request)
         addViewResourceTool(ResourceKind.AUDIO, config.viewResources.audio, request)
         addViewResourceTool(ResourceKind.VIDEO, config.viewResources.video, request)
@@ -298,9 +308,11 @@ object AgentRuntime {
             ViewResourceTool(
                 kind = kind,
                 resourceAgentId = agentId,
+                timeoutSecs = ref.timeoutSecs,
                 workspace = request.workspace,
                 skillsRootDir = request.skillsRootDir,
                 cancel = request.toolCancel ?: request.cancel,
+                project = request.project,
             )
         )
     }
@@ -328,12 +340,8 @@ object AgentRuntime {
         includeNew: Boolean,
         disabled: Collection<String>,
     ): Set<String> {
-        val enabledSet = enabled.asSequence().map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-        if (includeNew) {
-            val disabledSet = disabled.asSequence().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-            enabledSet.addAll(current.filter { it !in disabledSet })
-        }
-        return enabledSet
+        return com.lhstack.tools.agent.resources.ResourceSelection.enabled(current,
+            com.lhstack.tools.agent.resources.ResourceSelection.fromLists(enabled,disabled),includeNew)
     }
 
     /** JetBrains 项目文件默认编码；无 project 时退回 JVM 默认编码。 */
@@ -403,6 +411,11 @@ object AgentRuntime {
             "- ${skill.name}: $description"
         }
         .toList()
+
+    internal fun personaPrompt(config: AgentCapabilityConfig): String = buildString {
+        appendPersonaSections(config)
+        appendPersona("", "边界约束",config.persona.guardrails,config.persona.guardrailsMaxChars)
+    }
 
     private fun StringBuilder.appendPersonaSections(config: AgentCapabilityConfig) {
         appendPersona("以下是当前 Agent 的角色定义。", "角色设定", config.persona.soul, config.persona.soulMaxChars)

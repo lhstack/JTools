@@ -187,9 +187,11 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
                 <el-form label-position="top" class="section-form model-form">
                   <div class="form-three">
                     <el-form-item label="别名"><el-input v-model="model.alias"/></el-form-item><el-form-item label="模型 ID"><el-input v-model="model.modelId"/></el-form-item><el-form-item label="显示名称"><el-input v-model="model.displayName"/></el-form-item>
+                  </div>
+                  <div class="model-capability-row" :class="{'without-api': provider.kind!=='openai'}">
                     <el-form-item v-if="provider.kind==='openai'" label="API"><el-select v-model="model.api" clearable placeholder="继承供应商"><el-option label="Chat Completions" value="completions"/><el-option label="Responses" value="responses"/></el-select></el-form-item>
                     <el-form-item label="上下文窗口"><el-input-number v-model="model.contextWindow" :min="1"/></el-form-item>
-                    <el-form-item label="多模态能力">
+                    <el-form-item label="多模态能力" class="model-modality-field">
                       <el-checkbox-group v-model="model.modalities" class="modality-checks">
                         <el-checkbox-button v-for="x in ['text','image','audio','video','file']" :key="x" :value="x">{{ modalityLabel(x) }}</el-checkbox-button>
                       </el-checkbox-group>
@@ -220,6 +222,11 @@ watch(()=>provider.kind,kind=>{if(kind==='anthropic')provider.api=''});onMounted
 </template>
 
 <style scoped>
-.modality-checks { display: flex; flex-wrap: wrap; gap: 6px; }
-.modality-checks :deep(.el-checkbox-button__inner) { padding: 6px 10px; }
+.modality-checks { display: inline-flex; flex-wrap: nowrap; gap: 3px; width: max-content; max-width: 100%; }
+.modality-checks :deep(.el-checkbox-button) { flex: 0 0 auto; margin: 0; }
+.modality-checks :deep(.el-checkbox-button__inner) { padding: 6px 5px; white-space:nowrap; box-sizing:border-box; }
+.model-capability-row { display: grid; grid-template-columns: minmax(80px,1fr) minmax(90px,1fr) max-content; gap: 14px; align-items: start; }
+.model-capability-row.without-api { grid-template-columns: minmax(90px,1fr) max-content; }
+.model-capability-row :deep(.el-form-item) { min-width:0; }
+.model-capability-row :deep(.el-input-number) { width:100%; }
 </style>

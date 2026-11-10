@@ -103,7 +103,7 @@ object AgentPolishService {
                 prompt = buildPrompt(content),
                 triggerType = TRIGGER_TYPE,
                 workspace = workspace,
-                skillsRootDir = ResourceConfigService.skillsRootDir(),
+                skillsRootDir = ResourceConfigService.global.skillsRootDir(),
                 extraTools = listOf(collector),
                 cancel = cancel,
                 toolCancel = cancel,

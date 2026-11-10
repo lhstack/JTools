@@ -431,7 +431,7 @@ class AwakeAgentConfigPanel(private val project: Project, private val onChanged:
     private fun loadCatalog() {
         providerGroups = CatalogService.listProvidersWithModels()
         prompts = CatalogService.listPromptTemplates()
-        skills = ResourceConfigService.listSkills()
+        skills = ResourceConfigService.global.listSkills()
         pluginFunctionGroups = PluginFunctionToolSupport.groups(project)
         pluginFunctionGroups.mapTo(mutableSetOf()) { it.pluginKey }.let { keys ->
             expandedPluginFunctionGroups.retainAll(keys)
@@ -726,7 +726,7 @@ class AwakeSkillsConfigPanel(private val project: Project, private val onChanged
 
     init {
         root.border = JBUI.Borders.empty(8)
-        root.add(JLabel("技能目录：${ResourceConfigService.skillsRootDir().path}"), BorderLayout.NORTH)
+        root.add(JLabel("技能目录：${ResourceConfigService.global.skillsRootDir().path}"), BorderLayout.NORTH)
         root.add(JBScrollPane(skillListPanel), BorderLayout.CENTER)
         root.add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
             add(JButton("新增技能").apply { addActionListener { newSkill() } })
@@ -740,7 +740,7 @@ class AwakeSkillsConfigPanel(private val project: Project, private val onChanged
     private fun refresh(selectName: String? = expandedSkillName) {
         expandedEditor?.saveIfDirty()
         skillListPanel.removeAll()
-        ResourceConfigService.listSkills().forEach { record ->
+        ResourceConfigService.global.listSkills().forEach { record ->
             skillListPanel.add(skillRow(record))
             skillListPanel.add(Box.createVerticalStrut(JBUI.scale(6)))
             if (record.name == selectName) {
@@ -819,7 +819,7 @@ class AwakeSkillsConfigPanel(private val project: Project, private val onChanged
             ?: return
         try {
             validateSkillName(name)
-            val rootDir = ResourceConfigService.skillsRootDir()
+            val rootDir = ResourceConfigService.global.skillsRootDir()
             val skillDir = rootDir.resolve(name).canonicalFile
             require(skillDir.toPath().startsWith(rootDir.toPath())) { "技能名称无效" }
             require(!skillDir.exists()) { "技能已存在: $name" }
@@ -845,7 +845,7 @@ class AwakeSkillsConfigPanel(private val project: Project, private val onChanged
             ?: return
         try {
             validateSkillName(name)
-            val rootDir = ResourceConfigService.skillsRootDir()
+            val rootDir = ResourceConfigService.global.skillsRootDir()
             val source = rootDir.resolve(record.name).canonicalFile
             val target = rootDir.resolve(name).canonicalFile
             require(target.toPath().startsWith(rootDir.toPath())) { "技能名称无效" }
@@ -861,7 +861,7 @@ class AwakeSkillsConfigPanel(private val project: Project, private val onChanged
 
     private fun deleteSkill(record: ResourceConfigService.SkillDirectoryRecord) {
         try {
-            ResourceConfigService.deleteSkill(record.name)
+            ResourceConfigService.global.deleteSkill(record.name)
             if (expandedSkillName == record.name) expandedSkillName = null
             refresh(expandedSkillName)
             onChanged?.invoke()
@@ -917,7 +917,7 @@ class AwakeSkillsConfigPanel(private val project: Project, private val onChanged
         private val skillName: String,
         private val onChanged: () -> Unit,
     ) {
-        private val skillRoot = ResourceConfigService.skillsRootDir().resolve(skillName).canonicalFile
+        private val skillRoot = ResourceConfigService.global.skillsRootDir().resolve(skillName).canonicalFile
         private val tree = Tree()
         private val pathLabel = JLabel(skillName)
         private val statusLabel = JLabel()

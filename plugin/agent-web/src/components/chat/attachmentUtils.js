@@ -67,3 +67,12 @@ export async function openDesktopAttachment(kind, sessionId, attachmentId) {
   if (!sessionId || !attachmentId) throw new Error('附件缺少会话或附件编号')
   await invoke('attachment.openById', { sessionId, id: String(attachmentId) })
 }
+
+export function attachmentImageSource(attachment, sessionId) {
+  const filename = attachment.file_name || attachment.name || 'image.png'
+  if (sessionId && attachment.id && /^\d+$/.test(String(attachment.id))) {
+    return { sessionId: String(sessionId), id: String(attachment.id), filename }
+  }
+  if (attachment.path) return { path: attachment.path, filename }
+  return { url: attachmentUrl(attachment, sessionId), filename }
+}

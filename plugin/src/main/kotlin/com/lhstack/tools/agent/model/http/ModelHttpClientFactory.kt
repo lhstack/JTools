@@ -44,7 +44,7 @@ object ModelHttpClientFactory {
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .writeTimeout(10, TimeUnit.MINUTES)
-                .callTimeout(if (requestTimeoutSecs > 0) requestTimeoutSecs else 10 * 60, TimeUnit.SECONDS)
+                .callTimeout(requestTimeoutSecs, TimeUnit.SECONDS)
                 .connectionPool(ConnectionPool(poolMaxIdlePerHost, poolIdleTimeoutSecs, TimeUnit.SECONDS))
                 .retryOnConnectionFailure(true)
             key.proxyUrl?.let { builder = builder.proxy(proxyFor(it)) }

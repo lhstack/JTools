@@ -67,6 +67,7 @@ data class AgentViewResourceRef(
     val enabled: Boolean = false,
     @SerializedName("agent_id")
     val agentId: Long? = null,
+    @SerializedName("timeout_secs") val timeoutSecs: Long? = null,
 )
 
 /** 照抄 AgentPersonaConfig。默认最大字符数 512。 */

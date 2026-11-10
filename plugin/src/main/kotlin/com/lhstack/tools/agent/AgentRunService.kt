@@ -227,7 +227,7 @@ internal object AgentRunService {
                     triggerId = run.runId,
                     workspace = run.projectPath,
                     sessionId = run.sessionId,
-                    skillsRootDir = ResourceConfigService.skillsRootDir(),
+                    skillsRootDir = ResourceConfigService.global.skillsRootDir(),
                     history = history,
                     streamSink = streamSink(run),
                     eventSink = eventSink(run),

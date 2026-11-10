@@ -1,5 +1,6 @@
+@import "./resource-management.css";
 :root{
-  font-family:var(--jb-font),Inter,"Segoe UI","Microsoft YaHei",sans-serif;
+  font-family:var(--jb-font, -apple-system), BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size:13px;
   color:var(--jb-text);
   background:var(--jb-bg);
@@ -13,7 +14,7 @@
   --scrollbar-thumb-hover:color-mix(in srgb,var(--jb-accent) 42%,var(--jb-muted) 20%,var(--jb-panel) 38%);
   --scrollbar-thumb-active:color-mix(in srgb,var(--jb-accent) 58%,var(--jb-panel) 42%);
   --shadow:0 8px 24px color-mix(in srgb,#000 12%,transparent);
-  --el-font-family:var(--jb-font),Inter,"Segoe UI","Microsoft YaHei",sans-serif;
+  --el-font-family:var(--jb-font, -apple-system), BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --el-font-size-base:13px;--el-font-size-small:12px;--el-font-size-extra-small:11px;
   --el-component-size:30px;--el-component-size-small:26px;
   --el-border-radius-base:6px;--el-border-radius-small:5px;
@@ -299,3 +300,8 @@ html:not(.dark) .tok-operator,html:not(.dark) .tok-punctuation{color:#656d76}
 html:not(.dark) .tok-link,html:not(.dark) .tok-url,html:not(.dark) .tok-heading{color:#0550ae}
 html:not(.dark) .tok-inserted{color:#116329}
 html:not(.dark) .tok-deleted,html:not(.dark) .tok-invalid{color:#cf222e}
+
+.local-image{display:block;max-width:100%;margin:8px 0;color:var(--jb-muted);overflow:hidden;cursor:pointer}
+.local-image img{display:block;max-width:100%;height:auto;border-radius:4px}
+
+.markdown-body img { cursor: zoom-in; }

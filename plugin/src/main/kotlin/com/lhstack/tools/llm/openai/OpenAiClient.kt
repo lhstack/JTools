@@ -603,17 +603,17 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         if (nextRounds > request.maxToolRounds) {
             throw IllegalStateException("工具回环超过最大轮次 ${request.maxToolRounds}")
         }
-        val toolMessage = toolResultMessage(toolRuntime.executeToolCalls(toolCalls))
+        val toolBatch = toolRuntime.executeToolCalls(toolCalls)
         val claimed = continuation.claimPending()
         val appended = buildList {
             total.providerMessages.lastOrNull()?.let(::add)
-            add(toolMessage)
+            addAll(toolBatch.currentMessages)
             claimed?.let { add(it.message) }
         }
         claimed?.let { emitClaimedEvents(it) }
         request.appendMessages(appended)
-        total.providerMessages.add(toolMessage)
-        total.historyMessages.add(toolMessage)
+        total.providerMessages.addAll(toolBatch.currentMessages)
+        total.historyMessages.addAll(toolBatch.historyMessages)
         if (claimed != null) {
             total.providerMessages.add(claimed.message)
             total.historyMessages.add(claimed.historyMessage)
@@ -642,17 +642,17 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         if (nextRounds > request.maxToolRounds) {
             throw IllegalStateException("工具回环超过最大轮次 ${request.maxToolRounds}")
         }
-        val toolMessage = toolResultMessage(toolRuntime.executeToolCalls(toolCalls))
+        val toolBatch = toolRuntime.executeToolCalls(toolCalls)
         val claimed = continuation.claimPending()
         val appended = buildList {
             total.providerMessages.lastOrNull()?.let(::add)
-            add(toolMessage)
+            addAll(toolBatch.currentMessages)
             claimed?.let { add(it.message) }
         }
         claimed?.let { emitClaimedEvents(it) }
         request.appendMessages(appended)
-        total.providerMessages.add(toolMessage)
-        total.historyMessages.add(toolMessage)
+        total.providerMessages.addAll(toolBatch.currentMessages)
+        total.historyMessages.addAll(toolBatch.historyMessages)
         if (claimed != null) {
             total.providerMessages.add(claimed.message)
             total.historyMessages.add(claimed.historyMessage)

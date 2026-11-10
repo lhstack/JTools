@@ -458,20 +458,25 @@ function setToolChoiceName(field, name) {
 }
 
 .modality-checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  width: max-content;
+  max-width: 100%;
   padding-top: 2px;
 }
 
 .modality-checks :deep(.el-checkbox-button) {
+  flex: 0 0 auto;
   margin: 0;
 }
 
 .modality-checks :deep(.el-checkbox-button__inner) {
   border-left: 1px solid var(--el-border-color);
   border-radius: 6px !important;
-  padding: 7px 11px;
+  padding: 7px 6px;
+  box-sizing:border-box;
+  white-space:nowrap;
   font-size: 12px;
 }
 </style>

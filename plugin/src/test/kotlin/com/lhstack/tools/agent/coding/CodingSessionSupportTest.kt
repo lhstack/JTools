@@ -139,4 +139,18 @@ class CodingSessionSupportTest {
         assertEquals("max", params.getAsJsonObject("reasoning").get("effort").asString)
         assertNull(params.get("output_config"))
     }
+    @Test
+    fun `initial model uses first enabled provider and model in catalog order`() {
+        fun provider(id:Long,enabled:Int)=com.lhstack.tools.db.entity.ProviderEntity().apply {this.id=id;this.enabled=enabled}
+        fun model(id:Long,enabled:Int)=com.lhstack.tools.db.entity.ModelEntity().apply {this.id=id;this.enabled=enabled}
+        val catalog=listOf(
+            com.lhstack.tools.db.service.ProviderModels(provider(1,0),listOf(model(10,1))),
+            com.lhstack.tools.db.service.ProviderModels(provider(2,1),listOf(model(20,0))),
+            com.lhstack.tools.db.service.ProviderModels(provider(3,1),listOf(model(30,0),model(31,1),model(32,1))),
+        )
+        assertEquals(3L to 31L,CodingSessionSupport.firstEnabledModel(catalog))
+        kotlin.test.assertNull(CodingSessionSupport.firstEnabledModel(catalog.take(2)))
+        kotlin.test.assertNull(CodingSessionSupport.firstEnabledModel(emptyList()))
+    }
+
 }

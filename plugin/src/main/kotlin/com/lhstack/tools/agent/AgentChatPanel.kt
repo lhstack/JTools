@@ -229,7 +229,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         refreshAgentSelector(null)
         val sessions = visibleSessions()
         if (sessions.isEmpty()) {
-            showEmptySessionState()
+            if (CodingEnvironmentService.listEnabled().isNotEmpty() &&
+                com.lhstack.tools.agent.coding.CodingSessionSupport.firstEnabledModel(CatalogService.listProvidersWithModels()) != null) {
+                createSession()
+            } else {
+                showEmptySessionState()
+            }
         } else {
             val targetId = resolveRestoredSessionId(sessions) ?: sessions.first().id
             currentSessionId = targetId
@@ -306,17 +311,14 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun createSession(title: String = AUTO_TITLE) {
         val environment = requireSelectedEnvironment()
         val current = currentSessionId?.let(ChatSessionService::sessionById)
-        val fallback = CatalogService.listProvidersWithModels()
-            .asSequence()
-            .mapNotNull { item -> item.models.firstOrNull { it.enabled == 1 }?.let { item.provider.id to it.id } }
-            .firstOrNull()
+        val defaultModel = com.lhstack.tools.agent.coding.CodingSessionSupport.firstEnabledModel(CatalogService.listProvidersWithModels())
         val record = ChatSessionService.createSession(
             title = title,
             codingEnvironmentId = environment.id,
             sessionType = ChatSessionType.PROJECT,
             workspacePath = currentProjectPath(),
-            providerId = current?.providerId ?: fallback?.first,
-            modelId = current?.modelId ?: fallback?.second,
+            providerId = current?.providerId ?: defaultModel?.first,
+            modelId = current?.modelId ?: defaultModel?.second,
             promptId = current?.promptId,
         )
         currentSessionId = record.id
@@ -760,6 +762,22 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
         project.basePath?.replace("\\", "/")?.trim()?.ifBlank { null } ?: System.getProperty("user.dir")
 
 
+    private fun handleLocalResource(type:String,payload:com.google.gson.JsonObject):Any {
+        val sessionId=payload.get("sessionId")?.asLong ?: error("缺少会话 ID")
+        val session=visibleSessions().singleOrNull {it.id==sessionId} ?: error("会话不属于当前项目")
+        val attachments=MessageStoreService.sessionAttachments(sessionId).map {it.path}.toSet()
+        val location=com.lhstack.tools.agent.resources.LocalResourceReferenceSupport.resolve(payload.get("reference")?.asString ?: error("缺少资源引用"),session.cwd,attachments)
+        if(type=="resource.open"){
+            onUiWait {
+                val file=LocalFileSystem.getInstance().refreshAndFindFileByPath(location.file.path) ?: error("无法定位文件")
+                if(file.isDirectory)com.intellij.ide.projectView.ProjectView.getInstance(project).select(null,file,true)
+                else com.intellij.openapi.fileEditor.OpenFileDescriptor(project,file,(location.line ?: 1)-1,(location.column ?: 1)-1).navigate(true)
+            }
+            return mapOf("path" to location.file.path)
+        }
+        return com.lhstack.tools.agent.resources.LocalImagePreviewSupport.preview(location.file)
+    }
+
     private fun previewAttachment(payload: com.google.gson.JsonObject): Map<String, String> {
         val path = payload.get("path")?.takeUnless { it.isJsonNull }?.asString?.trim().orEmpty()
         if (path.isNotEmpty()) {
@@ -787,6 +805,47 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "contentType" to mime,
             "kind" to attachment.kind,
         )
+    }
+
+    private fun transferImage(action: String, payload: JsonObject): Map<String, Any?> {
+        val data = resolveTransferImage(payload)
+        if (action == "image.copy") {
+            val transferable = data.transferable()
+            onUiWait { CopyPasteManager.getInstance().setContents(transferable) }
+            return mapOf("copied" to true)
+        }
+        val destination = onUiWait {
+            val descriptor = FileSaverDescriptor("保存图片", "选择保存位置并设置文件名", CodeBlockSaveSupport.extensionOf(data.filename) ?: error("图片文件名缺少扩展名"))
+            descriptor.isForcedToUseIdeaFileChooser = true
+            FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project)
+                .save(project.guessProjectDir(), data.filename)?.file
+        } ?: return mapOf("saved" to false)
+        destination.writeBytes(data.bytes)
+        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(destination)
+        return mapOf("saved" to true, "path" to destination.absolutePath)
+    }
+
+    private fun resolveTransferImage(payload: JsonObject): ImageTransferSupport.ImageData {
+        fun field(key: String) = payload.get(key)?.takeUnless { it.isJsonNull }?.asString?.takeIf { it.isNotBlank() }
+        val reference = field("reference")
+        val id = field("id")
+        if (reference != null || id != null) {
+            val sessionId = field("sessionId")?.toLongOrNull() ?: error("缺少会话 ID")
+            val session = visibleSessions().singleOrNull { it.id == sessionId } ?: error("会话不属于当前项目")
+            val attachments = MessageStoreService.sessionAttachments(sessionId)
+            val file = if (reference != null) {
+                com.lhstack.tools.agent.resources.LocalResourceReferenceSupport.resolve(reference, session.cwd, attachments.map { it.path }.toSet()).file
+            } else {
+                File(attachments.singleOrNull { it.id.toString() == id }?.path ?: error("附件不属于当前会话"))
+            }
+            return ImageTransferSupport.fromFile(file)
+        }
+        field("path")?.let { path ->
+            val file = File(path).canonicalFile
+            require(draftAttachments.any { File(it.path).canonicalFile == file }) { "图片不属于当前草稿" }
+            return ImageTransferSupport.fromFile(file)
+        }
+        return ImageTransferSupport.fromUrl(field("url") ?: error("缺少图片来源"), field("filename"))
     }
 
     private fun saveCodeBlock(payload: JsonObject): Map<String, Any?> {
@@ -1175,7 +1234,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "session.modelSettings.save" -> saveSessionModelSettings(payload)
             "context.get" -> currentSessionId?.let(ContextCompactionService::contextStatus) ?: error("没有选中会话")
             "context.compact" -> currentSessionId?.let(ContextCompactionService::compact) ?: error("没有选中会话")
-            "skills.runtime" -> currentSessionId?.let(ChatSessionService::sessionById)?.agentId?.let(CodingRuntimeSupport::runtimeSkillsJson) ?: com.google.gson.JsonArray()
+            "skills.runtime" -> currentSessionId?.let(ChatSessionService::sessionById)?.let { CodingRuntimeSupport.runtimeSkillsJson(it.codingEnvironmentId,it.cwd) } ?: com.google.gson.JsonArray()
             "cache.refresh" -> refreshBrowserMessageCache()
             "environment.select" -> id?.toLongOrNull()?.let { environmentId ->
                 bindCurrentSessionEnvironment(environmentId)
@@ -1184,7 +1243,12 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             "window.open" -> onUiWait { managementWindows.open(text ?: error("缺少管理页面")) }
             "code.copy" -> CopyPasteManager.getInstance().setContents(StringSelection(text.orEmpty()))
             "code.save" -> saveCodeBlock(payload)
-            "link.open" -> text?.let { BrowserUtil.browse(it) }
+            "image.copy", "image.save" -> transferImage(command.type, payload)
+            "link.open" -> text?.let {
+                require(java.net.URI(it).scheme?.lowercase() in setOf("http","https","mailto")){"不支持的外部链接协议"}
+                BrowserUtil.browse(it)
+            }
+            "resource.open", "resource.preview" -> handleLocalResource(command.type,payload)
             "attachment.choose" -> chooseAttachments()
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }
@@ -1392,7 +1456,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             providers = browserProviders(),
             prompts = browserPrompts(),
             context = currentSessionId?.let(ContextCompactionService::contextStatus),
-            skills = currentSessionId?.let(ChatSessionService::sessionById)?.codingEnvironmentId?.let(CodingRuntimeSupport::runtimeSkillsJson) ?: com.google.gson.JsonArray(),
+            skills = currentSessionId?.let(ChatSessionService::sessionById)?.let { CodingRuntimeSupport.runtimeSkillsJson(it.codingEnvironmentId,it.cwd) } ?: com.google.gson.JsonArray(),
             messages = emptyList(),
             events = browserEvents.toList(),
             tasks = browserTasks.toList(),

@@ -98,6 +98,7 @@ object SkillsSupport {
         }
         val entries = current.listFiles() ?: return
         for (path in entries) {
+            require(!java.nio.file.Files.isSymbolicLink(path.toPath())) { "技能资源不接受符号链接: $path" }
             if (!path.isDirectory) {
                 continue
             }
@@ -145,6 +146,7 @@ object SkillsSupport {
         val files = mutableListOf<String>()
         val entries = current.listFiles() ?: return files
         for (path in entries) {
+            require(!java.nio.file.Files.isSymbolicLink(path.toPath())) { "技能资源不接受符号链接: $path" }
             val fileName = path.name
             if (fileName.startsWith(".")) {
                 continue

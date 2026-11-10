@@ -36,7 +36,6 @@ class CliToolTest {
         assertEquals("stdio/sse/streamable_http", transportDescription)
     }
 
-
     @Test
     fun `agent run requires session and receiver`() {
         val result = tool.callJsonBlocking(input("agent.run --help")).asJsonObject
@@ -47,6 +46,49 @@ class CliToolTest {
         val receiverDescription = arguments["receiver"].asJsonObject["description"].asString
         assertTrue(receiverDescription.contains("user 表示以 AI/助手身份向用户发送"))
         assertTrue(receiverDescription.contains("ai 表示以用户身份向 AI 发送"))
+    }
+
+    @Test
+    fun `scoped command help requires scope and documents project storage`() {
+        for (command in
+            listOf("mcp.create", "mcp.call", "skill.create", "skill.write", "subagent.create")) {
+            val help = tool.callJsonBlocking(input("$command --help")).asJsonObject
+            assertTrue(
+                help.getAsJsonObject("arguments").getAsJsonObject("scope").get("required").asBoolean
+            )
+        }
+    }
+
+    @Test
+    fun `subagent cli cannot start nested agents or mutate in readonly mode`() {
+        val child = CliTool(subagentSession = true, readOnly = true)
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            child.callJsonBlocking(input("agent.run"))
+        }
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            child.callJsonBlocking(input("skill.write"))
+        }
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            child.callJsonBlocking(input("mcp.call"))
+        }
+    }
+
+    @Test
+    fun `resource list docs need no scope and distinguish service list from tool list`() {
+        for (command in listOf("mcp.list", "skill.list")) {
+            val args =
+                tool
+                    .callJsonBlocking(input("$command --help"))
+                    .asJsonObject
+                    .getAsJsonObject("arguments")
+            kotlin.test.assertFalse(args.has("scope"))
+            kotlin.test.assertFalse(args.has("id"))
+        }
+        val tools = tool.callJsonBlocking(input("mcp.tools --help")).asJsonObject
+        assertTrue(tools.get("description").asString.contains("mcp.list"))
+        assertTrue(
+            tools.getAsJsonObject("arguments").getAsJsonObject("id").get("required").asBoolean
+        )
     }
 
     private fun input(command: String) = JsonObject().apply { addProperty("command", command) }
