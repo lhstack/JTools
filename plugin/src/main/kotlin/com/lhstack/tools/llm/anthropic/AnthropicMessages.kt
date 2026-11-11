@@ -106,7 +106,11 @@ internal object AnthropicMessages {
             addProperty("type", "tool_use")
             addProperty("id", content.toolCall.callId ?: content.toolCall.id)
             addProperty("name", content.toolCall.function.name)
-            add("input", content.toolCall.function.arguments)
+            val function = content.toolCall.function
+            // Anthropic input must remain an object; retain malformed source as explicit error data.
+            add("input", if (function.rawArguments == null) function.arguments else JsonObject().apply {
+                addProperty("invalid_arguments", function.rawArguments)
+            })
         }
 
         is AssistantContent.Reasoning -> JsonObject().apply {

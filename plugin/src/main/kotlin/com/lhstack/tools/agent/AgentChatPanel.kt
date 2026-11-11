@@ -775,6 +775,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             return mapOf("path" to location.file.path)
         }
+        if (type == "resource.media") return chatBrowser.mediaUrl(location.file)
         return com.lhstack.tools.agent.resources.LocalImagePreviewSupport.preview(location.file)
     }
 
@@ -881,7 +882,9 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun openAttachmentPathOnEdt(rawPath: String) {
         val path = rawPath.trim().ifBlank { return }
         val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path) ?: return
-        FileEditorManager.getInstance(project).openFile(virtualFile, true)
+        com.lhstack.tools.ide.EditorNavigation.openFile(project, virtualFile).whenComplete { _, error ->
+            if (error != null) com.intellij.openapi.diagnostic.Logger.getInstance(AgentChatPanel::class.java).error("打开附件失败: $path", error)
+        }
     }
 
     private fun openSessionManager() {
@@ -1248,7 +1251,7 @@ class AgentChatPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 require(java.net.URI(it).scheme?.lowercase() in setOf("http","https","mailto")){"不支持的外部链接协议"}
                 BrowserUtil.browse(it)
             }
-            "resource.open", "resource.preview" -> handleLocalResource(command.type,payload)
+            "resource.open", "resource.preview", "resource.media" -> handleLocalResource(command.type,payload)
             "attachment.choose" -> chooseAttachments()
             "attachment.paste" -> pasteAttachmentsFromClipboard()
             "attachment.remove" -> id?.let { attachmentId -> draftAttachments.firstOrNull { it.id == attachmentId }?.let(::removeDraftAttachment) }

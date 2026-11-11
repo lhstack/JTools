@@ -39,6 +39,9 @@ class LlmJsonTest {
         assertTrue(args.isJsonObject)
         assertEquals("a.kt", args.asJsonObject.get("path").asString)
         assertFailsWith<IllegalStateException> { LlmJson.parseArgs("not-json") }
+        assertFailsWith<IllegalStateException> { LlmJson.parseArgs("{unquoted: 'value'}") }
+        assertFailsWith<IllegalStateException> { LlmJson.parseArgs("{} trailing") }
+        assertFailsWith<IllegalStateException> { LlmJson.parseArgs("") }
         assertFailsWith<IllegalStateException> { LlmJson.parseArgs("""["x"]""") }
         assertFailsWith<IllegalStateException> { LlmJson.parseArgs(""""hello"""") }
     }

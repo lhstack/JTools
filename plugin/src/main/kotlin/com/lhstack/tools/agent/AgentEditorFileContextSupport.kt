@@ -1,6 +1,7 @@
 package com.lhstack.tools.agent
 
-import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -46,9 +47,9 @@ object AgentEditorFileContextSupport {
 
     fun collect(project: Project): Snapshot? = collectAll(project).firstOrNull()
 
-    fun collectAll(project: Project): List<Snapshot> = runReadAction {
-        collectAllInReadAction(project)
-    }
+    fun collectAll(project: Project): List<Snapshot> = ApplicationManager.getApplication().runReadAction(
+        Computable { collectAllInReadAction(project) }
+    )
 
     private fun collectAllInReadAction(project: Project): List<Snapshot> {
         val manager = FileEditorManager.getInstance(project)

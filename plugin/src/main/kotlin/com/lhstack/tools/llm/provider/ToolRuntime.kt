@@ -153,6 +153,7 @@ class ToolRuntime(
     }
 
     private fun timeoutSecondsFor(call: ProviderToolCall, index: Int): Long {
+        if (call.rawArguments != null || !call.arguments.isJsonObject) return 120L
         val declared = if (index >= 0) tools[index].executionTimeoutSeconds else 120L
         val requested = requestedTimeoutSeconds(call)
         return maxOf(declared, requested).coerceAtLeast(1L)
@@ -172,6 +173,9 @@ class ToolRuntime(
     private fun failure(text: String) = ToolExecutionResult(JsonPrimitive(text))
 
     private fun executeToolCall(call: ProviderToolCall): ToolExecutionResult {
+        if (call.rawArguments != null || !call.arguments.isJsonObject) {
+            return failure("工具调用失败: 模型返回的工具参数不是合法 JSON object，请修正参数后重新调用工具。原始参数：${call.argsString()}")
+        }
         val index = definitions.indexOfFirst { it.name == call.name }
         if (index < 0) return failure("工具调用失败: 模型请求了未注册的工具 `${call.name}`")
         return try {

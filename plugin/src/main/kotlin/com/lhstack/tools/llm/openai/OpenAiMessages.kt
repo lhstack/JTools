@@ -79,10 +79,10 @@ internal object OpenAiMessages {
                     calls.add(JsonObject().apply {
                         addProperty("id", call.callId ?: call.id)
                         addProperty("type", "function")
-                        val arguments = requireObjectArguments(call)
+                        val arguments = toolArguments(call)
                         add("function", JsonObject().apply {
                             addProperty("name", call.function.name)
-                            addProperty("arguments", arguments.toString())
+                            addProperty("arguments", arguments)
                         })
                     })
                 }
@@ -208,12 +208,12 @@ internal object OpenAiMessages {
 
                 is AssistantContent.ToolCall -> {
                     val call = item.toolCall
-                    val arguments = requireObjectArguments(call)
+                    val arguments = toolArguments(call)
                     items.add(JsonObject().apply {
                         addProperty("type", "function_call")
                         addProperty("call_id", call.callId ?: call.id)
                         addProperty("name", call.function.name)
-                        addProperty("arguments", arguments.toString())
+                        addProperty("arguments", arguments)
                     })
                 }
 
@@ -305,12 +305,13 @@ internal object OpenAiMessages {
         return if (filename.isJsonPrimitive && (filename as JsonPrimitive).isString) filename.asString else null
     }
 
-    private fun requireObjectArguments(call: ToolCall): JsonObject {
+    private fun toolArguments(call: ToolCall): String {
         require(call.function.name.isNotBlank()) { "历史工具调用缺少工具名称: ${call.id}" }
+        call.function.rawArguments?.let { return it }
         require(call.function.arguments.isJsonObject) {
             "历史工具调用 `${call.function.name}` 的 arguments 必须是 JSON 对象: ${call.id}"
         }
-        return call.function.arguments.asJsonObject
+        return call.function.arguments.toString()
     }
 
 }

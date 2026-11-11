@@ -31,6 +31,7 @@ class UnifiedMessageEventRecorder(
                 addProperty("tool_name", call.name)
                 add("arguments", call.arguments)
                 add("args", call.arguments)
+                call.rawArguments?.let { addProperty("raw_arguments", it) }
             })
         }
 

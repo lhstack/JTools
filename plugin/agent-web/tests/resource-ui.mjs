@@ -165,6 +165,7 @@ async function pageFor(kind, theme = "dark", width = 1124) {
           data = {
             url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZp8AAAAASUVORK5CYII=",
           };
+        else if (type === "resource.media") data = {url: window.testMediaUrl, mime: "video/webm"};
         else if (type === "resource.preview")
           data = {
             url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZp8AAAAASUVORK5CYII=",
@@ -362,6 +363,8 @@ async function verifyImageViewer(page, expectedSource) {
     throw Error("duplicate image dialog blocks toolbar");
   const image = viewer.locator(".el-image-viewer__img");
   await image.evaluate((img) => img.decode());
+  const fitted = await image.evaluate(img => ({width:img.clientWidth,height:img.clientHeight,naturalWidth:img.naturalWidth,fit:getComputedStyle(img).objectFit}));
+  if(fitted.width < 300 || fitted.height < 300 || fitted.fit !== 'contain') throw Error(`preview does not fill fixed viewport: ${JSON.stringify(fitted)}`);
   if (
     !(await page.evaluate(() =>
       testCalls.some(
@@ -727,7 +730,7 @@ try {
           summary: "reply",
           context: {
             response:
-              "[源码](src/App.kt#L2C3)\n![本地图](images/demo.png)\n![文件图](file:///tmp/test.png)",
+              "[源码](src/App.kt#L2C3)\n![本地图](images/demo.png)\n![文件图](file:///tmp/test.png)\n<img alt=\"wide-test\" src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='50'%3E%3C/svg%3E\">\n<img alt=\"tall-test\" src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='1200'%3E%3C/svg%3E\">\n<video controls width=\"900\" height=\"600\"></video>\n<audio controls></audio>",
           },
         },
       ],
@@ -735,6 +738,8 @@ try {
   );
   await page.getByRole("link", { name: "源码", exact: true }).click();
   await page.locator(".local-image img").first().waitFor();
+  const media=await page.locator('.markdown-body').evaluateAll(roots=>roots.flatMap(root=>[...root.querySelectorAll('img,video,audio')].map(node=>({tag:node.tagName,width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height,fit:getComputedStyle(node).objectFit}))));
+  if(media.length!==6 || media.some(x=>Math.abs(x.width-320)>1 || Math.abs(x.height-(x.tag==='AUDIO'?54:180))>1 || (x.tag==='IMG' && x.fit!=='cover') || (x.tag==='VIDEO' && x.fit!=='contain')))throw Error(`inconsistent Markdown media frames: ${JSON.stringify(media)}`);
   const resourceCalls = await page.evaluate(() => testCalls);
   if (
     !resourceCalls.some(
@@ -780,6 +785,26 @@ try {
   );
   await page.locator(".draft-thumb").first().click();
   await verifyImageViewer(page, { path: "/tmp/sample.png" });
+  // A local filesystem source must be removed before Chromium can resolve it against the chat origin.
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width=160; canvas.height=90;
+    const ctx=canvas.getContext('2d'); ctx.fillStyle='#0088cc';ctx.fillRect(0,0,160,90);
+    const stream=canvas.captureStream(10);const recorder=new MediaRecorder(stream,{mimeType:'video/webm'});
+    const chunks=[];recorder.ondataavailable=e=>chunks.push(e.data);
+    const recording=new Promise(resolve=>recorder.onstop=resolve);recorder.start();
+    await new Promise(resolve=>setTimeout(resolve,350));recorder.stop();await recording;stream.getTracks().forEach(t=>t.stop());
+    window.testMediaUrl=URL.createObjectURL(new Blob(chunks,{type:'video/webm'}));
+    window.jtoolsAgent.replace({sessions:[{id:44,name:'Media'}],currentSessionId:44,events:[{
+      id:2,session_id:44,turn_id:'media',event_type:'model_reply',status:'completed',summary:'media',
+      context:{response:'<video src="/workspace/clip.webm" controls></video>\n<video><source src="data:video/mp4;base64,AAAA" type="video/mp4"></video>'}
+    }]});
+  });
+  await page.waitForFunction(()=>document.querySelector('.markdown-body video')?.readyState>=2);
+  if(!(await page.evaluate(()=>testCalls.some(x=>x.type==='resource.media'&&x.payload.reference==='/workspace/clip.webm')))) throw Error('local video did not use host authorization');
+  await page.getByText('当前 IDE 无法解码此媒体格式',{exact:false}).waitFor();
+  const sources=await page.locator('.markdown-body video').evaluateAll(nodes=>nodes.map(v=>v.src));
+  if(sources.some(x=>x.includes('/workspace/clip.webm'))) throw Error('local video path leaked to browser URL');
+
   await page.evaluate(() =>
     window.jtoolsAgent.patch({
       events: [
@@ -827,7 +852,11 @@ try {
         .querySelector(".el-input-number")
         .closest(".el-form-item")
         .getBoundingClientRect();
+      const row=element.closest('.model-capability-row');
+      const identity=[...row.previousElementSibling.children].map(x=>x.getBoundingClientRect());
+      const capability=[...row.children].map(x=>x.getBoundingClientRect());
       return {
+        matchingColumns:capability.every((x,i)=>Math.abs(x.left-identity[i].left)<1 && Math.abs(x.width-identity[i].width)<1),
         besideContext:
           Math.abs(field.top - context.top) < 1 && field.left > context.right,
         count: boxes.length,
@@ -840,6 +869,7 @@ try {
     });
     if (
       layout.count !== 5 ||
+      !layout.matchingColumns ||
       !layout.besideContext ||
       !layout.compact ||
       !layout.aligned ||

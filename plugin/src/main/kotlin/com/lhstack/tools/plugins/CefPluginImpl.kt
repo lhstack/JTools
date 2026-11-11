@@ -691,16 +691,7 @@ class CefPluginImpl(
                     return false
                 }
             }, jbBrowser.cefBrowser)
-            jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
-                override fun onBeforeDownload(
-                    browser: CefBrowser?,
-                    downloadItem: CefDownloadItem?,
-                    suggestedName: String?,
-                    callback: CefBeforeDownloadCallback?,
-                ) {
-                    callback?.Continue(suggestedName, true)
-                }
-            }, jbBrowser.cefBrowser)
+            jbCefClient.addDownloadHandler(JcefDownloadHandlers.promptForDestination(), jbBrowser.cefBrowser)
             jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadStart(
                     browser: CefBrowser,

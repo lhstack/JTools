@@ -34,12 +34,7 @@ internal object AnthropicParser {
                 "tool_use" -> {
                     val id = stringField(blockObj, "id") ?: ""
                     calls.add(
-                        ProviderToolCall(
-                            id = id,
-                            callId = id,
-                            name = stringField(blockObj, "name") ?: "",
-                            arguments = toolInputArguments(blockObj.get("input")),
-                        )
+                        toolCall(id, stringField(blockObj, "name") ?: "", blockObj.get("input"))
                     )
                 }
             }
@@ -51,6 +46,11 @@ internal object AnthropicParser {
         round.providerMessages.add(assistantMessage(text.toString(), calls))
         round.usage.add(usage)
         return round
+    }
+
+    fun toolCall(id: String, name: String, input: JsonElement?): ProviderToolCall {
+        val raw = if (input == null) "{}" else if (input.isJsonPrimitive && input.asJsonPrimitive.isString) input.asString else input.toString()
+        return com.lhstack.tools.llm.LlmJson.toolCall(id, id, name, raw)
     }
 
     /** 照抄 tool_input_arguments：字符串则解析成 JSON，对象原样，缺失为空对象。 */
@@ -95,7 +95,7 @@ internal object AnthropicParser {
                     ToolCall(
                         id = call.id,
                         callId = call.callId,
-                        function = ToolFunction(name = call.name, arguments = call.arguments),
+                        function = ToolFunction(name = call.name, arguments = call.arguments, rawArguments = call.rawArguments),
                         signature = null,
                         additionalParams = null,
                     )

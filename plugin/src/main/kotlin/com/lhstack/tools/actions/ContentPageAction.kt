@@ -582,7 +582,7 @@ class ContentPageAction(
             val tabInfo = TabInfo(pluginTabPanel)
             tabInfo.setIcon(plugin.pluginTabIcon())
             tabInfo.setText(pluginInfo.name)
-            tabInfo.setTooltipText(plugin.pluginDesc())
+            com.lhstack.tools.components.TabTooltipSupport.setText(tabInfo, plugin.pluginDesc())
             tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
 
                 override fun update(e: AnActionEvent) {
@@ -636,7 +636,7 @@ class ContentPageAction(
             val tabInfo = TabInfo(pluginTabPanel)
             tabInfo.setIcon(plugin.pluginTabIcon())
             tabInfo.setText(pluginInfo.name)
-            tabInfo.setTooltipText(plugin.pluginDesc())
+            com.lhstack.tools.components.TabTooltipSupport.setText(tabInfo, plugin.pluginDesc())
             tabInfo.setTabLabelActions(DefaultActionGroup(object : AnAction({ "关闭" }, AllIcons.Actions.Close) {
 
                 override fun update(e: AnActionEvent) {
