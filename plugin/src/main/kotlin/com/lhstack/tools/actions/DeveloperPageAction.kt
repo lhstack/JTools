@@ -19,7 +19,6 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
@@ -649,7 +648,9 @@ class DeveloperPageAction(windowPanel: SimpleToolWindowPanel, private val projec
                     )
                     project.refresh {
                         LocalFileSystem.getInstance().findFileByIoFile(pluginInfo)?.let { file ->
-                            FileEditorManager.getInstance(project).openFile(file, true)
+                            com.lhstack.tools.ide.EditorNavigation.openFile(project, file).whenComplete { _, error ->
+                                if (error != null) com.intellij.openapi.diagnostic.Logger.getInstance(DeveloperPageAction::class.java).error("打开插件配置失败", error)
+                            }
                         }
                     }
                 }

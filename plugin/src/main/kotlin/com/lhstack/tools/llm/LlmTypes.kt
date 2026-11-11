@@ -106,6 +106,7 @@ data class ToolCall(
 data class ToolFunction(
     val name: String,
     val arguments: JsonElement,
+    val rawArguments: String? = null,
 )
 
 data class ToolResult(
@@ -454,8 +455,9 @@ data class ProviderToolCall(
     val callId: String?,
     val name: String,
     val arguments: JsonElement,
+    val rawArguments: String? = null,
 ) {
-    fun argsString(): String = when (arguments) {
+    fun argsString(): String = rawArguments ?: when (arguments) {
         is JsonPrimitive -> if (arguments.isString) arguments.asString else arguments.toString()
         JsonNull.INSTANCE -> ""
         else -> arguments.toString()

@@ -301,7 +301,17 @@ html:not(.dark) .tok-link,html:not(.dark) .tok-url,html:not(.dark) .tok-heading{
 html:not(.dark) .tok-inserted{color:#116329}
 html:not(.dark) .tok-deleted,html:not(.dark) .tok-invalid{color:#cf222e}
 
-.local-image{display:block;max-width:100%;margin:8px 0;color:var(--jb-muted);overflow:hidden;cursor:pointer}
-.local-image img{display:block;max-width:100%;height:auto;border-radius:4px}
-
-.markdown-body img { cursor: zoom-in; }
+/* Reserve media frames before loading so intrinsic sizes do not shift the timeline. */
+.markdown-body .local-image,
+.markdown-body img,
+.markdown-body video { display:block; width:320px; max-width:100%; height:180px; box-sizing:border-box; margin:8px 0; border-radius:6px; background:var(--soft-panel); object-fit:contain; }
+.markdown-body .local-image { display:grid; place-items:center; overflow:hidden; color:var(--jb-muted); cursor:pointer; }
+.markdown-body .local-image img { width:100%; height:180px; min-height:0; margin:0; }
+.markdown-body audio { display:block; width:320px; max-width:100%; height:54px; margin:8px 0; }
+.markdown-body img { cursor:zoom-in; object-fit:cover; }
+.markdown-body .local-image img { height:100%; object-fit:cover; }
+.markdown-media { width:320px; max-width:100%; margin:8px 0; }
+.markdown-media video,.markdown-media audio { width:100%; margin:0 0 6px; }
+.media-status { color:var(--jb-muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.media-status:empty { display:none; }
+.markdown-media > a { font-size:12px; }

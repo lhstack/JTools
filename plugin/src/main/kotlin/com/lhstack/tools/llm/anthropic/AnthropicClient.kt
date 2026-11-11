@@ -550,14 +550,9 @@ private class StreamBlock(
     fun argumentsJson(): String =
         if (partialInput.isEmpty()) input.toString() else partialInput.toString()
 
-    fun intoToolCall(): ProviderToolCall {
-        val arguments = if (partialInput.isEmpty()) {
-            AnthropicParser.toolInputArguments(input)
-        } else {
-            com.lhstack.tools.llm.LlmJson.parseArgs(partialInput.toString())
-        }
-        return ProviderToolCall(id = id, callId = id, name = name, arguments = arguments)
-    }
+    fun intoToolCall(): ProviderToolCall =
+        if (partialInput.isEmpty()) AnthropicParser.toolCall(id, name, input)
+        else com.lhstack.tools.llm.LlmJson.toolCall(id, id, name, partialInput.toString())
 
     companion object {
         fun fromStart(block: JsonObject): StreamBlock = StreamBlock(

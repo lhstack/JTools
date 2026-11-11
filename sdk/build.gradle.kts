@@ -39,7 +39,9 @@ tasks {
 }
 dependencies {
     intellijPlatform{
-        intellijIdeaCommunity("2025.2")
+        val localPlatform = providers.gradleProperty("intellijPlatformLocalPath").orNull
+        if (localPlatform != null) local(localPlatform)
+        else intellijIdeaCommunity("2025.1")
     }
 }
 

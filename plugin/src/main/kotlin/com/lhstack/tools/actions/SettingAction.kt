@@ -15,7 +15,7 @@ import com.lhstack.tools.ext.*
 import com.lhstack.tools.plugins.pluginManager
 import com.lhstack.tools.plugins.pluginState
 import org.apache.commons.io.FileUtils
-import org.jdesktop.swingx.VerticalLayout
+import com.intellij.ui.components.panels.VerticalLayout
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
@@ -38,7 +38,7 @@ class SettingAction(windowPanel: SimpleToolWindowPanel, val project: Project) : 
 
     init {
 
-        panel.layout = VerticalLayout()
+        panel.layout = VerticalLayout(0)
         panel.add(buildGeneralSettingsPanel())
         scrollPane = JBScrollPane(panel).apply {
             border = JBUI.Borders.empty()

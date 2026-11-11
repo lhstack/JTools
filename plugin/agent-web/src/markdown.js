@@ -22,6 +22,8 @@ function htmlSanitizeOptions() {
     ],
     ADD_ATTR: [
       "controls",
+      "preload",
+      "poster",
       "src",
       "srcdoc",
       "type",
@@ -32,6 +34,7 @@ function htmlSanitizeOptions() {
       "loading",
       "data-resource-reference",
       "data-resource-image",
+      "data-resource-media",
       "referrerpolicy",
       "allow",
       "class",
@@ -170,8 +173,18 @@ export const markdown = {
         return `${prefix}\nHTML_BLOCK_${index}\n`;
       },
     );
+    const document = new DOMParser().parseFromString(
+      marked.parse(markdownText, { renderer: createMarkdownRenderer() }), "text/html",
+    );
+    document.querySelectorAll("video[src],audio[src],video source[src],audio source[src]").forEach((source) => {
+      const reference = source.getAttribute("src");
+      if (isLocalResource(reference)) {
+        source.dataset.resourceMedia = reference;
+        source.removeAttribute("src");
+      }
+    });
     let rendered = DOMPurify.sanitize(
-      marked.parse(markdownText, { renderer: createMarkdownRenderer() }),
+      document.body.innerHTML,
       htmlSanitizeOptions(),
     );
     htmlBlocks.forEach((html, index) => {

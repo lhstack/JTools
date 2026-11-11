@@ -734,11 +734,11 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             usage: Usage,
         ): ProviderRound {
             val providerCalls = calls.values.map { call ->
-                ProviderToolCall(
+                com.lhstack.tools.llm.LlmJson.toolCall(
                     id = call.id,
                     callId = call.id,
                     name = call.name,
-                    arguments = com.lhstack.tools.llm.LlmJson.parseArgs(call.arguments.toString()),
+                    raw = call.arguments.toString(),
                 )
             }
             val round = ProviderRound(response = text)

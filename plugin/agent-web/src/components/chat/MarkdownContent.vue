@@ -3,7 +3,7 @@ import { computed, ref, watch, nextTick, onBeforeUnmount } from "vue";
 import { ElMessage } from "element-plus";
 import { api, invoke } from "../../bridge/jcefBridge";
 import ImagePreview from "./ImagePreview.vue";
-import { markdown } from "../../markdown.js";
+import { markdown, isLocalResource } from "../../markdown.js";
 
 const props = defineProps({
   content: { type: String, default: "" },
@@ -97,6 +97,58 @@ async function loadImage(node, version) {
     }
   }
 }
+function mediaFailure(media) {
+  const code = media.error?.code;
+  if (code === 4 || code === 3) return "当前 IDE 无法解码此媒体格式。JCEF 通常不支持 H.264／H.265／AAC，可使用 WebM（VP8／VP9 + Opus）或通过下方链接打开原文件。";
+  if (code === 2) return "媒体网络请求失败，请检查地址、网络连接或访问权限。";
+  return "媒体加载失败，请检查文件地址和编码格式。";
+}
+async function prepareMedia(media, version) {
+  const source = media.matches("[src],[data-resource-media]") ? media : media.querySelector("source[src],source[data-resource-media]");
+  const reference = source?.dataset.resourceMedia || source?.getAttribute("src");
+  if (!reference) return;
+  const frame = document.createElement("div");
+  frame.className = "markdown-media";
+  media.before(frame);
+  frame.append(media);
+  media.controls = true;
+  media.preload = "metadata";
+  const status = document.createElement("div");
+  status.className = "media-status";
+  status.textContent = "正在加载媒体…";
+  frame.append(status);
+  const link = document.createElement("a");
+  link.textContent = "打开原文件";
+  if (isLocalResource(reference)) {
+    link.href = "#";
+    link.dataset.resourceReference = reference;
+  } else link.href = reference;
+  frame.append(link);
+  media.addEventListener("error", () => { status.textContent = mediaFailure(media); });
+  const candidates = [...media.querySelectorAll("source")];
+  const failed = new Set();
+  candidates.forEach(candidate => candidate.addEventListener("error", () => {
+    failed.add(candidate);
+    if (failed.size === candidates.length) status.textContent = "当前 IDE 无法解码此媒体格式，或媒体地址不可访问。请检查地址与编码格式；可使用 WebM（VP8／VP9 + Opus），或通过下方链接打开原文件。";
+  }));
+  media.addEventListener("loadedmetadata", () => { status.textContent = ""; });
+  try {
+    const sources = media.matches("[src],[data-resource-media]") ? [media] : candidates;
+    for (const item of sources) {
+      const local = item.dataset.resourceMedia || item.getAttribute("src");
+      if (!isLocalResource(local)) continue;
+      if (!props.sessionId) throw Error("媒体缺少会话上下文");
+      item.removeAttribute("src");
+      const result = await api("resource.media", { sessionId: String(props.sessionId), reference: local });
+      if (version !== generation || !media.isConnected) return;
+      item.src = result.url;
+    }
+    media.load();
+  } catch (error) {
+    if (version === generation && media.isConnected) status.textContent = `媒体加载失败：${error.message}`;
+  }
+}
+
 watch(
   [html, () => props.sessionId],
   async () => {
@@ -108,6 +160,7 @@ watch(
     observer?.disconnect();
     await nextTick();
     if (version !== generation || !root.value) return;
+    root.value.querySelectorAll("video,audio").forEach((media) => prepareMedia(media, version));
     observer = new IntersectionObserver(
       (entries) =>
         entries.forEach((entry) => {

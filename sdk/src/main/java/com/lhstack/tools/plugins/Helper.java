@@ -16,7 +16,6 @@ import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.fileChooser.*;
-import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.IconLoader;
@@ -282,7 +281,9 @@ public class Helper {
                     if (virtualFile == null) {
                         throw new RuntimeException("Can't find file,path: " + path);
                     }
-                    FileEditorManager.getInstance(project).openFile(virtualFile, true);
+                    com.lhstack.tools.ide.EditorNavigation.openFile(project, virtualFile).whenComplete((ignored, error) -> {
+                        if (error != null) com.intellij.openapi.diagnostic.Logger.getInstance(Helper.class).error("Failed to open file: " + path, error);
+                    });
                 }
             }
         });

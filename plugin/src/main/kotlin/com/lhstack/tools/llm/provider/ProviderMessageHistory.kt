@@ -84,6 +84,7 @@ internal object ProviderMessageHistory {
                     call.callId?.let { addProperty("call_id", it) }
                     addProperty("name", call.function.name)
                     add("arguments", call.function.arguments.deepCopy())
+                    call.function.rawArguments?.let { addProperty("raw_arguments", it) }
                 }
             }
     }
@@ -124,7 +125,7 @@ internal object ProviderMessageHistory {
         "tool_call" -> AssistantContent.ToolCall(ToolCall(
             id = requiredString(value, "id"),
             callId = optionalString(value, "call_id"),
-            function = ToolFunction(requiredString(value, "name"), requireNotNull(value.get("arguments")) { "tool_call.arguments is required" }.deepCopy()),
+            function = ToolFunction(requiredString(value, "name"), requireNotNull(value.get("arguments")) { "tool_call.arguments is required" }.deepCopy(), optionalString(value, "raw_arguments")),
             signature = null,
             additionalParams = null,
         ))

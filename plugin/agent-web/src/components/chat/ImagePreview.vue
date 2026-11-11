@@ -15,6 +15,11 @@ import { api } from "../../bridge/jcefBridge";
 const props = defineProps({ image: { type: Object, required: true } });
 defineEmits(["close"]);
 const busy = ref(false);
+const originalSize = ref(false);
+function toggleSize(reset) {
+  originalSize.value = !originalSize.value;
+  reset();
+}
 async function transfer(action) {
   if (busy.value) return;
   busy.value = true;
@@ -35,7 +40,7 @@ async function transfer(action) {
 <template>
   <el-image-viewer :url-list="[image.url]" teleported @close="$emit('close')">
     <template #toolbar="{ actions, reset }">
-      <div class="image-preview-toolbar" @click.stop @mousedown.stop>
+      <div class="image-preview-toolbar" :class="{ 'original-size': originalSize }" @click.stop @mousedown.stop>
         <button
           type="button"
           title="缩小"
@@ -56,7 +61,7 @@ async function transfer(action) {
           type="button"
           title="原始尺寸／适应窗口"
           aria-label="原始尺寸／适应窗口"
-          @click="reset"
+          @click="toggleSize(reset)"
         >
           <el-icon><FullScreen /></el-icon>
         </button>
@@ -134,4 +139,11 @@ async function transfer(action) {
   width: 1px;
   background: rgba(255, 255, 255, 0.25);
 }
+</style>
+
+<style>
+.el-image-viewer__wrapper:has(.image-preview-toolbar) .el-image-viewer__canvas { position:absolute; inset:64px 56px 104px; width:auto; height:auto; overflow:hidden; }
+.el-image-viewer__wrapper:has(.image-preview-toolbar:not(.original-size)) .el-image-viewer__img { width:100%; height:100%; object-fit:contain; }
+.el-image-viewer__wrapper:has(.image-preview-toolbar.original-size) .el-image-viewer__img { max-width:none; max-height:none; }
+@media (max-width:600px) { .el-image-viewer__wrapper:has(.image-preview-toolbar) .el-image-viewer__canvas { inset:64px 16px 104px; } }
 </style>

@@ -17,6 +17,7 @@
     JTools is a powerful and lightweight plugin management container designed specifically for JetBrains IDEs.
     It revolutionizes the plugin development experience by providing hot-plugging capabilities,
     allowing developers to install, update, and uninstall plugins without restarting the IDE.
+    <p><b>IDE compatibility:</b> One installation package supports builds 251.0–263.* (IntelliJ Platform 2025.1–2026.3), including platform JCEF on older IDEs and the Web Browser (JCEF) plugin on 2026.2+.</p>
 
     <div style="margin-top: 15px; margin-bottom: 15px;">
         <a href="https://github.com/lhstack/JTools">📖 Documentation</a> |
@@ -92,6 +93,7 @@
 
     <h1>🛠️ JTools - 轻量级插件容器</h1>
     <p>JTools 是一个专为 JetBrains IDE 设计的强大且轻量级的插件管理容器。它通过提供热插拔功能彻底改变了插件开发体验，允许开发者在不重启 IDE 的情况下安装、更新和卸载插件。</p>
+    <p><b>IDE 兼容范围：</b>同一个安装包支持 251.0–263.*（IntelliJ Platform 2025.1–2026.3），同时支持旧版平台内置 JCEF 和 2026.2+ 的 Web Browser (JCEF) 插件。</p>
 
     <h2>✨ 核心特性</h2>
     <ul>
@@ -166,6 +168,10 @@
                 <li>🔍 <b>Unified Image Preview:</b> Markdown images, composer attachments, and user-message images share a viewer with zoom, rotation, and original-size / fit-to-window controls. Copy and download actions in the bottom toolbar use the JS bridge to copy image data or open the IDE save dialog; local downloads preserve the original file contents.</li>
                 <li>🐛 <b>Image Toolbar Fix:</b> Removed the duplicate dialog that blocked the viewer controls and caused zoom and rotation to stop working. The viewer now participates in host popup-state management.</li>
                 <li>🎛️ <b>Configuration and Navigation:</b> Place compact modality controls beside the context-window field on the same row, improve resource management, and standardize the management menu labels.</li>
+                <li>🛠️ <b>Tool Argument Failures:</b> Invalid JSON or non-object arguments in a completed tool call now produce a tool failure with the original arguments and call identity, allowing the model to correct the call without retrying the whole response. Covers streaming and non-streaming Chat Completions, Responses, and Anthropic APIs.</li>
+                <li>🌐 <b>JCEF Dependency Fix:</b> Added an optional Web Browser (JCEF) dependency for 2026.2+ while earlier IDEs use platform JCEF. The download handler binds to the runtime void/boolean callback contract. One ZIP supports builds 251.0–263.* (2025.1–2026.3).</li>
+                <li>🎞️ <b>Media Rendering:</b> Local audio/video references use session-authorized streaming with byte-range seeking. Failed media shows an explicit error and original-file link. Unsupported JCEF codecs (H.264/H.265/AAC) require a supported format such as WebM (VP8/VP9 + Opus). Image thumbnails fill fixed frames; the preview fits a fixed viewport with zoom, rotate, copy, and download controls.</li>
+                <li>🔧 <b>IDE API Compatibility:</b> Replaced the settings page SwingX VerticalLayout with the IntelliJ layout. New IDEs use asynchronous editor opening and HtmlChunk tab tooltips, with host API selection for older IDEs. Editor snapshots use Application.runReadAction(Computable), retaining the 251–263 single-package range.</li>
                 <li>📦 <b>Version Metadata:</b> Updated the plugin version to <code>v1.1.5.8</code> and the SDK Helper version marker to <code>1158</code>.</li>
             </ul>
             <ul>
@@ -177,6 +183,8 @@
                 <li>🔍 <b>统一图片预览：</b>Markdown 图片、输入框附件和用户消息图片共用查看器，支持放大、缩小、原始尺寸／适应窗口及左右旋转。底部工具栏新增复制图片和下载图片，通过 JS 桥接写入系统剪贴板或打开 IDEA 保存对话框，本地图片下载保留原始文件内容。</li>
                 <li>🐛 <b>图片预览工具栏修复：</b>移除与查看器同时打开的重复弹窗，解决遮挡操作区导致缩放、旋转失效的问题，并将查看器纳入宿主弹层状态管理。</li>
                 <li>🎛️ <b>配置与导航优化：</b>模型多模态能力以紧凑按钮组放在上下文窗口右侧并保持同一行；完善资源管理界面，并统一右上角管理菜单命名。</li>
+                <li>🛠️ <b>工具参数错误归属修复：</b>模型完成工具调用后，非法 JSON 或非对象参数作为该工具的调用失败返回，保留原始参数与调用标识，供模型修正；不再因参数格式错误重试整轮响应，覆盖 Chat Completions、Responses、Anthropic 的流式与非流式调用。</li>
+                <li>🌐 <b>新版 IDE JCEF 依赖修复：</b>通过可选依赖连接 2026.2+ 的 Web Browser (JCEF) 插件，旧版沿用平台内置 JCEF；下载处理器按运行时接口适配 void / boolean 返回值，同一个安装包支持 251.0–263.*（2025.1–2026.3）。</li>
                 <li>📦 <b>版本元数据同步：</b>插件版本升级到 <code>v1.1.5.8</code>，SDK Helper 版本标识同步为 <code>1158</code>。</li>
             </ul>
 
@@ -324,11 +332,12 @@
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="jcef.xml">com.intellij.modules.jcef</depends>
     <depends config-file="java.xml" optional="true">com.intellij.java</depends>
     <depends optional="true" config-file="maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="gradle.xml">com.intellij.gradle</depends>
     <depends optional="true" config-file="gradle-dsl.xml">org.jetbrains.idea.gradle.dsl</depends>
-    <idea-version since-build="251" until-build="265.*" />
+    <idea-version since-build="251.0" until-build="263.*" />
     <projectListeners>
         <listener class="com.lhstack.tools.listener.PluginProjectManagerListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

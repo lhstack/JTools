@@ -35,6 +35,14 @@ internal class AgentChatBrowser(
     private val onDropFiles: ((List<java.io.File>) -> Unit)? = null,
     private val onEscapeKey: (() -> Boolean)? = null,
 ) : Disposable {
+    private var localMediaServer: com.lhstack.tools.agent.resources.LocalMediaServer? = null
+
+    @Synchronized
+    fun mediaUrl(file: java.io.File): Map<String, String> {
+        val server = localMediaServer ?: com.lhstack.tools.agent.resources.LocalMediaServer().also { localMediaServer = it }
+        return server.register(file)
+    }
+
     private val browser: JBCefBrowser?
     private var ready = false
     private var pendingState: Any? = null
@@ -255,6 +263,8 @@ internal class AgentChatBrowser(
     }
 
     override fun dispose() {
+        localMediaServer?.close()
+        localMediaServer = null
         renderTimer.stop()
         patchTimer.stop()
         pendingState = null

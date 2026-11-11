@@ -62,7 +62,9 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("junit:junit:4.13.2")
     intellijPlatform{
-        intellijIdeaCommunity("2025.2")
+        val localPlatform = providers.gradleProperty("intellijPlatformLocalPath").orNull
+        if (localPlatform != null) local(localPlatform)
+        else intellijIdeaCommunity("2025.1")
         bundledPlugin("com.intellij.java")
         bundledPlugin("com.intellij.gradle")
         bundledPlugin("org.jetbrains.idea.maven")
@@ -80,10 +82,10 @@ val proguardRules = listOf(
     "-useuniqueclassmembernames",
     "-dontwarn !com.lhstack.tools.**",
     "-flattenpackagehierarchy",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.10/30de6faa127a4a012db8e71bf1b9c0a99b1402b2/kotlin-stdlib-2.2.10.jar",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/util.jar",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app.jar",
-    "-libraryjars /Volumes/Documents/repo/gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app-client.jar",
+    "-libraryjars /Users/lhstack/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.10/30de6faa127a4a012db8e71bf1b9c0a99b1402b2/kotlin-stdlib-2.2.10.jar",
+    "-libraryjars /Users/lhstack/.gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/util.jar",
+    "-libraryjars /Users/lhstack/.gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app.jar",
+    "-libraryjars /Users/lhstack/.gradle/caches/transforms-4/b7d39ba7ebfe4e6e47f9dff8282428be/transformed/ideaIC-2025.2-aarch64/lib/app-client.jar",
     "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.base.jmod(!.jar;!module-info.class)",
     "-libraryjars /Users/lhstack/.sdkman/candidates/java/17.0.9-graalce/jmods/java.desktop.jmod(!.jar;!module-info.class)",
 //    "-libraryjars D:\\Documents\\Repo\\gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.10\\30de6faa127a4a012db8e71bf1b9c0a99b1402b2\\kotlin-stdlib-2.2.10.jar",
@@ -110,6 +112,8 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.plugins.CefPluginCacheState\$State { *; }",
     "-keep class com.lhstack.tools.agent.AgentAttachmentState { *; }",
     "-keep class com.lhstack.tools.agent.AgentBrowserCommand { *; }",
+    "-keep class com.lhstack.tools.ide.EditorNavigation { *; }",
+    "-keep class com.lhstack.tools.plugins.JcefDownloadHandlers { *; }",
     "-keep class com.lhstack.tools.agent.AgentChatPanel { *; }",
     "-keep class com.lhstack.tools.agent.AgentChatPanel$* { *; }",
     "-keepclassmembers class * { @com.google.gson.annotations.SerializedName <fields>; }",
@@ -270,8 +274,8 @@ tasks {
     }
 
     patchPluginXml {
-        sinceBuild.set("251")
-        untilBuild.set("265.*")
+        sinceBuild.set("251.0")
+        untilBuild.set("263.*")
     }
 
     signPlugin {

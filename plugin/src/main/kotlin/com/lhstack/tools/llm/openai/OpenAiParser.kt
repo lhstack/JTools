@@ -115,11 +115,11 @@ internal object OpenAiParser {
             "message" -> collectResponseMessageText(obj, text)
             "reasoning" -> collectResponseReasoning(obj, reasoning)
             "function_call" -> calls.add(
-                ProviderToolCall(
+                com.lhstack.tools.llm.LlmJson.toolCall(
                     id = (obj.getString("id") ?: obj.getString("call_id")).orEmpty(),
                     callId = obj.getString("call_id"),
-                    name = obj.getString("name").orEmpty(),
-                    arguments = com.lhstack.tools.llm.LlmJson.parseArgs(obj.getString("arguments") ?: "{}"),
+                    name = obj.getString("name") ?: "",
+                    raw = obj.getString("arguments") ?: "{}",
                 )
             )
         }
@@ -167,12 +167,12 @@ internal object OpenAiParser {
         val function = obj.getObject("function")
             ?: throw IllegalStateException("OpenAI tool call missing function")
         val id = obj.getString("id").orEmpty()
-        return ProviderToolCall(
+        return com.lhstack.tools.llm.LlmJson.toolCall(
             id = id,
             callId = obj.getString("id"),
             name = function.getString("name")
                 ?: throw IllegalStateException("OpenAI tool call missing function.name"),
-            arguments = com.lhstack.tools.llm.LlmJson.parseArgs(function.getString("arguments") ?: "{}"),
+            raw = function.getString("arguments") ?: "{}",
         )
     }
 
@@ -188,7 +188,7 @@ internal object OpenAiParser {
                     ToolCall(
                         id = call.id,
                         callId = call.callId,
-                        function = ToolFunction(name = call.name, arguments = call.arguments),
+                        function = ToolFunction(name = call.name, arguments = call.arguments, rawArguments = call.rawArguments),
                         signature = null,
                         additionalParams = null,
                     )
