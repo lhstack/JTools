@@ -441,7 +441,6 @@ private class SubagentRunTool(
                         "write_project_files",
                         "replace_project_text",
                         "bash",
-                        "build_project",
                         "format_project_files",
                     )
                 )

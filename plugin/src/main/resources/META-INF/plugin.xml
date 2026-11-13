@@ -161,6 +161,7 @@
             <ul>
                 <li>📄 <b>Paged MCP Results:</b> Large mcp.call results are saved as complete UTF-8 JSON, returning only a summary and file metadata. Read files in batches with normal Bash commands. The global mcp.call.max_output_chars defaults to 8000 with a minimum of 1024; original MCP error status is retained.</li>
                 <li>🐚 <b>File-Backed Bash Output:</b> Agent and coding sessions save oversized stdout/stderr as UTF-8 temporary files, returning only execution status, a summary and file paths. Read files in batches with normal Bash commands without rerunning the original command. Output volume no longer terminates commands; timeout and cancellation remain active. Return limits default to 8000 with a minimum of 1024 characters.</li>
+                <li>🧰 <b>Project Tools:</b> Removed IDE build and inspection tools. Use Bash with the project’s own build, compilation, packaging and checking commands; file editing, search and IDE formatting tools remain available.</li>
                 <li>🧭 <b>On-Demand CLI Help:</b> Tool descriptions list short command purposes; doc provides an index and &lt;command&gt; --help returns detailed parameters.</li>
                 <li>📂 <b>Local Resource Paths:</b> Markdown links, local media and native multimodal tools accept absolute paths outside the workspace. Relative paths still resolve against the session workspace; native resource tools also accept current attachment IDs.</li>
                 <li>🖼️ <b>Markdown Images:</b> Images stretch to fill fixed thumbnail frames. The full-size viewer preserves aspect ratio, zoom, rotation, copy and download controls.</li>
@@ -171,6 +172,7 @@
             <ul>
                 <li>📄 <b>MCP 大结果分页：</b>mcp.call 超限后保存完整 UTF-8 JSON，只返回摘要和文件信息，用普通 Bash 命令按路径分批读取；全局字符上限默认 8000、最小 1024，保留 MCP 原始错误状态。</li>
                 <li>🐚 <b>Bash 大结果分页：</b>普通 Agent 和编码会话将超限 stdout/stderr 保存为 UTF-8 临时文件，只返回执行状态、摘要和文件地址，用普通 Bash 命令按路径分批读取，无需重新执行。返回上限默认 8000、最小 1024 字符，不因输出量终止进程，保留超时与取消。</li>
+                <li>🧰 <b>精简项目工具：</b>移除 IDE 构建与 Inspection 工具，构建、编译、打包和检查通过 Bash 执行项目自身命令；保留文件读写、查找、搜索与 IDE 格式化。</li>
                 <li>🧭 <b>CLI 按需帮助：</b>工具描述列出各指令简短用途，doc 提供索引，&lt;指令&gt; --help 返回详细参数。</li>
                 <li>📂 <b>本地资源路径：</b>Markdown 链接、本地音视频及原生多模态工具支持工作区外绝对路径；相对路径仍按会话工作区解析，原生资源工具支持当前附件 ID。</li>
                 <li>🖼️ <b>Markdown 图片：</b>拉伸铺满固定缩略图区域，大图查看器等比显示，保留缩放、旋转、复制与下载。</li>

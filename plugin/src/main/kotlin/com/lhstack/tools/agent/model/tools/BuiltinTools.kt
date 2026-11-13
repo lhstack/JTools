@@ -50,8 +50,6 @@ object BuiltinTools {
         BuiltinToolInfo("find_project_classes", "ide", "按名称查找类或类型。"),
         BuiltinToolInfo("search_project_text", "ide", "搜索项目文件内容。"),
         BuiltinToolInfo("format_project_files", "ide", "格式化项目文件指定行。"),
-        BuiltinToolInfo("build_project", "ide", "使用 IDE 构建项目。"),
-        BuiltinToolInfo("inspect_project_files", "ide", "使用 IDE 检查项目文件。"),
     )
 
     /** 照抄 builtin_tools：按配置的多模态资源类型追加 view_* 工具。 */

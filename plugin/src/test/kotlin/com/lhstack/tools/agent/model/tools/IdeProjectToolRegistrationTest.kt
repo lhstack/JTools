@@ -15,8 +15,6 @@ class IdeProjectToolRegistrationTest {
             "find_project_classes",
             "search_project_text",
             "format_project_files",
-            "build_project",
-            "inspect_project_files",
         )
         assertEquals(expected, RuntimeTools.REGISTERED_BUILTIN_TOOL_NAMES.intersect(expected))
         assertEquals(expected, BuiltinTools.BUILTIN_TOOLS.map { it.name }.toSet().intersect(expected))
@@ -27,7 +25,7 @@ class IdeProjectToolRegistrationTest {
     companion object {
         private val LEGACY_IDE_TOOL_NAMES = setOf(
             "read_file", "write_file", "replace_text_in_file", "find_files",
-            "search_text", "format_file", "compile_project", "get_file_problems",
+            "search_text", "format_file", "compile_project", "get_file_problems", "build_project", "inspect_project_files",
         )
     }
 }

@@ -99,8 +99,6 @@ function toolDescription(name) {
     find_project_classes: "查找类或等价类型",
     search_project_text: "搜索项目文本",
     format_project_files: "IDE 格式化",
-    inspect_project_files: "IDE Inspection",
-    build_project: "构建项目",
     bash: "执行命令",
     web_fetch: "HTTP 请求",
     cli: "CLI / MCP 调用",

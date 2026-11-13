@@ -29,8 +29,6 @@ object RuntimeTools {
             FindProjectClassesTool.NAME,
             SearchProjectTextTool.NAME,
             FormatProjectFilesTool.NAME,
-            BuildProjectTool.NAME,
-            InspectProjectFilesTool.NAME,
         )
 
     fun create(
@@ -120,8 +118,6 @@ object RuntimeTools {
             if (enabled(FindProjectClassesTool.NAME)) tools.add(FindProjectClassesTool(ide))
             if (enabled(SearchProjectTextTool.NAME)) tools.add(SearchProjectTextTool(ide))
             if (enabled(FormatProjectFilesTool.NAME)) tools.add(FormatProjectFilesTool(ide))
-            if (enabled(BuildProjectTool.NAME)) tools.add(BuildProjectTool(ide, cancel))
-            if (enabled(InspectProjectFilesTool.NAME)) tools.add(InspectProjectFilesTool(ide))
         }
         return tools
     }

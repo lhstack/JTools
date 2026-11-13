@@ -34,8 +34,6 @@ class IdeProjectToolSchemaTest {
             .getAsJsonObject("properties").getAsJsonObject("include_global").get("default").asBoolean)
         assertEquals(setOf("text"), requiredByTool.getValue(SearchProjectTextTool.NAME))
         assertEquals(setOf("files"), requiredByTool.getValue(FormatProjectFilesTool.NAME))
-        assertEquals(emptySet(), requiredByTool.getValue(BuildProjectTool.NAME))
-        assertEquals(setOf("paths"), requiredByTool.getValue(InspectProjectFilesTool.NAME))
     }
 
     private fun assertObjectContract(toolName: String, schema: JsonObject) {
@@ -87,8 +85,6 @@ class IdeProjectToolSchemaTest {
             FindProjectClassesTool(support),
             SearchProjectTextTool(support),
             FormatProjectFilesTool(support),
-            BuildProjectTool(support, null),
-            InspectProjectFilesTool(support),
         ).map { tool -> tool.definition("") }
     }
 }
