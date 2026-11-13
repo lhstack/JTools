@@ -58,6 +58,10 @@ const messages = {
         execution: '执行控制'
       },
       paramFields: {
+        context_window: '上下文窗口',
+        modalities: '支持的输入类型',
+        max_history_messages: '历史消息上限',
+        truncation: '输入截断策略',
         temperature: '采样温度',
         top_p: 'Top P',
         top_k: 'Top K',
@@ -112,6 +116,10 @@ const messages = {
         history_token_ratio: '历史 Token 字符比例'
       },
       paramFieldTips: {
+        context_window: '模型上下文窗口大小，以 Token 为单位，用于上下文用量计算和压缩判断。',
+        modalities: '选择此模型可直接接收的输入类型；未支持的类型可交给配置的资源 Agent 处理。',
+        max_history_messages: '限制保留的历史消息数量，0 表示不限制。',
+        truncation: '控制输入超过模型上下文窗口时的处理方式。',
         temperature: '控制随机性。值越高回复越发散，值越低越稳定。',
         top_p: '只从累计概率 Top P 范围内采样。通常不要和采样温度同时大幅调整。',
         top_k: '只从概率最高的 K 个候选 token 中采样。',

@@ -26,7 +26,7 @@ class LocalResourceReferenceTest {
     }
 
     @Test
-    fun `resolves file URIs unicode line columns and session uploads but rejects escapes`() {
+    fun `resolves absolute external files relative paths file URIs and symlinks without workspace membership checks`() {
         val root = Files.createTempDirectory("jtools-ref").toFile()
         val outside = Files.createTempFile("jtools-upload", ".png").toFile()
         try {
@@ -47,12 +47,9 @@ class LocalResourceReferenceTest {
                     )
                     .file,
             )
-            assertFailsWith<IllegalArgumentException> {
-                LocalResourceReferenceSupport.resolve(outside.path, root.path)
-            }
             assertEquals(
                 outside.canonicalFile,
-                LocalResourceReferenceSupport.resolve(outside.path, root.path, setOf(outside.path))
+                LocalResourceReferenceSupport.resolve(outside.path, root.path)
                     .file,
             )
             assertFailsWith<IllegalArgumentException> {
@@ -63,8 +60,14 @@ class LocalResourceReferenceTest {
             }
             val link = root.resolve("escape")
             Files.createSymbolicLink(link.toPath(), outside.toPath())
+            assertEquals(outside.canonicalFile, LocalResourceReferenceSupport.resolve("escape", root.path).file)
+            assertEquals(outside.canonicalFile, LocalResourceReferenceSupport.resolve(root.toPath().relativize(outside.toPath()).toString(), root.path).file)
+            assertEquals(outside.canonicalFile, LocalResourceReferenceSupport.resolve(outside.toURI().toASCIIString(), root.path).file)
             assertFailsWith<IllegalArgumentException> {
-                LocalResourceReferenceSupport.resolve("escape", root.path)
+                LocalResourceReferenceSupport.resolve("file://remote-host/example.png", root.path)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                LocalResourceReferenceSupport.resolve(outside.path + ".missing", root.path)
             }
         } finally {
             root.deleteRecursively()

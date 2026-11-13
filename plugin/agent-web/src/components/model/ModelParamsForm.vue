@@ -100,7 +100,7 @@ const agentRuntimeFields = computed(() => {
     { key: 'history_max_messages', label: 'max_history_messages', type: 'number', min: 0, step: 1 }
   ]
 })
-const commonFields = computed(() => fields.value.filter((field) => field.common && isFieldVisible(field)))
+const commonFields = computed(() => fields.value.filter((field) => field.common && isFieldVisible(field) && displayGroup(field) !== 'execution'))
 const groupedFields = computed(() => {
   const groups = new Map()
   for (const field of fields.value) {
@@ -115,7 +115,10 @@ const groupedFields = computed(() => {
     .map((group) => ({ key: group, fields: groups.get(group) }))
 })
 const executionModelFields = computed(() => fields.value.filter((field) => isFieldVisible(field) && displayGroup(field) === 'execution'))
+const executionValueFields = computed(() => executionModelFields.value.filter(field => field.type !== 'boolean'))
+const executionToggleFields = computed(() => executionModelFields.value.filter(field => field.type === 'boolean'))
 function displayGroup(field) {
+  if (props.showSessionRuntime && (field.type === 'boolean' || field.group === 'tools')) return 'execution'
   return MODEL_FIELD_DISPLAY_GROUPS[field.key] || field.group || 'advanced'
 }
 
@@ -194,8 +197,9 @@ function formatAdditionalParamsText() {
 </script>
 
 <template>
-  <div class="model-param-form" :class="{ compact }">
-    <section v-if="commonFields.length || sessionRuntimeFields.length || modelCapabilityFields.length || agentRuntimeFields.length" class="param-group">
+  <div class="model-param-form" :class="{ compact, 'session-layout': showSessionRuntime }">
+    <section v-if="commonFields.length || sessionRuntimeFields.length || modelCapabilityFields.length || agentRuntimeFields.length" class="param-group basic-group">
+      <div v-if="showSessionRuntime" class="param-section-title">模型与上下文</div>
       <div class="param-grid">
         <ModelParamField
           v-for="field in commonFields"
@@ -233,10 +237,10 @@ function formatAdditionalParamsText() {
     </section>
 
     <section v-if="executionModelFields.length || visibleExecutionParamFields.length" class="param-group execution-group">
-      <div class="param-section-title">{{ t('models.paramGroups.execution') }}</div>
+      <div class="param-section-title">{{ showSessionRuntime ? '执行与工具' : t('models.paramGroups.execution') }}</div>
       <div class="param-grid">
         <ModelParamField
-          v-for="field in executionModelFields"
+          v-for="field in executionValueFields"
           :key="field.key"
           :field="field"
           :fields="fields"
@@ -261,6 +265,14 @@ function formatAdditionalParamsText() {
             @update:model-value="setExecutionValue(field, $event)"
           />
         </el-form-item>
+        <ModelParamField
+          v-for="field in executionToggleFields"
+          :key="field.key"
+          :field="field"
+          :fields="fields"
+          :model-params="modelParams"
+          :disabled="disabled"
+        />
       </div>
     </section>
 
@@ -311,6 +323,7 @@ function formatAdditionalParamsText() {
 
 <style scoped>
 .model-param-form {
+  container-type: inline-size;
   display: grid;
   gap: 16px;
 }
@@ -493,6 +506,73 @@ function formatAdditionalParamsText() {
   font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.session-layout .param-group {
+  min-width: 0;
+}
+
+.session-layout .param-section-title {
+  margin-bottom: 12px;
+}
+
+.session-layout .param-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.session-layout .basic-group .param-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.session-layout :deep(.boolean-field) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.session-layout :deep(.boolean-field .el-form-item__label) {
+  display: inline-flex;
+  height: auto;
+  margin-bottom: 0;
+}
+
+.session-layout :deep(.boolean-field .el-form-item__content) {
+  flex: 0 0 auto;
+}
+
+.session-layout .additional-params-field {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.session-layout .json-textarea :deep(textarea) {
+  min-height: 110px;
+}
+
+@container (max-width: 620px) {
+  .session-layout .param-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 420px) {
+  .session-layout .param-grid,
+  .session-layout .basic-group .param-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-layout .json-editor-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .session-layout .json-editor-head .field-label > span {
+    white-space: normal;
+  }
 }
 
 .json-error {

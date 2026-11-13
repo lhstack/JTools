@@ -4,7 +4,7 @@ import java.io.File
 import java.net.URI
 
 /**
- * Shared path boundary for Markdown and model tools. Uploaded paths must be authorized by session.
+ * Shared local reference parser. Absolute paths are accepted; relative paths resolve against the workspace.
  */
 object LocalResourceReferenceSupport {
     data class Location(val file: File, val line: Int? = null, val column: Int? = null)
@@ -12,7 +12,6 @@ object LocalResourceReferenceSupport {
     fun resolve(
         reference: String,
         workspace: String,
-        attachments: Set<String> = emptySet(),
     ): Location {
         require(reference.isNotBlank()) { "资源引用不能为空" }
         var path = reference
@@ -46,12 +45,6 @@ object LocalResourceReferenceSupport {
         val root = File(workspace).canonicalFile
         val input = File(path)
         val file = (if (input.isAbsolute) input else root.resolve(path)).canonicalFile
-        require(
-            file.toPath().startsWith(root.toPath()) ||
-                attachments.any { File(it).canonicalFile == file }
-        ) {
-            "资源不属于当前工作区或会话附件"
-        }
         require(file.exists()) { "资源不存在: $path" }
         return Location(file, line, column)
     }

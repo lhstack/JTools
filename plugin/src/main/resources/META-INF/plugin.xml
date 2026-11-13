@@ -156,6 +156,29 @@
 
     <change-notes>
         <![CDATA[
+            <h2>🚀 Version v1.1.5.9</h2>
+            <p><i>Current Release / 当前版本</i></p>
+            <ul>
+                <li>📄 <b>Paged MCP Results:</b> Large mcp.call results are saved as complete UTF-8 JSON, returning only a summary and file metadata. Read files in batches with normal Bash commands. The global mcp.call.max_output_chars defaults to 8000 with a minimum of 1024; original MCP error status is retained.</li>
+                <li>🐚 <b>File-Backed Bash Output:</b> Agent and coding sessions save oversized stdout/stderr as UTF-8 temporary files, returning only execution status, a summary and file paths. Read files in batches with normal Bash commands without rerunning the original command. Output volume no longer terminates commands; timeout and cancellation remain active. Return limits default to 8000 with a minimum of 1024 characters.</li>
+                <li>🧭 <b>On-Demand CLI Help:</b> Tool descriptions list short command purposes; doc provides an index and &lt;command&gt; --help returns detailed parameters.</li>
+                <li>📂 <b>Local Resource Paths:</b> Markdown links, local media and native multimodal tools accept absolute paths outside the workspace. Relative paths still resolve against the session workspace; native resource tools also accept current attachment IDs.</li>
+                <li>🖼️ <b>Markdown Images:</b> Images stretch to fill fixed thumbnail frames. The full-size viewer preserves aspect ratio, zoom, rotation, copy and download controls.</li>
+                <li>🎛️ <b>Model Parameter Layout:</b> Advanced settings are grouped with responsive columns, improved Chinese labels and scrolling in short windows.</li>
+                <li>🛠️ <b>Standalone Plugin Development Skill:</b> The repository provides a manually installed Skill with Maven, Gradle Shadow, IDEA Gradle Shadow and JS templates, plus SDK/Helper, lifecycle, multi-project state, multi-open panels, functions and packaging guides. No dedicated development tools or automatic Skill installer are added.</li>
+                <li>📦 <b>Version Metadata:</b> Plugin version 1.1.5.9 and SDK Helper marker 1159; the single-package IDEA 251–263 compatibility range is retained.</li>
+            </ul>
+            <ul>
+                <li>📄 <b>MCP 大结果分页：</b>mcp.call 超限后保存完整 UTF-8 JSON，只返回摘要和文件信息，用普通 Bash 命令按路径分批读取；全局字符上限默认 8000、最小 1024，保留 MCP 原始错误状态。</li>
+                <li>🐚 <b>Bash 大结果分页：</b>普通 Agent 和编码会话将超限 stdout/stderr 保存为 UTF-8 临时文件，只返回执行状态、摘要和文件地址，用普通 Bash 命令按路径分批读取，无需重新执行。返回上限默认 8000、最小 1024 字符，不因输出量终止进程，保留超时与取消。</li>
+                <li>🧭 <b>CLI 按需帮助：</b>工具描述列出各指令简短用途，doc 提供索引，&lt;指令&gt; --help 返回详细参数。</li>
+                <li>📂 <b>本地资源路径：</b>Markdown 链接、本地音视频及原生多模态工具支持工作区外绝对路径；相对路径仍按会话工作区解析，原生资源工具支持当前附件 ID。</li>
+                <li>🖼️ <b>Markdown 图片：</b>拉伸铺满固定缩略图区域，大图查看器等比显示，保留缩放、旋转、复制与下载。</li>
+                <li>🎛️ <b>模型参数布局：</b>高级参数分组展示，按可用宽度切换列数，完善中文标签与短窗口滚动布局。</li>
+                <li>🛠️ <b>外置插件开发 Skill：</b>仓库提供用户自行安装的技能，包含 Maven、Gradle Shadow、IDEA Gradle Shadow、JS 模板，以及 SDK/Helper、生命周期、多项目缓存、多开、函数和打包手册，不增加专用开发工具或自动安装入口。</li>
+                <li>📦 <b>版本同步：</b>插件版本为 1.1.5.9，SDK Helper 标识为 1159，保留 IDEA 251–263 单包兼容范围。</li>
+            </ul>
+
             <!-- English Version -->
             <h2>🚀 Version v1.1.5.8</h2>
             <p><i>Latest Release / 最新版本</i></p>
@@ -189,7 +212,6 @@
             </ul>
 
             <h2>🚀 Version v1.1.5.7</h2>
-            <p><i>Previous Release / 上一版本</i></p>
             <ul>
                 <li>🎛️ <b>Model-Level History Token Ratio:</b> History character-to-token estimation is now configured per model through the existing <code>execution_params.history_token_ratio</code> JSON field without adding a database column.</li>
                 <li>🧮 <b>Coding Context Budget Alignment:</b> Coding sessions read the ratio from <code>model_snapshot.execution_params.history_token_ratio</code> for history estimates, context budgeting, occupancy metrics, and compaction estimates.</li>

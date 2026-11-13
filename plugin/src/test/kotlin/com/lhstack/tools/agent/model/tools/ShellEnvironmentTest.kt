@@ -107,7 +107,8 @@ class ShellEnvironmentTest {
     fun `parameter descriptions carry the usage contract`() {
         val source = bashToolSource()
         val params = source.substringAfter("parameters = JsonParser").substringBefore("trimIndent")
-        assertTrue(params.contains("head/tail/grep"))
+        assertTrue(params.contains("head/tail/sed"))
+        assertTrue(params.contains("文件地址"))
         assertTrue(params.contains("command not found"))
         assertTrue(params.contains("终止整个进程树"))
     }

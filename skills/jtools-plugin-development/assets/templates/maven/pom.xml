@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>example</groupId><artifactId>jtools-demo</artifactId><version>1.0.0</version>
+  <properties>
+    <maven.compiler.release>11</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jtools.sdk>${user.home}/.jtools/sdk/sdk.jar</jtools.sdk>
+  </properties>
+  <dependencies>
+    <!-- 本地 system 依赖，仅供编译，不进入扩展 JAR；不是可下载的远端坐标。 -->
+    <dependency>
+      <groupId>local.jtools</groupId><artifactId>sdk</artifactId><version>1</version>
+      <scope>system</scope><systemPath>${jtools.sdk}</systemPath>
+    </dependency>
+    <!-- 在此声明实际第三方运行依赖，package 时 shade 合并。 -->
+  </dependencies>
+  <build><plugins>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.2</version>
+      <executions><execution><phase>package</phase><goals><goal>shade</goal></goals><configuration>
+        <createDependencyReducedPom>false</createDependencyReducedPom>
+        <shadedArtifactAttached>true</shadedArtifactAttached><shadedClassifierName>plugin</shadedClassifierName>
+        <filters><filter><artifact>*:*</artifact><excludes>
+          <exclude>META-INF/*.SF</exclude><exclude>META-INF/*.RSA</exclude><exclude>META-INF/*.DSA</exclude>
+        </excludes></filter></filters>
+        <transformers><transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/></transformers>
+      </configuration></execution></executions>
+    </plugin>
+  </plugins></build>
+</project>

@@ -1267,8 +1267,9 @@ private val GLOBAL_CONFIG_GROUPS = listOf(
         GlobalConfigField("web_fetch.max_response_bytes", "Web Fetch 最大响应", "web_fetch 工具读取响应体的最大字节数，避免拉取过大的页面或文件。", "number", "1000000"),
     )),
     GlobalConfigGroup("命令工具", listOf(
-        GlobalConfigField("bash.max_output_chars", "Bash 最大输出", "Agent 运行里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。", "number", "8000"),
-        GlobalConfigField("coding.bash.max_output_chars", "编码会话 Bash 最大输出", "编码会话里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。", "number", "8000"),
+        GlobalConfigField("mcp.call.max_output_chars", "MCP 调用最大返回字符", "仅限制 mcp.call 返回；超限只返回摘要和完整 UTF-8 JSON 文件地址，可用 Bash 按路径分批读取。默认 8000，最小 1024 字符。", "number", "8000"),
+        GlobalConfigField("bash.max_output_chars", "Bash 最大输出", "Agent Bash 最大返回字符数（默认 8000，最小 1024）；超限只返回摘要和完整 UTF-8 文件地址，可用 Bash 按路径分批读取，不因输出量终止命令。", "number", "8000"),
+        GlobalConfigField("coding.bash.max_output_chars", "编码会话 Bash 最大输出", "编码会话 Bash 最大返回字符数（默认 8000，最小 1024）；超限只返回摘要和完整 UTF-8 文件地址，可用 Bash 按路径分批读取，不因输出量终止命令。", "number", "8000"),
     )),
 )
 
@@ -1362,7 +1363,7 @@ class AwakeGlobalConfigPanel(private val project: Project, private val onChanged
 
     private fun save() {
         try {
-            GLOBAL_CONFIG_GROUPS.flatMap { it.fields }.forEach { field ->
+            val values = GLOBAL_CONFIG_GROUPS.flatMap { it.fields }.associate { field ->
                 val value = when (val editor = fieldControls[field.key]) {
                     is JCheckBox -> if (editor.isSelected) "true" else "false"
                     is JTextField -> editor.text.trim()
@@ -1371,8 +1372,13 @@ class AwakeGlobalConfigPanel(private val project: Project, private val onChanged
                 if (field.valueType == "number" && value.isNotBlank() && value.toLongOrNull() == null) {
                     throw IllegalArgumentException("${field.label} 必须是整数")
                 }
-                com.lhstack.tools.db.service.SettingService.setSetting(field.key, value)
+                if (field.key == "mcp.call.max_output_chars")
+                    com.lhstack.tools.agent.model.tools.McpCallOutputSupport.validateConfiguredLimit(value)
+                if (field.key in setOf("bash.max_output_chars", "coding.bash.max_output_chars"))
+                    com.lhstack.tools.agent.model.tools.BashOutputSupport.validateConfiguredLimit(value)
+                field.key to value
             }
+            values.forEach { (key, value) -> com.lhstack.tools.db.service.SettingService.setSetting(key, value) }
             project.infoNotify("全局配置", "配置已保存")
             onChanged?.invoke()
         } catch (e: Throwable) {

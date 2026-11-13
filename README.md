@@ -130,7 +130,18 @@ JTools/
 
 
 
-### v1.1.5.8 (当前版本)
+### v1.1.5.9 (当前版本)
+
+- 📄 **MCP 大结果按需读取** - `mcp.call` 超过全局 `mcp.call.max_output_chars`（默认 8000，最小 1024）时保存完整 UTF-8 JSON，只返回摘要和文件地址，使用普通 Bash 命令按路径分批读取，保留原始 MCP 错误状态。
+- 🐚 **Bash 大结果按需读取** - 普通 Agent 与编码会话的 Bash 超限输出完整保存到 UTF-8 临时文件，只返回执行状态、摘要和 stdout/stderr 文件地址，使用普通 Bash 命令按路径分批读取，不重复执行命令。默认上限 8000、最小 1024 字符，不因输出量终止进程，仍支持超时与取消。
+- 🧭 **CLI 帮助按需获取** - 工具描述列出指令简短用途，`doc` 提供命令索引，`<指令> --help` 返回详细参数。
+- 📂 **本地资源路径放宽** - Markdown 本地链接、音视频及原生多模态资源支持工作区外绝对路径；相对路径仍按当前会话工作区解析，原生资源工具支持当前附件 ID。
+- 🖼️ **Markdown 图片显示** - 图片拉伸铺满固定缩略图区域，点击后的大图预览保持等比显示，保留缩放、旋转、复制和下载。
+- 🎛️ **模型参数布局优化** - 高级参数分组展示，按可用宽度切换列数，完善中文标签和短窗口滚动布局。
+- 🛠️ **插件开发 Skill** - [jtools-plugin-development](skills/jtools-plugin-development/SKILL.md) 独立放在仓库，按需自行导入项目或全局 Skills。提供 Swing Maven、Swing Gradle、IDEA Gradle、JS 四套模板，以及 SDK 安装、Shadow/Shade 第三方依赖、Helper 宿主能力、多项目缓存、supportMultiOpens、生命周期、AI 函数/会话重载、面板动作、调试和打包手册，附完整多开示例。AI 使用通用工程工具完成开发，无专用开发 CLI 或自动安装入口。
+- 📦 **版本元数据同步** - 插件版本升级到 `v1.1.5.9`，SDK Helper 版本标识同步为 `1159`；保留 IDEA 251–263 单包兼容范围。
+
+### v1.1.5.8 (上一版本)
 
 - 📂 **项目级 MCP、Skills 与 SubAgent** - 面向不同项目的专属开发流程，新增项目级 MCP、Skills 与 SubAgent。项目定制的工具服务、技能指令和子代理仅在所属项目中可用，让能力配置更贴合项目需求，避免项目间相互干扰。
 - 🧩 **全局与项目资源管理** - 保留全局资源供多个项目复用，同时在项目根目录的 `.jtools` 下独立维护 MCP 服务、Skills 和 SubAgent；管理页面和 CLI 支持明确选择全局或项目范围。
@@ -146,7 +157,7 @@ JTools/
 - 🔧 **新版 IDE API 兼容修复** - 设置页移除 SwingX `VerticalLayout` 依赖，改用 IntelliJ 布局；新版 IDE 使用异步文件打开与 `HtmlChunk` 标签提示 API，旧版按实际接口选择对应实现；编辑器快照改用 `Application.runReadAction(Computable)`，保留 251–263 单包兼容。
 - 📦 **版本元数据同步** - 插件版本升级到 `v1.1.5.8`，SDK Helper 版本标识同步为 `1158`
 
-### v1.1.5.7 (上一版本)
+### v1.1.5.7
 - 🎛️ **模型级历史 Token 字符比例** - 将历史消息的字符到 Token 估算比例下沉到模型维度，配置保存在已有 `execution_params.history_token_ratio` JSON 中，无需新增数据库字段
 - 🧮 **编码会话上下文预算对齐** - 编码会话从 `model_snapshot.execution_params.history_token_ratio` 读取比例，历史估算、上下文预算、上下文占用统计和压缩前后估算统一使用当前会话模型配置
 - ♻️ **旧数据兼容** - 旧模型和旧会话快照缺少比例字段时按 `0.4` 兼容；普通 Agent 也按当前模型配置的 `history_token_ratio` 估算，未配置时默认使用 `0.4`

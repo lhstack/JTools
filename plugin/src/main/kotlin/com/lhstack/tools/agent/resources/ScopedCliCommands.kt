@@ -7,9 +7,15 @@ import com.lhstack.tools.agent.model.tools.McpRuntime
 internal class ScopedCliCommands(
     private val projectRoot: java.io.File?,
     private val cancel: ModelCancel?,
-    private val resourceLookup: (() -> RuntimeResourceSnapshot)?,
+    private val resourceLookup: (() -> RuntimeResourceSnapshot)? = null,
 ) {
     private val resources = ScopedResources(projectRoot)
+    private val outputs = com.lhstack.tools.agent.model.tools.McpCallOutputSupport()
+
+    private fun outputLimit(): Int {
+        val raw = com.lhstack.tools.db.service.SettingService.setting("mcp.call.max_output_chars") ?: "8000"
+        return com.lhstack.tools.agent.model.tools.McpCallOutputSupport.validateConfiguredLimit(raw)
+    }
 
     fun execute(command: String, args: JsonObject): JsonElement? {
         if (
@@ -100,9 +106,12 @@ internal class ScopedCliCommands(
                 "mcp.tools" -> runtime().tools()
                 "mcp.resources" -> runtime().resources()
                 "mcp.read_resource" -> runtime().readResource(text("uri"))
-                "mcp.call" ->
-                    runtime()
-                        .callTool(text("tool"), args.getAsJsonObject("arguments") ?: JsonObject())
+                "mcp.call" -> {
+                    val connection = runtime()
+                    val limit = outputLimit()
+                    outputs.validateLimit(limit)
+                    outputs.deliver(connection.callTool(text("tool"), args.getAsJsonObject("arguments") ?: JsonObject()), limit)
+                }
                 else -> error("未知 MCP 命令 $command")
             }
         }

@@ -148,7 +148,7 @@ object RuntimeTools {
 
     private fun bashMaxOutputChars(codingSession: Boolean): Int {
         val key = if (codingSession) "coding.bash.max_output_chars" else "bash.max_output_chars"
-        return positiveLong(key, 8000).toInt()
+        return BashOutputSupport.validateConfiguredLimit(SettingService.setting(key) ?: "8000")
     }
 
     private fun positiveLong(key: String, default: Long): Long {

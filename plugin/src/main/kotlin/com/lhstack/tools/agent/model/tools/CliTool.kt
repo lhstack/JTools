@@ -22,17 +22,16 @@ class CliTool(
     override fun definition(prompt: String): ToolDefinition =
         ToolDefinition(
             name = NAME,
-            description =
-                "执行 JTools CLI 结构化命令，管理项目/全局 MCP、Skills、SubAgents、供应商、模型和 Agent。\n" +
-                    "查询有哪些 MCP 服务先用 command=mcp.list（无需 arguments，返回服务 scope/id）；仅查询指定服务提供的工具时用 mcp.tools（必填 scope/id），调用具体工具用 mcp.call。skill.list 同时返回全局与项目技能，无需 scope。增删改即时生效。\n" +
-                    "参数不明确时，先调用 command=\u0027doc\u0027 查看命令说明。",
+            description = "JTools 结构化 CLI，arguments 为参数对象。各指令用途：\n" +
+                commandSpecs().joinToString("\n") { (name, description, _) -> "$name：${shortDescription(description)}" } +
+                "\n详细参数：command=\"<指令> --help\"。",
             parameters =
                 JsonParser.parseString(
                     """
                     {
                       "type":"object",
                       "properties":{
-                        "command":{"type":"string","description":"必填。命令名；不确定时先调用 doc。"},
+                        "command":{"type":"string","description":"必填。命令名；doc 返回简明索引，<command> --help 返回该命令详细说明。"},
                         "arguments":{"type":"object","description":"可选。结构化命令参数；doc 和列表命令可省略。"}
                       },
                       "required":["command"]
@@ -76,7 +75,7 @@ class CliTool(
         com.lhstack.tools.agent.resources.ScopedCliCommands(
             project?.basePath?.let { java.io.File(it) },
             cancel,
-            resourceLookup,
+            resourceLookup = resourceLookup,
         )
 
     private fun execute(command: String, args: JsonObject): JsonElement =
@@ -84,23 +83,23 @@ class CliTool(
             ?: CliManagementCommands.execute(command, args)
             ?: throw IllegalArgumentException("未知 CLI 指令 `$command`，请调用 doc")
 
-    /** 一次性输出全部命令的完整参数说明，模型无需多轮 help 即可自描述调用。 */
+    /** 总览只返回索引；详细参数通过具体命令的 --help 按需读取。 */
     private fun doc(): JsonObject =
         JsonObject().apply {
             addProperty("tool", NAME)
             addProperty(
                 "usage",
-                "调用方式：{\"command\":\"<name>\",\"arguments\":{...}}。arguments 按下面每个命令的字段填写。",
+                "调用方式：{\"command\":\"<name>\",\"arguments\":{...}}。先选择命令，再调用 {\"command\":\"<name> --help\"} 查看详细参数。",
             )
             add(
                 "commands",
                 JsonArray().apply {
-                    commandSpecs().forEach { (name, description, arguments) ->
+                    commandSpecs().forEach { (name, description, _) ->
                         add(
                             JsonObject().apply {
                                 addProperty("command", name)
-                                addProperty("description", description)
-                                add("arguments", arguments)
+                                addProperty("description", shortDescription(description))
+                                addProperty("help", "$name --help")
                             }
                         )
                     }
@@ -142,6 +141,9 @@ class CliTool(
                 Triple(name, description, merged)
             }
 
+    private fun shortDescription(description: String): String =
+        description.substringBefore("。").substringBefore('\n') + "。"
+
     private fun props(vararg values: Pair<String, JsonElement>): JsonObject =
         JsonObject().apply { values.forEach { (name, value) -> add(name, value) } }
 
@@ -158,7 +160,7 @@ class CliTool(
         listOf(
             Triple(
                 "doc",
-                "\u8fd4\u56de\u6240\u6709\u547d\u4ee4\u53ca\u5176\u5b8c\u6574\u53c2\u6570\u8bf4\u660e\uff08\u65e0\u8bb0\u5fc6\u65f6\u5148\u8c03\u7528\u5b83\uff09\u3002",
+                "列出命令与简短用途；详细参数通过 <command> --help 获取。",
                 JsonObject(),
             ),
             Triple(

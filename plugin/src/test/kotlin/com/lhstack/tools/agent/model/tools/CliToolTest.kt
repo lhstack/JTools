@@ -2,6 +2,7 @@ package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonObject
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -22,6 +23,19 @@ class CliToolTest {
         assertTrue("model.create" in commands)
         assertTrue("agent.run" in commands)
         assertTrue("agent.run.get" in commands)
+    }
+
+    @Test
+    fun `root documentation is a compact index with command help links`() {
+        val result = tool.callJsonBlocking(input("doc")).asJsonObject
+        assertEquals(result, tool.callJsonBlocking(input("--help")))
+        for (entry in result.getAsJsonArray("commands")) {
+            val command = entry.asJsonObject
+            assertFalse(command.has("arguments"))
+            assertEquals(command["command"].asString + " --help", command["help"].asString)
+            assertTrue(command["description"].asString.endsWith("。"))
+        }
+        assertTrue(result["usage"].asString.contains("--help"))
     }
 
     @Test
@@ -89,6 +103,15 @@ class CliToolTest {
         assertTrue(
             tools.getAsJsonObject("arguments").getAsJsonObject("id").get("required").asBoolean
         )
+    }
+
+    @Test
+    fun `tool description lists every command briefly without dedicated output reader`() {
+        val description = tool.definition("").description
+        val commands = tool.callJsonBlocking(input("doc")).asJsonObject.getAsJsonArray("commands")
+        commands.forEach { assertTrue(description.contains(it.asJsonObject["command"].asString + "：")) }
+        assertFalse(commands.any { it.asJsonObject["command"].asString == "mcp.read_output" })
+        kotlin.test.assertFailsWith<IllegalArgumentException> { tool.callJsonBlocking(input("mcp.read_output --help")) }
     }
 
     private fun input(command: String) = JsonObject().apply { addProperty("command", command) }

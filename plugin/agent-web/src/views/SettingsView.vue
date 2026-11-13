@@ -10,6 +10,7 @@ const definitions = [
   { title: '模型执行', desc: '模型调用循环、重试和历史占用估算', keys: ['model.max_tool_call_rounds', 'model.max_retries', 'model.retry_interval_ms'] },
   { title: '模型网络', desc: '模型 HTTP 连接、DNS 与请求超时', prefixes: ['model.dns_', 'model.http_'] },
   { title: '网页获取', desc: 'web_fetch 的代理、超时和响应大小', prefixes: ['web_fetch.'] },
+  { title: 'MCP 工具', desc: 'mcp.call 返回字符上限；超限保存完整结果并通过 mcp.read_output 分段读取', prefixes: ['mcp.'] },
   { title: '命令工具', desc: 'bash 工具捕获输出上限', prefixes: ['bash.', 'coding.bash.'] },
 ]
 
@@ -54,7 +55,7 @@ onMounted(async () => {
             <small>{{ item.description || item.key }}</small>
           </div>
           <el-switch v-if="item.type === 'boolean'" v-model="item.value" />
-          <el-input-number v-else-if="item.type === 'number'" v-model="item.value" :step="1" />
+          <el-input-number v-else-if="item.type === 'number'" v-model="item.value" :step="1" :min="['mcp.call.max_output_chars', 'bash.max_output_chars', 'coding.bash.max_output_chars'].includes(item.key) ? 1024 : undefined" />
           <el-select v-else-if="item.type === 'select'" v-model="item.value" class="setting-select">
             <el-option v-for="option in item.options || []" :key="option.value" :value="option.value" :label="option.label" />
           </el-select>

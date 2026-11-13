@@ -287,6 +287,7 @@ function setToolChoiceName(field, name) {
     />
     <el-select
       v-else-if="field.type === 'select'"
+      placeholder="请选择"
       :model-value="fieldValue(field)"
       clearable
       :disabled="disabled"

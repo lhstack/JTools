@@ -61,9 +61,9 @@ class NativeResourceTool(
     override fun definition(prompt: String) =
         ToolDefinition(
             kind.toolName,
-            "读取${kind.asStr}并通过原生多模态协议加入当前模型本轮上下文，不调用其他 Agent。每次最多 3 个资源，每个资源最大 32 MiB；首次仅有元数据，需要查看时调用。跨轮历史不含资源原文，需要时重新读取。",
+            "读取${kind.asStr}并通过原生多模态协议加入当前模型本轮上下文，不调用其他 Agent。每个资源使用 attachment_id 或 path 二选一；支持工作区内相对路径、普通绝对路径（含工作区外文件）及本地 file URI；attachment_id 必须属于当前会话或本次传入附件。每次最多 3 个资源，每个资源最大 32 MiB；首次仅有元数据，需要查看时调用。跨轮历史不含资源原文，需要时重新读取。",
             JsonParser.parseString(
-                """{"type":"object","additionalProperties":false,"properties":{"resources":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"attachment_id":{"type":"string"},"path":{"type":"string"}},"oneOf":[{"required":["attachment_id"]},{"required":["path"]}]}}},"required":["resources"]}"""
+                """{"type":"object","additionalProperties":false,"properties":{"resources":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"attachment_id":{"type":"string","description":"当前会话或本次传入附件的 ID，与 path 二选一"},"path":{"type":"string","description":"本地资源相对路径、绝对路径（允许工作区外）或 file URI，与 attachment_id 二选一"}},"oneOf":[{"required":["attachment_id"]},{"required":["path"]}]}}},"required":["resources"]}"""
             ),
         )
 
@@ -111,7 +111,6 @@ class NativeResourceTool(
                     LocalResourceReferenceSupport.resolve(
                         attachment?.path ?: ref.get("path").asString,
                         workspace,
-                        attachments.map { it.path }.toSet(),
                     )
                 val file = location.file
                 require(file.isFile && file.length() <= 32L * 1024 * 1024) {

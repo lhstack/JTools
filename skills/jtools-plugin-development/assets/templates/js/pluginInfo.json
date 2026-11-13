@@ -1,0 +1,8 @@
+{
+  "pluginName": "JTools JS Demo",
+  "pluginDesc": "JS/JCEF 扩展插件示例",
+  "pluginIcon": "icons/plugin.png",
+  "pluginTabIcon": "icons/tab.png",
+  "indexPage": "index.html",
+  "pluginVersion": "1.0.0"
+}

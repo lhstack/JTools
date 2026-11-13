@@ -149,17 +149,18 @@ internal object AgentBrowserManagement {
                 "number",
                 "1000000",
             ),
+            ConfigField("mcp.call.max_output_chars", "MCP 调用最大返回字符", "仅限制 mcp.call 返回；超限只返回摘要和完整 UTF-8 JSON 文件地址，可用 Bash 按路径分批读取。默认 8000，最小 1024 字符。", "number", "8000"),
             ConfigField(
                 "bash.max_output_chars",
                 "Bash 最大输出",
-                "Agent 运行里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。",
+                "Agent Bash 最大返回字符数（默认 8000，最小 1024）；超限只返回摘要和完整 UTF-8 文件地址，可用 Bash 按路径分批读取，不因输出量终止命令。",
                 "number",
                 "8000",
             ),
             ConfigField(
                 "coding.bash.max_output_chars",
                 "编码会话 Bash 最大输出",
-                "编码会话里 bash 工具捕获的最大输出字符数。超出后截断并结束进程。",
+                "编码会话 Bash 最大返回字符数（默认 8000，最小 1024）；超限只返回摘要和完整 UTF-8 文件地址，可用 Bash 按路径分批读取，不因输出量终止命令。",
                 "number",
                 "8000",
             ),
@@ -419,6 +420,13 @@ internal object AgentBrowserManagement {
                 }
             // 润色 Agent 等配置直接影响对话面板入口，保存后需要通知宿主同步状态。
             "config.save" -> {
+                val values = payload.getAsJsonObject("values")
+                values.get("mcp.call.max_output_chars")?.let { value ->
+                    com.lhstack.tools.agent.model.tools.McpCallOutputSupport.validateConfiguredLimit(value.asString)
+                }
+                for (key in listOf("bash.max_output_chars", "coding.bash.max_output_chars")) {
+                    values.get(key)?.let { com.lhstack.tools.agent.model.tools.BashOutputSupport.validateConfiguredLimit(it.asString) }
+                }
                 payload.getAsJsonObject("values").entrySet().forEach { (key, value) ->
                     SettingService.setSetting(key, value.asString)
                 }

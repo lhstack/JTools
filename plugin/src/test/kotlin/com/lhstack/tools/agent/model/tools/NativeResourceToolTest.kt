@@ -154,25 +154,51 @@ class NativeResourceToolTest {
                     listOf(tool),
                 )
             }
-            val outside = Files.createTempFile("jtools-unauthorized", ".png").toFile()
-            try {
-                assertFailsWith<IllegalArgumentException> {
-                    tool.executeBlocking(
-                        JsonObject().apply {
-                            add(
-                                "resources",
-                                JsonArray().apply {
-                                    add(JsonObject().apply { addProperty("path", outside.path) })
-                                },
-                            )
-                        }
-                    )
-                }
-            } finally {
-                outside.delete()
-            }
         } finally {
             root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `native resources accept external absolute paths file URIs and attached IDs with no workspace restriction`() {
+        val root = Files.createTempDirectory("jtools-native-paths-").toFile()
+        val external = Files.createTempDirectory("jtools-external-paths-").toFile()
+        try {
+            val image = external.resolve("图片 space.png")
+            ImageIO.write(BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", image)
+            val attachment = AgentAttachmentState("external-image", image.name, image.path, "image/png", image.length(), "image")
+            fun args(key: String, value: String) = JsonObject().apply {
+                add("resources", JsonArray().apply { add(JsonObject().apply { addProperty(key, value) }) })
+            }
+            val tool = NativeResourceTool(ResourceKind.IMAGE, root.path, null, listOf(attachment))
+            val unregistered = NativeResourceTool(ResourceKind.IMAGE, root.path, null)
+            for (path in listOf(image.absolutePath, image.toURI().toASCIIString())) {
+                val result = unregistered.executeBlocking(args("path", path))
+                assertEquals(1, result.resources.size)
+                assertTrue(result.resources.single().content.any { it is UserContent.Image })
+                val summary = result.result.asJsonObject.getAsJsonArray("resources").single().asJsonObject
+                assertEquals(image.canonicalPath, summary["path"].asString)
+            }
+            val byId = tool.executeBlocking(args("attachment_id", "external-image"))
+            assertEquals("external-image", byId.result.asJsonObject.getAsJsonArray("resources").single().asJsonObject["attachment_id"].asString)
+            assertEquals(unregistered.executeBlocking(args("path", image.path)).resources.single().identity, byId.resources.single().identity)
+            assertFailsWith<IllegalStateException> { tool.executeBlocking(args("attachment_id", "other-session-id")) }
+            val both = args("path", image.path)
+            both.getAsJsonArray("resources")[0].asJsonObject.addProperty("attachment_id", "external-image")
+            assertFailsWith<IllegalArgumentException> { tool.executeBlocking(both) }
+            assertEquals(image.canonicalFile, com.lhstack.tools.agent.resources.LocalResourceReferenceSupport.resolve(image.path, root.path).file)
+            val relativeEscape = root.toPath().relativize(image.toPath()).toString()
+            assertEquals(byId.resources.single().identity, unregistered.executeBlocking(args("path", relativeEscape)).resources.single().identity)
+            assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", external.path)) }
+            assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", image.path + ".missing")) }
+            assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", "https://example.test/image.png")) }
+            assertFailsWith<IllegalArgumentException> { NativeResourceTool(ResourceKind.AUDIO, root.path, null).executeBlocking(args("path", image.path)) }
+            val oversized = external.resolve("oversized.png")
+            java.io.RandomAccessFile(oversized, "rw").use { it.setLength(32L * 1024 * 1024 + 1) }
+            assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", oversized.path)) }
+        } finally {
+            root.deleteRecursively()
+            external.deleteRecursively()
         }
     }
 

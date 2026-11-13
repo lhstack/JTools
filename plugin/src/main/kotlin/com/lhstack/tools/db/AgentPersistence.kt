@@ -70,6 +70,7 @@ object AgentPersistence {
         SettingService.setSettingIfAbsent("web_fetch.proxy", "")
         SettingService.setSettingIfAbsent("web_fetch.timeout_secs", "30")
         SettingService.setSettingIfAbsent("web_fetch.max_response_bytes", "1000000")
+        SettingService.setSettingIfAbsent("mcp.call.max_output_chars", "8000")
         SettingService.setSettingIfAbsent("bash.max_output_chars", "8000")
         SettingService.setSettingIfAbsent("coding.bash.max_output_chars", "8000")
         SettingService.setSettingIfAbsent("coding.compaction_agent_id", "")

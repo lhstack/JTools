@@ -1474,7 +1474,7 @@ function drop(event) {
       >压缩上下文</el-button>
     </template>
   </el-dialog>
-  <el-dialog v-model="advancedParamsVisible" title="高级参数" width="860px" append-to-body :close-on-click-modal="false">
+  <el-dialog v-model="advancedParamsVisible" class="advanced-params-dialog" title="高级参数" width="760px" append-to-body :close-on-click-modal="false">
     <el-form label-position="top" class="advanced-params-form">
       <ModelParamsForm
         v-model:additional-params-text="sessionModelParams.additional_params_text"

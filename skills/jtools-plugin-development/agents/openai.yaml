@@ -1,0 +1,4 @@
+interface:
+  display_name: "JTools 插件开发"
+  short_description: "使用四套工程模板与开发手册，完成 JTools 插件开发、依赖管理、调试和打包交付"
+  default_prompt: "使用 $jtools-plugin-development 为当前需求选择模板，开发并验证可安装的 JTools 插件。"

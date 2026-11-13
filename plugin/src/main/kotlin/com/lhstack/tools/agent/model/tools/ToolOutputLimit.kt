@@ -49,8 +49,6 @@ internal object ToolOutputLimit {
             "如需更多结果，请缩小范围：使用 file_name_glob、降低 max_results 或 context_lines，或拆分搜索关键词。"
         "find_project_files", "find_project_classes" ->
             "如需更多结果，请使用更精确的 queries 或降低 max_results_per_query，分批查找。"
-        "bash" ->
-            "如需完整输出，请用 head、tail、sed、grep 等缩小结果，或先写入工作区文件再用 read_project_files 分段读取。"
         else -> "如需完整内容，请缩小查询范围后分批读取。"
     }
 }

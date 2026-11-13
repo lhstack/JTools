@@ -11,17 +11,14 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import java.io.File
 import java.nio.charset.Charset
-import java.io.ByteArrayOutputStream
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 
 /**
- * bash 工具。完全照抄 awake-claw tools.rs 的 BashTool。
+ * Shell 执行工具。
  *
- * 用系统 shell 执行命令，返回 stdout / stderr / exit_code / success。
+ * 用系统 shell 执行命令，返回 stdout / stderr / exit_code / success；超限文件化交付。
  * cwd 省略时用 workspace 根目录；timeout_secs 未设置时默认 300s，设置后按该秒数超时。
- * 支持超时与取消：超时/取消时销毁进程树并在 stderr 追加提示，success=false。
+ * 超时/取消时销毁进程树，返回明确状态并保留已捕获输出，success=false。
  *
  * 环境变量由 [ShellEnvironment] 提供：登录 shell 不读 .zshrc/.bashrc，而版本管理器
  * 多数安装在那里，因此单靠 -lc 会丢失用户级工具。详见 ShellEnvironment 注释。
@@ -33,8 +30,10 @@ class BashTool(
     private val workspace: WorkspaceTools,
     private val envVars: Map<String, String> = emptyMap(),
     private val cancel: ModelCancel? = null,
-    private val maxOutputChars: Int = ToolOutputLimit.MAX_BYTES,
+    private val maxOutputChars: Int = 8000,
 ) : ToolDyn {
+
+    private val outputs = BashOutputSupport()
 
     /** ToolRuntime 外层超时。默认覆盖 300s，参数 timeout_secs 更大时由 ToolRuntime 再抬高。 */
     override val executionTimeoutSeconds: Long = 310L
@@ -44,7 +43,7 @@ class BashTool(
         val envHint = shell.envProbe?.let { "（${it.sourceLabel}）" } ?: "（当前 shell 无用户配置可加载）"
         return ToolDefinition(
             name = NAME,
-            description = "在本机通过 ${shell.label} 执行 Shell 命令的工具，返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，因此可直接使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止，输出超过配置上限时会截断并终止进程。",
+            description = "在本机通过 ${shell.label} 执行 Shell 命令的工具，返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，因此可直接使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止，输出超限时只返回摘要和 UTF-8 文件地址，不因输出量终止进程。需要内容时用普通 Shell 命令按文件路径分批读取。",
             parameters = JsonParser.parseString(
                 """
                 {
@@ -52,7 +51,7 @@ class BashTool(
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "必填。要执行的 Shell 命令。除非必须，否则使用相对路径。输出可能很大时先用 head/tail/grep 缩小，或重定向到文件后分段读取。"
+                            "description": "必填。要执行的 Shell 命令。超限返回文件地址，可用 head/tail/sed 等按需读取，勿重复执行原命令。"
                         },
                         "cwd": {
                             "type": "string",
@@ -80,6 +79,7 @@ class BashTool(
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
+        BashOutputSupport.validateConfiguredLimit(maxOutputChars.toString())
         val command = obj.get("command")?.takeIf { it.isJsonPrimitive }?.asString?.trim()
         if (command.isNullOrEmpty()) {
             throw ToolException.emptyCommand()
@@ -111,75 +111,49 @@ class BashTool(
         builder.environment().putAll(if (refreshEnv) ShellEnvironment.refresh() else ShellEnvironment.current())
         builder.environment().putAll(envVars)
 
-        val process = builder.start()
-        val outputBudget = ProcessOutputBudget(maxOutputChars.coerceAtLeast(1))
-        val stdoutCapture = ProcessOutputCapture(process.inputStream, outputBudget)
-        val stderrCapture = ProcessOutputCapture(process.errorStream, outputBudget)
-        val stdoutThread = stdoutCapture.start("jtools-bash-stdout")
-        val stderrThread = stderrCapture.start("jtools-bash-stderr")
-        var timedOut = false
-        var cancelled = false
-        var outputExceeded = false
-
-        // 轮询等待，兼顾超时、取消和输出上限。输出超过上限时立即销毁进程树，
-        // 避免命令继续写满管道导致工具线程永久等待。
-        val deadline = System.currentTimeMillis() + timeoutSecs * 1000
-        while (true) {
-            if (outputBudget.exceeded.get()) {
-                outputExceeded = true
-                destroyTree(process)
-                break
+        val capture = outputs.begin(maxOutputChars)
+        var process: Process? = null
+        try {
+            process = builder.redirectOutput(capture.raw("stdout").toFile())
+                .redirectError(capture.raw("stderr").toFile()).start()
+            var timedOut = false
+            var cancelled = false
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSecs)
+            while (true) {
+                if (cancel?.isCancelled() == true) {
+                    cancelled = true
+                    destroyTree(process)
+                    break
+                }
+                if (process.waitFor(50, TimeUnit.MILLISECONDS)) break
+                if (System.nanoTime() >= deadline) {
+                    timedOut = true
+                    destroyTree(process)
+                    break
+                }
             }
-            if (process.waitFor(50, TimeUnit.MILLISECONDS)) {
-                break
+            if (timedOut || cancelled) {
+                check(process.waitFor(5, TimeUnit.SECONDS)) { "命令终止后仍未退出" }
             }
-            if (System.currentTimeMillis() >= deadline) {
-                timedOut = true
-                destroyTree(process)
-                break
+            val result = outputs.deliver(capture, shell.outputCharset, process.exitValue(), timedOut, cancelled, maxOutputChars)
+            if (refreshVfs) refreshVfsAfterCommand(cwd)
+            return result
+        } catch (error: Throwable) {
+            try {
+                if (process?.isAlive == true) {
+                    destroyTree(process)
+                    check(process.waitFor(5, TimeUnit.SECONDS)) { "命令终止后仍未退出" }
+                }
+            } catch (cleanupError: Throwable) {
+                error.addSuppressed(cleanupError)
             }
-            if (cancel?.isCancelled() == true) {
-                cancelled = true
-                destroyTree(process)
-                break
+            try {
+                outputs.discard(capture)
+            } catch (cleanupError: Throwable) {
+                error.addSuppressed(cleanupError)
             }
-        }
-        if (outputBudget.exceeded.get()) {
-            outputExceeded = true
-            destroyTree(process)
-        }
-        stdoutThread.join(1000)
-        stderrThread.join(1000)
-
-        val stdout = stdoutCapture.text(shell.outputCharset)
-        var stderr = stderrCapture.text(shell.outputCharset)
-        val exitCode = if (process.isAlive) null else process.exitValue()
-
-        if (timedOut) {
-            if (stderr.isNotEmpty()) stderr += "\n"
-            stderr += "command timed out"
-        }
-        if (cancelled) {
-            if (stderr.isNotEmpty()) stderr += "\n"
-            stderr += "用户手动取消"
-        }
-        // 输出超上限：进程已被终止且只保留了前面部分，这里不再整段丢弃，
-        // 而是保留已捕获内容并追加说明，最终字节裁剪由 ToolRuntime 的 truncateToLimit 兜底。
-        if (outputExceeded) {
-            if (stderr.isNotEmpty()) stderr += "\n"
-            stderr += "输出超过上限已停止捕获并终止进程，仅返回前面部分；" +
-                "如需完整输出请用 head/tail/grep 缩小结果，或重定向到文件后用 read_project_files 分段读取。"
-        }
-
-        // 仅在调用方显式要求时刷新 VFS：避免每次命令都刷新拖累性能。
-        // 命令改动了磁盘文件且随后要用 read_project_files 读取时，调用方应传 refresh_vfs=true。
-        if (refreshVfs) refreshVfsAfterCommand(cwd)
-
-        return JsonObject().apply {
-            if (exitCode != null) addProperty("exit_code", exitCode) else add("exit_code", com.google.gson.JsonNull.INSTANCE)
-            addProperty("success", exitCode == 0 && !timedOut && !cancelled && !outputExceeded)
-            addProperty("stdout", stdout)
-            addProperty("stderr", stderr)
+            if (error is InterruptedException) Thread.currentThread().interrupt()
+            throw error
         }
     }
 
@@ -203,42 +177,6 @@ class BashTool(
             process.descendants().forEach { it.destroyForcibly() }
         }
         process.destroyForcibly()
-    }
-
-    private class ProcessOutputBudget(val limit: Int) {
-        val consumed = AtomicInteger(0)
-        val exceeded = AtomicBoolean(false)
-
-        fun accept(size: Int): Boolean {
-            val total = consumed.addAndGet(size)
-            if (total > limit) exceeded.set(true)
-            return !exceeded.get()
-        }
-    }
-
-    private class ProcessOutputCapture(
-        private val input: java.io.InputStream,
-        private val budget: ProcessOutputBudget,
-    ) {
-        private val output = ByteArrayOutputStream()
-
-        fun start(name: String): Thread = Thread {
-            val buffer = ByteArray(1024)
-            input.use { stream ->
-                while (true) {
-                    val count = stream.read(buffer)
-                    if (count < 0) break
-                    if (!budget.accept(count)) break
-                    output.write(buffer, 0, count)
-                }
-            }
-        }.apply {
-            this.name = name
-            isDaemon = true
-            start()
-        }
-
-        fun text(charset: Charset): String = output.toByteArray().toString(charset)
     }
 
     companion object {

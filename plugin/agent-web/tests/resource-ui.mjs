@@ -739,7 +739,7 @@ try {
   await page.getByRole("link", { name: "源码", exact: true }).click();
   await page.locator(".local-image img").first().waitFor();
   const media=await page.locator('.markdown-body').evaluateAll(roots=>roots.flatMap(root=>[...root.querySelectorAll('img,video,audio')].map(node=>({tag:node.tagName,width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height,fit:getComputedStyle(node).objectFit}))));
-  if(media.length!==6 || media.some(x=>Math.abs(x.width-320)>1 || Math.abs(x.height-(x.tag==='AUDIO'?54:180))>1 || (x.tag==='IMG' && x.fit!=='cover') || (x.tag==='VIDEO' && x.fit!=='contain')))throw Error(`inconsistent Markdown media frames: ${JSON.stringify(media)}`);
+  if(media.length!==6 || media.some(x=>Math.abs(x.width-320)>1 || Math.abs(x.height-(x.tag==='AUDIO'?54:180))>1 || (x.tag==='IMG' && x.fit!=='fill') || (x.tag==='VIDEO' && x.fit!=='contain')))throw Error(`inconsistent Markdown media frames: ${JSON.stringify(media)}`);
   const resourceCalls = await page.evaluate(() => testCalls);
   if (
     !resourceCalls.some(
