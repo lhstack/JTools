@@ -203,6 +203,43 @@ class NativeResourceToolTest {
     }
 
     @Test
+    fun `numeric and string attachment IDs resolve identical native image content`() {
+        val root = Files.createTempDirectory("jtools-native-id-").toFile()
+        try {
+            val image = root.resolve("test.png")
+            ImageIO.write(BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", image)
+            val attachments = listOf("45", "9007199254740993").map { id ->
+                AgentAttachmentState(id, image.name, image.path, "image/png", image.length(), "image")
+            }
+            val tool = NativeResourceTool(ResourceKind.IMAGE, root.path, null, attachments)
+            fun args(value: String, key: String = "attachment_id") =
+                JsonParser.parseString("""{"resources":[{"$key":$value}]}""")
+            for (id in listOf("45", "9007199254740993")) {
+                val numeric = tool.executeBlocking(args(id))
+                val string = tool.executeBlocking(args("\"$id\""))
+                assertEquals(string.resources.single().identity, numeric.resources.single().identity)
+                assertTrue(numeric.resources.single().content.any { it is UserContent.Image })
+                assertEquals(id, numeric.result.asJsonObject.getAsJsonArray("resources").single().asJsonObject["attachment_id"].asString)
+            }
+            val schema = tool.definition("").parameters.asJsonObject
+                .getAsJsonObject("properties").getAsJsonObject("resources")
+                .getAsJsonObject("items").getAsJsonObject("properties")
+            assertEquals(listOf("string", "integer"), schema.getAsJsonObject("attachment_id").getAsJsonArray("type").map { it.asString })
+            assertEquals("string", schema.getAsJsonObject("path")["type"].asString)
+            for (invalid in listOf("null", "true", "{}", "[]", "45.5", "\"\"", "\"   \"")) {
+                assertFailsWith<IllegalArgumentException>("非法附件 ID: $invalid") { tool.executeBlocking(args(invalid)) }
+            }
+            assertFailsWith<IllegalStateException> { tool.executeBlocking(args("46")) }
+            assertFailsWith<IllegalArgumentException> { tool.executeBlocking(args("45", "path")) }
+            assertFailsWith<IllegalArgumentException> {
+                tool.executeBlocking(JsonParser.parseString("""{"resources":[{"attachment_id":45,"path":"test.png"}]}"""))
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `all native and delegated resource tools reject four inputs before reading or model execution`() {
         for (kind in ResourceKind.entries) {
             val native = NativeResourceTool(kind, "/tmp", null)

@@ -311,7 +311,8 @@ object CodingEnvironmentService {
             systemPrompt = config.systemPrompt,
             contexts =
                 defaults.contexts.mapValues { (key, fallback) -> config.contexts[key] ?: fallback },
-            tools = booleanMap(parsed.asJsonObject.get("tools")),
+            // 工具移除后，旧选择在读取时剔除，并由正常保存流程写回。
+            tools = booleanMap(parsed.asJsonObject.get("tools")).filterKeys { it in toolNames },
             toolsIncludeNew =
                 parsed.asJsonObject.get("tools_include_new")?.let {
                     require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean) {

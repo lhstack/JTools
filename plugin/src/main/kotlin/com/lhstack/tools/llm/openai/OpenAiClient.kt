@@ -756,7 +756,7 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         private fun streamErrorMessage(value: JsonElement): String? {
             val obj = value.takeIf { it.isJsonObject }?.asJsonObject ?: return null
             val error = obj.get("error")?.takeIf { !it.isJsonNull }
-                ?: if (stringField(obj, "type") == "error") obj.get("error") else null
+                ?: (if (stringField(obj, "type") == "error") obj else null)
                 ?: return null
             if (!error.isJsonObject) return error.toString()
             val errorObj = error.asJsonObject
