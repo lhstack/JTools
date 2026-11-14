@@ -20,7 +20,7 @@
     <p><b>IDE compatibility:</b> One installation package supports builds 251.0–263.* (IntelliJ Platform 2025.1–2026.3), including platform JCEF on older IDEs and the Web Browser (JCEF) plugin on 2026.2+.</p>
 
     <div style="margin-top: 15px; margin-bottom: 15px;">
-        <a href="https://github.com/lhstack/JTools">📖 Documentation</a> |
+        <a href="https://github.com/lhstack/JTools">📖 Documentation(Skills provided, after installation you can let AI develop the jtools plugin)</a> |
         <a href="https://github.com/lhstack/JTools/issues">🐛 Report Issues</a> |
         <a href="https://github.com/lhstack/JTools/releases">📦 Releases</a>
     </div>
@@ -46,6 +46,7 @@
         <li><b>🔌 MCP Client:</b> Manage and call external MCP servers over stdio/SSE/streamable HTTP on the official MCP Java SDK, with persisted server configs and connection testing.</li>
         <li><b>📦 Plugin Ops:</b> Local/URL/batch install and uninstall tool calls for faster workflows.</li>
         <li><b>🧪 Dev Testing:</b> Developer panel can expose current plugin instance tool calls for debugging.</li>
+        <li><b>🐞 Isolated Sandbox Debugging:</b> Reuses the current host IDEA and its installed JTools to launch a separate debug process. Supports temporary plugin loading, Swing automation, JVM breakpoints, JCEF/CDP debugging, and screenshots; process isolation is not an OS security sandbox.</li>
         <li><b>📎 Attachment Workflow:</b> Attach local files and images to chat, with model-aware capability checks, clipboard support, and optimized upload handling.</li>
         <li><b>🖼️ Multimodal Inputs:</b> Per-model capability switches for image, audio, video, and file attachments, with automatic text extraction for readable files.</li>
         <li><b>🧠 Skill Management:</b> Import or edit local SKILL.md skills, attach them per session, and expose skill resources directly to the agent runtime.</li>
@@ -86,7 +87,7 @@
     <hr/>
 
     <div style="margin-bottom: 20px;">
-        <a href="https://github.com/lhstack/JTools">📖 帮助文档</a> |
+        <a href="https://github.com/lhstack/JTools">📖 帮助文档(已提供 skills，安装之后可让 ai 开发 jtools 插件)</a> |
         <a href="https://github.com/lhstack/JTools/issues">🐛 问题反馈</a> |
         <a href="https://github.com/lhstack/JTools/releases">📦 版本发布</a>
     </div>
@@ -116,6 +117,7 @@
         <li><b>🔌 MCP 客户端：</b>基于官方 MCP Java SDK 管理并调用外部 MCP 服务，支持 stdio/SSE/streamable HTTP 传输，服务配置持久化并可连接测试。</li>
         <li><b>📦 插件管理：</b>支持本地/URL/批量安装与卸载的工具调用。</li>
         <li><b>🧪 开发测试：</b>开发面板可暴露当前插件实例的工具调用用于调试。</li>
+        <li><b>🐞 独立沙箱调试：</b>复用当前宿主 IDEA 与已安装的 JTools 启动独立调试进程，支持临时加载插件、Swing 自动化、JVM 断点、JCEF/CDP 调试和截图；进程隔离不等同于 OS 安全沙箱。</li>
         <li><b>📎 附件工作流：</b>对话支持本地文件和图片附件，具备模型能力校验、剪贴板支持与上传优化。</li>
         <li><b>🖼️ 多模态输入：</b>可按模型开启图片、音频、视频、文件附件能力，并对可读文件自动抽取文本上下文。</li>
         <li><b>🧠 Skills 管理：</b>支持导入或编辑本地 SKILL.md 技能，按会话挂载，并将技能资源直接暴露给智能体运行时。</li>
@@ -167,6 +169,11 @@
                 <li>🖼️ <b>Markdown Images:</b> Images stretch to fill fixed thumbnail frames. The full-size viewer preserves aspect ratio, zoom, rotation, copy and download controls.</li>
                 <li>🎛️ <b>Model Parameter Layout:</b> Advanced settings are grouped with responsive columns, improved Chinese labels and scrolling in short windows.</li>
                 <li>🛠️ <b>Standalone Plugin Development Skill:</b> The repository provides a manually installed Skill with Maven, Gradle Shadow, IDEA Gradle Shadow and JS templates, plus SDK/Helper, lifecycle, multi-project state, multi-open panels, functions and packaging guides. No dedicated development tools or automatic Skill installer are added.</li>
+                <li>🐞 <b>Isolated Plugin Debugger:</b> Added a sandbox debugger that runs a separate IDE process using the current host IDEA and its installed JTools plugin. It supports temporary plugin loading, Swing automation, JVM breakpoints, JCEF/CDP debugging, asynchronous operation queries, and screenshots; process isolation is not an OS security boundary.</li>
+                <li>⏳ <b>Async CDP While Debug Paused:</b> Potentially pausing CDP calls can be submitted asynchronously and queried by operation ID. Released connections fail pending operations explicitly; timeout does not cancel or justify replaying actions.</li>
+                <li>🧰 <b>Tool and Resource Handling:</b> Improved coding-environment tool selection and native resource handling, with regression tests.</li>
+                <li>🌊 <b>OpenAI Streaming Errors:</b> Improved streaming error handling with focused tests.</li>
+                <li>📚 <b>Debugger Skill Guide:</b> Added the debugger package and comprehensive host-IDE, lifecycle, Swing/JVM/JCEF, verification, and troubleshooting guidance. Uses the existing JTools installation; no separate download is required.</li>
                 <li>📦 <b>Version Metadata:</b> Plugin version 1.1.5.9 and SDK Helper marker 1159; the single-package IDEA 251–263 compatibility range is retained.</li>
             </ul>
             <ul>
@@ -178,6 +185,11 @@
                 <li>🖼️ <b>Markdown 图片：</b>拉伸铺满固定缩略图区域，大图查看器等比显示，保留缩放、旋转、复制与下载。</li>
                 <li>🎛️ <b>模型参数布局：</b>高级参数分组展示，按可用宽度切换列数，完善中文标签与短窗口滚动布局。</li>
                 <li>🛠️ <b>外置插件开发 Skill：</b>仓库提供用户自行安装的技能，包含 Maven、Gradle Shadow、IDEA Gradle Shadow、JS 模板，以及 SDK/Helper、生命周期、多项目缓存、多开、函数和打包手册，不增加专用开发工具或自动安装入口。</li>
+                <li>🐞 <b>独立插件沙箱调试：</b>新增沙箱调试器，使用当前宿主 IDEA 与已安装的 JTools 插件运行独立 IDE 进程；支持临时加载插件、Swing 自动化、JVM 断点、JCEF/CDP 调试、异步操作查询和截图。进程隔离不等同于 OS 安全沙箱。</li>
+                <li>⏳ <b>断点暂停下的异步 CDP：</b>可能暂停的 CDP 调用可异步提交并按操作 ID 查询；连接释放后显式失败，超时不代表取消，也不应因此重发操作。</li>
+                <li>🧰 <b>工具与资源处理：</b>完善编码环境工具选择和原生资源处理，并补充回归测试。</li>
+                <li>🌊 <b>OpenAI 流式错误：</b>完善流式错误处理并增加专项测试。</li>
+                <li>📚 <b>Debugger 技能手册：</b>加入 debugger 安装包及宿主 IDE、生命周期、Swing/JVM/JCEF、验收和排障手册；复用已安装的 JTools，无需另行下载。</li>
                 <li>📦 <b>版本同步：</b>插件版本为 1.1.5.9，SDK Helper 标识为 1159，保留 IDEA 251–263 单包兼容范围。</li>
             </ul>
 
@@ -247,108 +259,6 @@
                 <li>📂 <b>会话可见性路径规范化：</b>会话列表过滤前统一规范化项目路径，确保会话只在所属项目中显示，并可靠匹配等价的路径表示。</li>
                 <li>🧭 <b>会话边界统一：</b>会话获取、更新和删除复用同一套项目会话约束，使会话管理行为与项目可见性规则保持一致。</li>
                 <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.6</code>，并同步 SDK Helper 版本元数据到 <code>1156</code>。</li>
-            </ul>
-            <h2>🚀 Version v1.1.5.5</h2>
-            <p><i>Previous Release / 上一版本</i></p>
-            <ul>
-                <li>♻️ <b>Coding Session Rewrite:</b> Rebuilt the chat dialog on the awake-claw coding-session path. Message events, processing tasks, append items, attachments, and context compaction replace the old message-card queue. This is a major version cut: no migration, no compatibility layer, no fallback. The plugin automatically rebuilds the database when it detects an older schema version; data in the old database is not retained.</li>
-                <li>🧩 <b>Coding Environment Capability Pack:</b> Sessions bind a coding environment instead of treating Agent as the model source. System prompt, builtin tools, plugin functions, skills, multimodal <code>view_*</code> tools, and the compaction Agent all come from the environment. Creating a session requires an environment first.</li>
-                <li>🎛️ <b>Composer Alignment:</b> Model, reasoning, attachments, and file context sit at the bottom-left of the input box; Sessions stays on the top bar and other management entries live in the top-right overflow menu. Advanced params flatten like the model manager, with additional JSON params shown directly. Context metrics appear under the composer.</li>
-                <li>💬 <b>Timeline Layout:</b> The dialog is full width. Model replies stay left at 95% width; user bubbles stay right, grow with content, and wrap at 95%. Theme-aware Element Plus icons sit on a highlighted vertical track, with looser spacing and larger type.</li>
-                <li>📝 <b>Markdown and Code Blocks:</b> Replies use CodeMirror/Lezer highlighting. HTML blocks can preview in an iframe. Download opens the IDE save dialog and sanitizes file names for Windows/macOS/Linux.</li>
-                <li>🛠️ <b>Runtime Tooling:</b> Plugin functions register the same way as Agent management. <code>web_fetch</code> and bash output limits read global settings. MCP stays behind the <code>cli</code> tool. Distillation UI is removed; only compaction remains.</li>
-                <li>🗜️ <b>Async Context Compaction:</b> Compact starts in the background and reports success or failure as timeline notices. Sending is blocked until a notice arrives; compact is blocked while a turn is processing or queued. Restarted in-flight compaction is marked failed so send does not stay locked.</li>
-                <li>⚡ <b>Streaming Performance:</b> Deltas patch the current event instead of replacing the whole host state. The conversation auto-follows the bottom like awake-claw, and stops following when the user scrolls up.</li>
-                <li>📎 <b>Attachments:</b> Text-only models receive file metadata (name, type, size, path) so they can call <code>view_image</code>. Timeline, processing, and queued cards preview images via data URLs. File context sends path and line range only, not selected text.</li>
-                <li>🐛 <b>Dialog Stability:</b> Streaming replies and reasoning persist into events; refresh no longer drops history; compact/send/save run off the EDT; an empty database renders the dialog instead of crashing; global sessions use <code>~/.jtools/global</code>.</li>
-                <li>📚 <b>Skill Create and Import:</b> Skills can be created with a name and description, or imported from a directory that contains <code>SKILL.md</code> files. Nested skill folders are copied into <code>~/.jtools/skills</code>.</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.4</code> and aligned SDK helper version metadata to <code>1154</code></li>
-                <li>♻️ <b>编码会话重写：</b>对话链路按 awake-claw 编码会话重建，消息事件、任务、追加、附件和上下文压缩替换旧消息卡队列。这是大版本切断：不迁移、不兼容、不降级。插件检测到旧数据库版本时会自动重建数据库，旧数据库中的数据不会保留。</li>
-                <li>🧩 <b>编码环境能力包：</b>会话绑定编码环境，不再把 Agent 当模型真源。系统提示词、内置工具、插件函数、技能、多模态 <code>view_*</code> 和压缩 Agent 都由环境提供。建会话必须先有环境。</li>
-                <li>🎛️ <b>输入框与布局对齐：</b>模型、推理、附件、文件上下文放在输入框左下角；会话入口留在顶栏，其余管理入口收进右上角二级菜单。高级参数与模型管理对齐，附加 JSON 参数直接铺开。上下文指标出现在输入框下方。</li>
-                <li>💬 <b>时间线布局：</b>对话框全宽。模型回复靠左 95%；用户气泡靠右，随内容撑开，最大 95% 后软换行。图标改用 Element Plus 并适配亮暗主题，叠在高亮竖线上，行距和字号已拉开。</li>
-                <li>📝 <b>Markdown 与代码块：</b>回复使用 CodeMirror/Lezer 高亮。HTML 代码块可 iframe 预览。下载走 IDE 保存对话框，并按 Windows/macOS/Linux 清洗文件名。</li>
-                <li>🛠️ <b>运行时工具：</b>插件函数按 Agent 管理页同一套方式注册。<code>web_fetch</code> 与 bash 输出上限读取全局设置。MCP 仍走 <code>cli</code>。蒸馏相关 UI 已移除，只保留压缩。</li>
-                <li>🗜️ <b>异步上下文压缩：</b>压缩在后台执行，成功或失败都以时间线通知呈现。未出通知前不能发送；模型处理中或排队中不能压缩。重启时未完成的压缩会标失败，避免发送一直锁死。</li>
-                <li>⚡ <b>流式性能：</b>增量只补当前事件，不再每次整包替换宿主状态。对话滚动按 awake-claw 贴底跟随，用户上翻后停止跟随。</li>
-                <li>📎 <b>附件：</b>纯文本模型会收到文件名、类型、大小和路径等元数据，可通过 <code>view_image</code> 读取。时间线、处理中和排队卡片用 data URL 预览图片。文件上下文只发送路径和行号，不发送选中文本。</li>
-                <li>🐛 <b>对话框稳定性：</b>流式回复和推理会写入事件；刷新不再丢历史；压缩/发送/保存离开 EDT；空库能打开对话框而不是崩溃；全局会话工作区为 <code>~/.jtools/global</code>。</li>
-                <li>📚 <b>技能创建与导入：</b>新增技能需要名称和描述。导入技能会从所选目录递归发现包含 <code>SKILL.md</code> 的技能，并复制到 <code>~/.jtools/skills</code>。</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.4</code>，并同步 SDK Helper 版本元数据到 <code>1154</code></li>
-            </ul>
-
-            
-            <h2>🚀 Version v1.1.5.3</h2>
-            <ul>
-                <li>🐛 <b>User Shell Environment Fix:</b> The bash tool previously ran commands through a login shell, which loads <code>.zprofile</code>/<code>.bash_profile</code> but never <code>.zshrc</code>/<code>.bashrc</code>; tools managed by sdkman, nvm, fnm or gvm were therefore missing, or resolved to a global build instead of the version selected by the manager</li>
-                <li>🔄 <b>Resolved Environment Caching:</b> The full user environment is resolved once through an interactive login shell on first command execution and reused afterwards, so rc initialisation is not repeated per command; a failed resolution is not cached and is retried on the next call</li>
-                <li>🧭 <b>Per-Shell Probe Strategy:</b> How the user environment is dumped is now declared by each shell: zsh/bash read their rc files, PowerShell loads <code>$PROFILE</code> for probing while command execution keeps <code>-NoProfile</code>, and cmd plus POSIX sh are not probed because they have no reliable user configuration mechanism</li>
-                <li>♻️ <b>Environment Refresh Parameter:</b> The bash tool accepts a new <code>refresh_env</code> parameter to re-resolve the environment before execution when a command reports command not found, or after the user installs a tool or edits shell configuration, without restarting the IDE</li>
-                <li>📝 <b>Description Responsibility Split:</b> The tool description now covers only tool identity, the shell in use and capability boundaries, while all parameter usage contracts live in their own parameter descriptions</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.3</code> and aligned SDK helper version metadata to <code>1153</code></li>
-                <li>🐛 <b>用户 Shell 环境丢失修复：</b>bash 工具此前以 login shell 执行命令，只加载 <code>.zprofile</code>/<code>.bash_profile</code> 而不读 <code>.zshrc</code>/<code>.bashrc</code>，导致 sdkman、nvm、fnm、gvm 等版本管理器配置的工具找不到，或拿到全局版本而非版本管理器选定的版本</li>
-                <li>🔄 <b>用户环境解析与缓存：</b>首次执行命令时用交互式登录 shell 解析一次完整用户环境并缓存复用，后续命令直接注入，不重复执行 rc 初始化；解析失败不写入缓存，下次调用自动重试</li>
-                <li>🧭 <b>按 Shell 声明探测策略：</b>环境探测方式改由各 shell 自行声明：zsh/bash 读取 rc 文件，PowerShell 加载 <code>$PROFILE</code>（执行命令时仍保持 <code>-NoProfile</code>），cmd 与 POSIX sh 无可靠机制因而不探测</li>
-                <li>♻️ <b>环境刷新参数：</b>bash 工具新增 <code>refresh_env</code> 参数，命令报 command not found 或用户刚安装工具、刚修改 shell 配置时可强制重新解析环境后执行，无需重启 IDE</li>
-                <li>📝 <b>工具描述职责分离：</b>工具描述只说明工具身份、所用 shell 和能力边界，参数使用约定全部下沉到各自的参数描述</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.3</code>，并同步 SDK Helper 版本元数据到 <code>1153</code></li>
-            </ul>
-
-            <h2>🚀 Version v1.1.5.2</h2>
-            <p><i>Previous Release / 上一版本</i></p>
-            <ul>
-                <li>📎 <b>Append Attachments While Running:</b> The append-message dialog now accepts selected or pasted images and files while a conversation is active; attachments can be sent alone or with text and follow the actual Provider message order into model context and restored history</li>
-                <li>🖼️ <b>Append Attachment Presentation:</b> Appended-message cards show image thumbnails and file metadata, support image preview or opening files in the IDE, and provide attachment deduplication, removal and pre-send validation</li>
-                <li>🛑 <b>Layered Stop Semantics Restored:</b> When tools are running, Stop cancels only the active tools and returns a “cancelled by user” result so the model can continue the turn; the whole model response is terminated only when no tool is active</li>
-                <li>📐 <b>Strict Chat Width Containment:</b> Markdown, tables, code blocks, long links, tool details and appended messages stay inside the message area through wrapping or local scrolling instead of stretching the chat layout</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.2</code> and aligned SDK helper version metadata to <code>1152</code></li>
-                <li>📎 <b>运行中追加附件：</b>进行中的对话支持在追加消息弹窗中选择或粘贴图片与文件；附件与文字可独立或组合发送，并按真实 Provider 消息顺序进入模型上下文和会话历史</li>
-                <li>🖼️ <b>追加附件展示与打开：</b>追加消息卡片展示图片缩略图和文件信息，支持点击预览图片或在 IDE 中打开文件；弹窗支持附件去重、移除和发送前检查</li>
-                <li>🛑 <b>停止层级语义恢复：</b>有工具执行时停止按钮只取消当前工具，并将“用户手动取消”结果返回模型继续本轮对话；没有工具执行时才终止整个模型回复</li>
-                <li>📐 <b>对话内容宽度约束：</b>Markdown、表格、代码块、长链接、工具详情及追加消息统一限制在消息区域内，超宽内容改为换行或局部滚动，避免撑开对话布局</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.2</code>，并同步 SDK Helper 版本元数据到 <code>1152</code></li>
-            </ul>
-
-            <h2>🚀 Version v1.1.5.1</h2>
-            <p><i>Earlier Release / 更早版本</i></p>
-            <ul>
-                <li>💬 <b>Append Messages While Running:</b> Active chat queue items now accept additional user messages without stopping the current model request or creating another queued turn; each append is delivered as an independent user message</li>
-                <li>🔁 <b>Correct Loop Continuation:</b> A provider loop now continues when either tool calls or pending append messages exist, so a tool-free model response no longer terminates before queued appends are delivered</li>
-                <li>🧾 <b>Exact Append History:</b> Model logs persist append metadata together with the actual provider message order, preserving the sequence of tool calls, tool results and appended user messages when history is restored</li>
-                <li>🛑 <b>Cancellation Boundary:</b> Stopping a turn cancels model and tool requests, atomically closes the append channel and removes undelivered append messages</li>
-                <li>🎨 <b>Collapsible Append Display:</b> User cards provide group-level and per-message expansion, internal scrolling for large lists and long content, and correctly formatted timestamps without leaking fractional-second digits</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.1</code> and aligned SDK helper version metadata to <code>1151</code></li>
-                <li>💬 <b>运行中追加消息：</b>进行中的对话队列项支持继续追加用户消息；追加内容按独立用户消息投递，无需停止当前模型请求或重新排队</li>
-                <li>🔁 <b>工具循环继续条件修复：</b>下一轮由“存在工具调用或待处理追加消息”共同决定；即使模型未调用工具，只要有追加消息也会继续请求模型</li>
-                <li>🧾 <b>追加顺序精确持久化：</b>模型日志记录追加消息元数据及实际 Provider 消息顺序，恢复历史时保留工具调用、工具结果和追加消息的真实先后关系</li>
-                <li>🛑 <b>取消边界收敛：</b>停止会话时同步取消模型与工具请求，并原子关闭追加入口、清空尚未投递的追加消息</li>
-                <li>🎨 <b>追加消息折叠展示：</b>用户消息卡片提供追加消息总览和单条两级展开/收起；大量消息及超长正文在区域内滚动，并修正小数秒被误显示为裸数字的问题</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.1</code>，并同步 SDK Helper 版本元数据到 <code>1151</code></li>
-            </ul>
-
-            <h2>🚀 Version v1.1.5.0</h2>
-            <p><i>Previous Release / 上一版本</i></p>
-            <ul>
-                <li>✨ <b>Chat Input Polish:</b> A new "Polish" button in the chat composer runs a configured Agent over the current input and returns multiple candidate rewrites for preview and one-click fill-back</li>
-                <li>🧩 <b>Ephemeral Polish Tool:</b> A virtual <code>submit_polish_results</code> tool is injected per polish run only; it never enters the global tool registry nor appears in Agent tool configuration</li>
-                <li>⚙️ <b>Select-type Global Settings:</b> Global configuration gains a <code>select</code> field type, plus a new "Chat Polish Agent" option chosen from enabled Agents; leaving it unset hides the polish entry entirely</li>
-                <li>🔁 <b>Settings Apply Immediately:</b> Saving global settings now notifies the chat panel to resync, so the polish entry appears or disappears without reopening the panel</li>
-                <li>🎭 <b>Polish Honours Agent Persona:</b> The polish instruction now requires strict adherence to the Agent's role, capability profile and working method; the conflicting "varied styles" wording was removed so candidates differ only in wording and sentence structure</li>
-                <li>📖 <b>Full Result Review:</b> Results use native Element Plus tabs plus a large preview pane (<code>min(56vh,560px)</code>, internal scrolling, selectable text) with a character count in the footer; fill-back requires clicking "Apply to input" to prevent mis-taps</li>
-                <li>🗂️ <b>No Session Pollution:</b> Polish runs are not written as session messages and never enter the chat queue; they are logged under the <code>chat_polish</code> type and remain traceable in model logs</li>
-                <li>⚡ <b>Non-blocking Cancellation:</b> Cancelling runs on a background thread to avoid closing HTTP connections on the EDT and freezing the UI; running tasks can be interrupted at any time</li>
-                <li>🛡️ <b>Explicit Polish Failures:</b> If the model does not call the submit tool as instructed, the run fails with a hint to check tool-call support instead of scraping the answer body for results</li>
-                <li>📦 <b>Version Metadata Sync:</b> Bumped the plugin release to <code>v1.1.5.0</code> and aligned SDK helper version metadata to <code>1150</code></li>
-                <li>✨ <b>输入框润色：</b>对话输入框新增「润色」按钮，调用指定 Agent 对当前输入内容生成多个候选版本，可预览后回填</li>
-                <li>🧩 <b>润色虚拟工具动态注册：</b>新增 <code>submit_polish_results</code> 虚拟工具，仅在润色任务执行期间按次注入，不进入全局工具注册表，也不出现在 Agent 工具配置清单中</li>
-                <li>⚙️ <b>全局设置支持下拉选项：</b>全局配置项新增 <code>select</code> 类型，新增「输入框润色 Agent」配置，从已启用 Agent 中选择，默认「不启用」时对话界面不显示润色入口</li>
-                <li>🔁 <b>配置保存即时生效：</b>全局设置保存后主动通知对话面板同步状态，润色入口无需重开面板即可出现或消失</li>
-                <li>🎭 <b>润色遵循 Agent 人格：</b>润色指令改为要求严格遵循该 Agent 的角色设定、能力画像与工作方法，移除与人格冲突的「风格各异」措辞，多个候选只在用词句式上区别</li>
-                <li>📖 <b>润色结果完整查看：</b>结果改为 Element Plus 原生标签页切换 + 大预览区（高度 <code>min(56vh,560px)</code>、内部滚动、文本可选中），底部显示当前方案字符数，需点击「应用到输入框」才回填，避免误触</li>
-                <li>🗂️ <b>润色不污染会话历史：</b>润色不写入会话消息、不进入对话队列，以 <code>chat_polish</code> 类型记录到模型日志，可在模型日志中追溯</li>
-                <li>⚡ <b>润色中断不卡界面：</b>取消动作放到后台线程执行，避免在 EDT 上关闭 HTTP 连接导致界面卡顿；运行中任务可随时中断</li>
-                <li>🛡️ <b>润色失败显式暴露：</b>模型未按约定调用提交工具时直接报错并提示检查该模型是否支持工具调用，不解析回答正文凑结果</li>
-                <li>📦 <b>版本元数据同步：</b>插件版本号升级到 <code>v1.1.5.0</code>，并同步 SDK Helper 版本元数据到 <code>1150</code></li>
             </ul>
         ]]>
     </change-notes>
