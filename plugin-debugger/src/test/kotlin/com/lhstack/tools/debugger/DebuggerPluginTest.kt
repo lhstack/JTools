@@ -24,7 +24,8 @@ class DebuggerPluginTest {
             assertTrue(function.parameters().contains("command"))
             assertFailsWith<IllegalStateException> { function.call("""{"command":"help"}""") }
             assertFailsWith<IllegalArgumentException> { function.call("""{"command":"help"}""", "session", "") }
-            assertContains(function.call("""{"command":"help"}""", "session A", "a"), "start")
+            val help = function.call("""{"command":"help"}""", "session A", "a")
+            listOf("start", "methods", "invoke", "parameter_types", "project_object", "object_id").forEach { assertContains(help, it) }
             assertContains(function.call("""{"command":"help"}""", "session B", "b", "provider", "model"), "start")
         } finally {
             plugin.unInstall()

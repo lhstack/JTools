@@ -23,6 +23,7 @@ dependencies {
     testImplementation("com.google.code.gson:gson:2.10.1")
     testImplementation("org.java-websocket:Java-WebSocket:1.6.0")
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("junit:junit:4.13.2")
     // 单测只需要 SDK 编译输出，不消费 IntelliJ 发行变体，避免触发 buildSearchableOptions。
     testImplementation(files(rootProject.project(":sdk").tasks.named<JavaCompile>("compileJava").flatMap { it.destinationDirectory }))
 }

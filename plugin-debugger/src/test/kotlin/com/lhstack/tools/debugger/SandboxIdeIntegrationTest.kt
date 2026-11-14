@@ -19,15 +19,14 @@ class SandboxIdeIntegrationTest {
     @EnabledIfSystemProperty(named = "debugger.test.ide", matches = ".+")
     fun `full ide sandboxes execute lifecycle debug and terminate independently`() {
         val ide = Path.of(System.getProperty("debugger.test.ide"))
-        val hostBuild = Path.of(System.getProperty("debugger.test.hostBuild"))
         val root = Path.of(System.getProperty("debugger.test.output"))
             .resolve("ide-acceptance-${System.currentTimeMillis()}")
         Files.createDirectories(root)
         println("IDE acceptance evidence: $root")
-        val distribution = Files.walk(hostBuild.resolve("idea-sandbox"), 5).use { paths ->
-            paths.filter { it.fileName.toString() == "jtools" && it.parent.fileName.toString() == "plugins" &&
-                it.parent.parent.fileName.toString() == "IC-2025.1" && Files.isDirectory(it.resolve("lib")) }.toList().single()
-        }
+        val distributionPath = System.getProperty("debugger.test.distribution")
+        require(!distributionPath.isNullOrBlank()) { "真实 IDE 验收必须显式指定 debuggerTestDistribution，避免加载旧产物" }
+        val distribution = Path.of(distributionPath)
+        require(Files.isDirectory(distribution.resolve("lib"))) { "验收发行目录缺少 lib：$distribution" }
         val base = root.resolve("base.vmoptions")
         // 测试专用启动选项，禁止首次导入个人配置及遥测确认对话框。
         Files.writeString(base, "-Xmx1536m\n-Djb.consents.confirmation.enabled=false\n-Dide.show.tips.on.startup.default.value=false\n")
@@ -74,7 +73,7 @@ class SandboxIdeIntegrationTest {
             assertFailsWith<IllegalArgumentException> {
                 controller.call("wrong-owner", "status.process", JsonObject().apply { addProperty("sandbox_id", aid) })
             }
-            call(aid, "jvm.breakpoint", JsonObject().apply { addProperty("class", "fixture.SandboxFixture"); addProperty("line", 14) })
+            val breakpoint = call(aid, "jvm.breakpoint", JsonObject().apply { addProperty("class", "fixture.SandboxFixture"); addProperty("line", 15) })
             val running = CompletableFuture.supplyAsync {
                 call(aid, "run", JsonObject().apply { addProperty("artifact", artifact.toString()); addProperty("timeout_secs", 120) })
             }
@@ -103,7 +102,25 @@ class SandboxIdeIntegrationTest {
             assertContains(variables.toString(), "42")
             call(aid, "jvm.resume")
             val status = running.get(30, TimeUnit.SECONDS)
+            call(aid, "jvm.remove", JsonObject().apply { addProperty("request_id", breakpoint.text("request_id")) })
             assertEquals("RUNNING", status.text("state"))
+            val pluginObject = status.getAsJsonObject("plugin_object").text("object_id")
+            val projectObject = status.getAsJsonObject("project_object").text("object_id")
+            fun invoke(id: String, method: String, types: String = "[]", values: String = "[]", thread: String = "worker"): JsonObject =
+                call(aid, "invoke", JsonParser.parseString("""{"object_id":"$id","method":"$method","parameter_types":$types,"arguments":$values,"thread":"$thread"}""").asJsonObject)
+            val methods = call(aid, "methods", JsonObject().apply { addProperty("object_id", pluginObject) })
+            assertContains(methods.toString(), "functionCallings")
+            assertEquals("worker", invoke(pluginObject, "executionThread").text("value"))
+            assertEquals("edt", invoke(pluginObject, "executionThread", thread = "edt").text("value"))
+            assertEquals(1, invoke(pluginObject, "increment").get("value").asInt)
+            assertEquals(2, invoke(pluginObject, "increment").get("value").asInt)
+            val projectHash = invoke(projectObject, "getLocationHash").text("value")
+            val functions = invoke(pluginObject, "functionCallings", """["java.lang.String"]""", """[{"value":"$projectHash"}]""")
+            val function = invoke(functions.text("object_id"), "get", """["int"]""", """[{"value":0}]""")
+            assertEquals("called:payload", invoke(function.text("object_id"), "call", """["java.lang.String"]""", """[{"value":"payload"}]""").text("value"))
+            val static = call(aid, "invoke", JsonParser.parseString("""{"class_name":"fixture.SandboxFixture","method":"staticEcho","parameter_types":["java.lang.String"],"arguments":[{"value":"verified"}]}""").asJsonObject)
+            assertEquals("static:verified", static.text("value"))
+            assertContains(assertFailsWith<IllegalStateException> { invoke(pluginObject, "fail") }.message.orEmpty(), "reflection-fixture-failure")
             val panel = status.getAsJsonArray("panels").single().asString
             val snapshot = call(aid, "swing.snapshot", JsonObject().apply { addProperty("panel_id", panel) })
             val input = find(snapshot, "fixture-input")
@@ -119,6 +136,11 @@ class SandboxIdeIntegrationTest {
             assertTrue(Files.size(Path.of(image.text("image_path"))) > 0)
             call(bid, "run", JsonObject().apply { addProperty("artifact", artifact.toString()) })
             assertEquals("STOPPED", call(aid, "stop").text("state"))
+            assertFailsWith<IllegalStateException> { invoke(pluginObject, "pluginName") }
+            val rerun = call(aid, "run", JsonObject().apply { addProperty("artifact", artifact.toString()) })
+            assertNotEquals(pluginObject, rerun.getAsJsonObject("plugin_object").text("object_id"))
+            assertFailsWith<IllegalStateException> { invoke(pluginObject, "pluginName") }
+            call(aid, "stop")
             val history = controller.call("acceptance", "events", JsonObject().apply { addProperty("sandbox_id", aid) }).toString()
             listOf("install", "openProject", "createPanel", "showPanel", "closePanel", "closeProject", "unInstall").forEach { assertContains(history, it) }
             call(aid, "terminate")
@@ -141,7 +163,13 @@ class SandboxIdeIntegrationTest {
         val artifact = root.resolve("fixture.jar")
         JarOutputStream(Files.newOutputStream(artifact)).use { jar ->
             jar.putNextEntry(JarEntry("META-INF/ToolsPlugin.txt")); jar.write("fixture.SandboxFixture".toByteArray()); jar.closeEntry()
-            jar.putNextEntry(JarEntry("fixture/SandboxFixture.class")); Files.copy(classes.resolve("fixture/SandboxFixture.class"), jar); jar.closeEntry()
+            Files.walk(classes).use { paths ->
+                paths.filter { Files.isRegularFile(it) }.forEach { path ->
+                    jar.putNextEntry(JarEntry(classes.relativize(path).toString().replace('\\', '/')))
+                    Files.copy(path, jar)
+                    jar.closeEntry()
+                }
+            }
         }
         return artifact
     }

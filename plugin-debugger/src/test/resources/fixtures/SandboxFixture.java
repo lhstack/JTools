@@ -26,4 +26,16 @@ public class SandboxFixture implements IPlugin {
         panel.add(label);
         return panel;
     }
+    public String executionThread() { return SwingUtilities.isEventDispatchThread() ? "edt" : "worker"; }
+    public static String staticEcho(String value) { return "static:" + value; }
+    private int count;
+    public int increment() { return ++count; }
+    public void fail() { throw new IllegalStateException("reflection-fixture-failure"); }
+    public java.util.List<com.lhstack.tools.plugins.FunctionCalling> functionCallings(String project) {
+        return java.util.Collections.singletonList(new com.lhstack.tools.plugins.FunctionCalling() {
+            public String name() { return "fixture"; }
+            public String parameters() { return "{}"; }
+            public String call(String args) { return "called:" + args; }
+        });
+    }
 }

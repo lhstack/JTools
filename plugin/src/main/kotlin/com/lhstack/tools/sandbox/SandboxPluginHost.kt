@@ -15,11 +15,12 @@ import java.util.UUID
 import java.util.zip.ZipFile
 import javax.swing.*
 
-/** 单个沙箱只持有一个产物运行；所有生命周期和 UI 变更串行进入 EDT。 */
+/** 单个沙箱只持有一个产物运行；生命周期和 UI 变更进入 EDT；反射调用按显式线程执行。 */
 class SandboxPluginHost(private val project: Project) : SandboxHost {
     private val gson = Gson()
     @Volatile private var plugin: IPlugin? = null
     private var loader: URLClassLoader? = null
+    @Volatile private var reflection: SandboxReflection? = null
     private val panels = java.util.concurrent.ConcurrentHashMap<String, Pair<JComponent, JFrame>>()
     private val events = mutableListOf<Map<String, Any?>>()
     private var sequence = 0L
@@ -33,6 +34,7 @@ class SandboxPluginHost(private val project: Project) : SandboxHost {
     }
     override fun execute(command: String, argumentsJson: String): String {
         val args = JsonParser.parseString(argumentsJson).asJsonObject
+        if (command == "methods" || command == "invoke") return reflect(command, args)
         var result: Any? = null
         var failure: Throwable? = null
         val action = Runnable {
@@ -52,6 +54,37 @@ class SandboxPluginHost(private val project: Project) : SandboxHost {
         failure?.let { throw it }
         return gson.toJson(result)
     }
+    private fun reflect(command: String, args: JsonObject): String {
+        val current = checkNotNull(reflection) { "没有运行中的插件；先执行 run" }
+        val thread = args.get("thread")?.let {
+            require(it.isJsonPrimitive && it.asJsonPrimitive.isString) { "thread 必须为字符串" }
+            it.asString
+        } ?: "worker"
+        require(thread == "worker" || thread == "edt") { "thread 必须为 worker 或 edt" }
+        var result: JsonObject? = null
+        var failure: Throwable? = null
+        val execute = Runnable {
+            val executionThread = Thread.currentThread()
+            val previousLoader = executionThread.contextClassLoader
+            try {
+                executionThread.contextClassLoader = loader ?: plugin!!.javaClass.classLoader
+                result = if (command == "methods") current.methods(args) else current.invoke(args)
+            } catch (error: Throwable) {
+                event(command, error)
+                failure = error
+            } finally {
+                executionThread.contextClassLoader = previousLoader
+            }
+        }
+        if (thread == "edt" && !SwingUtilities.isEventDispatchThread()) ApplicationManager.getApplication().invokeAndWait(execute)
+        else {
+            check(thread != "worker" || !SwingUtilities.isEventDispatchThread()) { "worker 调用不能在 EDT 执行" }
+            execute.run()
+        }
+        failure?.let { throw it }
+        return gson.toJson(checkNotNull(result))
+    }
+
     private fun run(args: JsonObject): Any {
         check(plugin == null) { "必须先停止旧运行；清除泄漏的全局状态请重启沙箱" }
         val root = Path.of(System.getProperty("jtools.sandbox.root")).toRealPath()
@@ -102,6 +135,7 @@ class SandboxPluginHost(private val project: Project) : SandboxHost {
                 if (SwingUtilities.isEventDispatchThread()) action.run() else ApplicationManager.getApplication().invokeLater(action)
             }; opened = true; event("openProject")
             if (plugin!!.pluginType() != PluginType.JAVA_NON_UI) openPanel()
+            reflection = SandboxReflection(loader ?: plugin!!.javaClass.classLoader)
             state = "RUNNING"
             return status()
         } catch (error: Throwable) {
@@ -134,6 +168,8 @@ class SandboxPluginHost(private val project: Project) : SandboxHost {
         finally { panels.remove(id); frame.dispose() }
     }
     private fun stop() {
+        reflection?.clear()
+        reflection = null
         var failure: Throwable? = null
         fun cleanup(stage: String, action: () -> Unit) {
             try { action(); event(stage) } catch (error: Throwable) {
@@ -149,7 +185,11 @@ class SandboxPluginHost(private val project: Project) : SandboxHost {
         state = if (failure == null) "STOPPED" else "CLEANUP_FAILED"
         failure?.let { throw it }
     }
-    private fun status(): Map<String, Any?> = mapOf("run_id" to runId, "state" to state, "panels" to panels.keys.toList(), "event_cursor" to sequence)
+    private fun status(): Map<String, Any?> = mapOf(
+        "run_id" to runId, "state" to state, "panels" to panels.keys.toList(), "event_cursor" to sequence,
+        "plugin_object" to reflection?.let { it.reference(checkNotNull(plugin)) },
+        "project_object" to reflection?.let { it.reference(project) },
+    )
     override fun panel(panelId: String): JComponent = panels[panelId]?.first ?: error("面板已失效: $panelId")
     override fun browser(panelId: String): Any {
         panel(panelId)

@@ -191,6 +191,25 @@ Swing 截图返回 `image_path/width/height/capture_kind=screen_region/occlusion
 
 推荐闭环：先设断点 → run 或异步 click → 从事件确认命中 → 查栈/变量 → 单步或恢复 → 查原 operation → 再验证 UI/业务结果。同步 `run` 若因初始化断点超时，不表示原 run 已取消；先用 JVM 事件定位并恢复，不重发 run。
 
+### 实例与静态方法反射调用
+
+需同时更新 JTools 主插件和 Skill 随附的 debugger JAR。`run/status` 返回 `plugin_object` 与 `project_object`，包含本次运行的 `object_id`；使用真实插件实例，不重新实例化。`stop` 清空对象引用，重新 `run` 后旧 ID 不可用。
+
+```json
+{"command":"methods","arguments":{"sandbox_id":"<sid>","object_id":"<plugin-id>","method":"functionCallings"}}
+{"command":"invoke","arguments":{"sandbox_id":"<sid>","object_id":"<plugin-id>","method":"functionCallings","parameter_types":["com.intellij.openapi.project.Project"],"arguments":[{"object_id":"<project-id>"}],"thread":"worker"}}
+{"command":"invoke","arguments":{"sandbox_id":"<sid>","object_id":"<返回的List对象ID>","method":"get","parameter_types":["int"],"arguments":[{"value":0}]}}
+{"command":"invoke","arguments":{"sandbox_id":"<sid>","object_id":"<返回的FunctionCalling对象ID>","method":"call","parameter_types":["java.lang.String"],"arguments":[{"value":"{}"}]}}
+{"command":"invoke","arguments":{"sandbox_id":"<sid>","class_name":"example.MyPlugin","method":"staticMethod","parameter_types":[],"arguments":[]}}
+```
+
+- `object_id` 表示实例方法，`class_name` 表示静态方法，必须二选一。`methods` 可选 `method` 过滤，返回继承/非 public 方法的声明类、参数类型、返回类型、static、可见性及 varargs。JVM 模块访问失败会明确报错，不绕过访问限制。
+- `invoke` 必须传精确的 `parameter_types` 和对应 `arguments`，无参均传 `[]`。嵌套类用 `$`；数组使用 `int[]` 等；varargs 显式传数组，不猜重载。
+- 每个参数只能为 `{"value":简单值或null}` 或 `{"object_id":"..."}`。数组使用 `{"value":[{"value":1},{"value":2}]}`，元素也需封装。拒绝数值溢出、小数转整数、字符串转数字、primitive null 和类型不匹配引用。
+- 简单返回值为 `kind=value/value`；其他返回对象引用 `kind=object/object_id/class_name`，可继续 `methods/invoke`。因此可测试 Function Calling 的实际函数对象，无专用函数调用协议。三参/五参 `call` 的会话和模型信息按测试意图显式传入，不自动注入控制端会话。
+- `thread` 默认 `worker`，UI 方法明确选 `edt`；使用当前插件 ClassLoader，并恢复线程原有上下文 ClassLoader。目标异常展开后返回真实异常和堆栈。
+- 调用沿用沙箱串行操作锁。`timeout_secs` 只限制控制端 HTTP 等待，不取消目标函数、不自动重发；超时不代表未执行。断点暂停或超时后用 `jvm.events/frames/resume`，必要时 terminate，不盲目重试。
+
 ## 7. JS/JCEF 与 CDP
 
 ### 7.1 页面绑定与域启用

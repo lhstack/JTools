@@ -66,7 +66,7 @@ class DebuggerIconsTest {
             assertTrue(ImageIO.write(preview, "png", output.toFile()))
         } finally {
             graphics.dispose()
-            IconLoader.setUseDarkIcons(StartupUiUtil.isUnderDarcula())
+            IconLoader.setUseDarkIcons(StartupUiUtil.isUnderDarcula)
             plugin.unInstall()
         }
     }
