@@ -1,0 +1,5 @@
+body { margin: 0; background: #1e2228; color: #d4d7de; font: 14px system-ui, sans-serif; }
+main { padding: 24px; }
+h1 { font-size: 20px; }
+button, input { margin: 8px; padding: 8px 12px; }
+button { cursor: pointer; }

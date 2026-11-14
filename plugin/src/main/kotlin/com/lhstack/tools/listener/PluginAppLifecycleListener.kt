@@ -16,6 +16,10 @@ import java.io.File
 class PluginAppLifecycleListener : AppLifecycleListener {
 
     override fun appFrameCreated(commandLineArgs: MutableList<String>) {
+        if (java.lang.Boolean.getBoolean("jtools.sandbox")) {
+            com.lhstack.tools.sandbox.SandboxBootstrap.start()
+            return
+        }
         AgentPersistence.bootstrap()
         MessageProcessor.start()
         ProgressManager.getInstance().run(object : Task.Backgroundable(null, "插件安装中...", false) {
@@ -23,7 +27,7 @@ class PluginAppLifecycleListener : AppLifecycleListener {
                 val state = PluginState.getInstance().state
                 if (state.pluginBasePath.isBlank()) {
                     state.pluginBasePath =
-                        File("${System.getProperty("user.home")}/.jtools/${Helper.getIdeInfo().fullApplicationName}/plugins").absolutePath
+                        File(com.lhstack.tools.const.Const.JTOOLS_PLUGIN_HOME, "${Helper.getIdeInfo().fullApplicationName}/plugins").absolutePath
                 }
                 indicator.isIndeterminate = false
                 ApplicationManager.getApplication().invokeLater {

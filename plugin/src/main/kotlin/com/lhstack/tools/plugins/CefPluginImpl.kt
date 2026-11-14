@@ -792,6 +792,11 @@ class CefPluginImpl(
         }
     }
 
+    fun sandboxBrowser(project: Project): org.cef.browser.CefBrowser {
+        check(java.lang.Boolean.getBoolean("jtools.sandbox")) { "仅沙箱允许访问调试浏览器" }
+        return browsers[project.locationHash]?.cefBrowser ?: error("浏览器未创建")
+    }
+
     override fun pluginType(): PluginType {
         return PluginType.JAVA
     }

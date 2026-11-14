@@ -1,3 +1,8 @@
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.security.MessageDigest
+import java.util.jar.JarInputStream
+import java.util.zip.ZipFile
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.bundling.Zip
@@ -76,6 +81,7 @@ val sdkProject = project(":sdk")
 val sdkVersion = sdkProject.version.toString()
 val instrumentedJar = tasks.named<Jar>("instrumentedJar")
 val sdkJar = sdkProject.tasks.named<Jar>("jar")
+val sdkComposedJar = sdkProject.tasks.named<Jar>("composedJar")
 val proguardRules = listOf(
     "-target 17",
     "-dontoptimize",
@@ -98,6 +104,9 @@ val proguardRules = listOf(
     "-keep class com.lhstack.tools.listener.PluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.JavaPluginAppLifecycleListener { *; }",
     "-keep class com.lhstack.tools.listener.ProjectStartupActivity { *; }",
+    "-keep class com.lhstack.tools.sandbox.SandboxPluginHost { public java.lang.String execute(java.lang.String,java.lang.String); public javax.swing.JComponent panel(java.lang.String); public java.lang.Object browser(java.lang.String); }",
+    "-keepclassmembers class * implements com.lhstack.tools.plugins.Logger { public *; }",
+    "-keepclassmembers class * implements com.lhstack.tools.plugins.CefCacheManager { public *; }",
     "-keep class com.lhstack.tools.plugins.PluginState { *; }",
     "-keep class com.lhstack.tools.db.entity.** { *; }",
     "-keep class com.lhstack.tools.db.mapper.** { *; }",
@@ -226,8 +235,36 @@ val proguardSdkJar by tasks.registering(proguard.taskClass) {
     rules.addAll(proguardRules)
 }
 
+// SDK 是外部插件与调试运行端的公共契约，不进入混淆覆盖流程。
+val verifySandboxHost by tasks.registering {
+    dependsOn(proguardJar)
+    val artifact = base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar")
+    inputs.file(artifact)
+    doLast {
+        val output = ByteArrayOutputStream()
+        exec {
+            commandLine(
+                File(System.getProperty("java.home"), "bin/javap").absolutePath,
+                "-p", "-s", "-classpath", artifact.get().asFile.absolutePath,
+                "com.lhstack.tools.sandbox.SandboxPluginHost"
+            )
+            standardOutput = output
+        }
+        val bytecode = output.toString("UTF-8")
+        listOf(
+            "public java.lang.String execute(java.lang.String, java.lang.String);" to "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            "public javax.swing.JComponent panel(java.lang.String);" to "(Ljava/lang/String;)Ljavax/swing/JComponent;",
+            "public java.lang.Object browser(java.lang.String);" to "(Ljava/lang/String;)Ljava/lang/Object;"
+        ).forEach { (method, descriptor) ->
+            check(bytecode.contains(method) && bytecode.contains("descriptor: $descriptor")) {
+                "混淆产物缺少 SandboxHost 实现：$method"
+            }
+        }
+    }
+}
+
 val applyObfuscationOutputs by tasks.registering {
-    dependsOn(proguardJar, proguardSdkJar)
+    dependsOn(verifySandboxHost, sdkComposedJar)
     doLast {
         val libsDir = base.libsDirectory.get().asFile
         val pluginProguarded = File(libsDir, "${project.name}-${project.version}-proguarded.jar")
@@ -235,10 +272,6 @@ val applyObfuscationOutputs by tasks.registering {
         val pluginInstrumentedJar = File(libsDir, "${project.name}-${project.version}-instrumented.jar")
         pluginProguarded.copyTo(pluginJar, overwrite = true)
         pluginProguarded.copyTo(pluginInstrumentedJar, overwrite = true)
-
-        val sdkProguarded = File(libsDir, "sdk-${sdkVersion}-proguarded.jar")
-        val sdkJarFile = sdkJar.get().archiveFile.get().asFile
-        sdkProguarded.copyTo(sdkJarFile, overwrite = true)
     }
 }
 
@@ -290,8 +323,34 @@ tasks {
     named("prepareSandbox") {
         dependsOn(applyObfuscationOutputs)
     }
-    named("buildPlugin") {
+    named<Zip>("buildPlugin") {
         dependsOn(applyObfuscationOutputs)
+        doLast {
+            fun classes(input: InputStream): Map<String, List<Byte>> =
+                JarInputStream(input).use { jar ->
+                    buildMap {
+                        while (true) {
+                            val entry = jar.nextJarEntry ?: break
+                            if (!entry.isDirectory && entry.name.endsWith(".class")) {
+                                put(entry.name, MessageDigest.getInstance("SHA-256").digest(jar.readBytes()).toList())
+                            }
+                        }
+                    }
+                }
+            ZipFile(archiveFile.get().asFile).use { zip ->
+                val jars = zip.entries().asSequence().filter { it.name.endsWith(".jar") }.toList()
+                listOf(
+                    "${project.name}-${project.version}.jar" to base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar").get().asFile,
+                    "sdk-$sdkVersion.jar" to sdkComposedJar.get().archiveFile.get().asFile
+                ).forEach { (name, expected) ->
+                    val entry = jars.single { it.name.endsWith("/lib/$name") }
+                    val expectedClasses = classes(expected.inputStream())
+                    check(expectedClasses.isNotEmpty() && classes(zip.getInputStream(entry)) == expectedClasses) {
+                        "发布 ZIP 中的 $name 与已验证产物不一致"
+                    }
+                }
+            }
+        }
     }
     named("publishPlugin") {
         dependsOn(applyObfuscationOutputs)

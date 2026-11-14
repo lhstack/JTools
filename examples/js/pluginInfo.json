@@ -1,0 +1,8 @@
+{
+  "pluginName": "JTools JS Example",
+  "pluginDesc": "原生 JS/JCEF 输入交互与真实宿主桥接示例",
+  "pluginVersion": "1.0.0",
+  "pluginIcon": "icons/plugin.png",
+  "pluginTabIcon": "icons/tab.png",
+  "indexPage": "index.html"
+}

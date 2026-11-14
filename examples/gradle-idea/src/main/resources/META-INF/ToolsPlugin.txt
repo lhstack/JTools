@@ -1,0 +1,1 @@
+com.lhstack.examples.idea.IdeaExamplePlugin

@@ -10,7 +10,7 @@ class Const {
 
         const val AGENT_BROWSER_WINDOW_ID = "AI Browser"
 
-        val JTOOLS_PLUGIN_HOME = "${System.getProperty("user.home")}/.jtools".replace("\\", "/")
+        val JTOOLS_PLUGIN_HOME = com.lhstack.tools.plugins.JToolsPaths.home(System.getProperties()).toString().replace("\\", "/")
 
         val JTOOLS_SDK_INSTALL_PATH = "${JTOOLS_PLUGIN_HOME}/sdk/sdk.jar"
 
