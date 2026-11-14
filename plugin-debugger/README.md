@@ -1,6 +1,22 @@
 # 插件沙箱调试器
 
-新增命令通过现有 `sandbox_debug` 工具执行。需要同时更新 JTools 主插件和 debugger JAR：主插件沙箱宿主持有被测插件的真实实例及 ClassLoader；debugger 负责会话隔离和 RPC 转发。
+命令通过 JTools Function Calling 或外部 MCP 的同一 `sandbox_debug` 工具执行。需要同时更新 JTools 主插件和 debugger JAR：主插件沙箱宿主持有被测插件的真实实例及 ClassLoader；debugger 负责会话隔离和 RPC 转发。
+
+## MCP 服务（0.2.0）
+
+安装 `:plugin-debugger:shadowJar` 生成的 `plugin-debugger-0.2.0-mcp.jar`，不要安装 plain JAR。包内隔离了 MCP SDK、Jetty 及 JSON 依赖，不随包携带 JTools SDK 或 IDE 平台类。
+
+应用级唯一 MCP 服务由所有项目、窗口和会话共享。面板打开即回显当前状态与配置，启动、停止及新客户端配置通过 Application MessageBus + Topic 同步全部面板。重复启动返回现有服务，重复停止返回停止状态；启停状态在服务层原子更新。面板分为 Streamable HTTP、SSE、stdio 三个标签；选择协议后点击“复制配置”，只复制当前标签的完整 mcpServers JSON，可直接粘贴到客户端。三种方式选一种：
+
+- Streamable HTTP：`http://127.0.0.1:<port>/mcp`，设置 Authorization Bearer。
+- 传统 SSE：同端口 `/sse`，同样设置 Authorization Bearer，消息地址由协议返回。
+- stdio：面板提供完整 command/args/env，包含 Java/JAR 绝对路径、实际地址及 `JTOOLS_DEBUGGER_TOKEN`；MCP 配置使用分开的 command/args/env，不将整条 shell 命令填入 command。Java 17+，stdout 仅有 MCP 消息。
+
+不要求外部开发工具使用 JTools AI 会话；运行宿主仍需安装 JTools/debugger。支持兼容的 JetBrains IDE 产品，包括 IDEA、PyCharm、WebStorm、GoLand、CLion、Rider 等，不限制产品名。`discover` 优先当前宿主，再按运行进程、系统安装/Toolbox 及用户插件目录发现，按 JTools 插件 ID 验证；`start` 可省略路径。多个候选让用户选择，未找到才询问自定义路径或提供 Marketplace/GitHub 下载入口。不会自动下载安装。
+
+每份新客户端配置是独立调试身份，重连保留原令牌可继续访问原沙箱；MCP 协议会话绑定其创建令牌，不允许跨令牌借用。服务只监听本机并校验 Origin；令牌不写入日志。停止 MCP 服务保留沙箱，重启后原令牌仍可用（自动端口可能变化）；关闭面板或项目不停止共享服务及 MCP 沙箱；项目关闭仅清理其 JTools AI 沙箱。卸载 debugger 或退出 IDE 统一清理全部服务和沙箱。JTools 会话和外部客户端隔离。
+
+测试：`./gradlew :plugin-debugger:test`；真实 JetBrains IDE 验收须显式提供 `-PdebuggerTestIde=<IDE home>` 和 `-PdebuggerTestDistribution=<JTools root>`。测试夹具目前在本机 IDEA 产品验收，不代表全产品真机验证。
 
 ## 对象与方法
 

@@ -1,67 +1,70 @@
 # Debugger 完整使用手册
 
-本手册配套 JTools「插件沙箱调试器」`0.1.0`，适用于 Java/Kotlin Swing、IDEA API 扩展与 JS/JCEF 扩展。它提供独立 IDEA 进程中的临时运行、生命周期事件、Swing 语义交互、JVM 断点、CDP 调试与截图，不负责替代目标工程的编译打包。
+本手册配套 JTools「插件沙箱调试器」`0.2.0`，适用于 Java/Kotlin Swing、IDEA API 扩展与 JS/JCEF 扩展。它提供独立 JetBrains IDE 进程中的临时运行、生命周期事件、Swing 语义交互、JVM 断点、CDP 调试与截图，不负责替代目标工程的编译打包。
 
-## 1. 环境原则：使用当前启动的宿主 IDEA
+## 1. 宿主发现：JetBrains IDE 全家桶
 
-**使用宿主机上目前正在运行、承载当前 JTools 会话的 IDEA 安装来启动沙箱，并使用该 IDEA 中用户已经安装的 JTools 插件目录。** 当前能够通过 JTools 使用此技能并对话，默认说明宿主已安装 JTools，不要求用户自行另下 JTools，也不自动联网下载。不是下载另一套 IDEA，不是默认使用 Gradle 缓存中的 IDEA，也不是把被测插件安装进当前日常 IDEA。
+开发、编译和发起调试可以使用任意编辑器或 AI 客户端，不要求使用 JTools 的 AI 会话。运行宿主仍需安装 JTools 主插件及随附 debugger；适用于兼容的 IntelliJ IDEA、PyCharm、WebStorm、GoLand、CLion、Rider、RubyMine、PhpStorm、DataGrip 等 JetBrains 产品，不限定 IDEA。具体版本、JBR、JCEF 和被测插件兼容性必须核对，不把一个产品的验收结果推广到全部产品。
 
-架构如下：
+### 自动发现顺序
 
-```text
-当前正在运行的宿主 IDEA + JTools + debugger 控制端
-    ├─ 项目/会话绑定的 sandbox_debug 工具
-    ├─ 进程外 JDI/JDWP 控制 → 沙箱 JVM
-    └─ 回环 RPC → 新启动的独立 IDEA + JTools 沙箱运行端
-                                  ├─ 临时加载被测 JAR/ZIP
-                                  ├─ Swing 面板 / JCEF 页面
-                                  └─ 回环 CDP → 当前面板唯一绑定的浏览器 target
+1. 有 debugger 工具时先调用 `discover`。服务通过当前宿主平台 API 获取实际 IDE 和插件目录，按 `META-INF/plugin.xml` 中的插件 ID `com.lhstack.tools` 校验安装；优先当前宿主。
+2. 尚无工具时，用终端检查正在运行的 JetBrains 进程及其产品元数据 `product-info.json`，再定向检查系统安装目录、Toolbox 安装目录和该产品对应的用户插件目录。macOS 常见 `/Applications`、`~/Applications`、`~/Library/Application Support/JetBrains/<产品选择器>/plugins`；Linux 常见 `/opt`、`~/.local/share/JetBrains/<产品选择器>`；Windows 常见 Program Files、LocalAppData 的 Toolbox 和 AppData 的 JetBrains 插件目录。不要扫描整个磁盘或假定目录名一定是 idea/jtools。
+3. 用实际产品信息中的 launcherPath、vmOptionsFilePath 解析启动文件；JTools 使用匹配宿主的、含 lib/ 的已安装插件根目录。多个候选时优先当前宿主；仍无法唯一确定则向用户展示候选选择，不能任选另一套 IDE。
+4. 定向发现未找到时，才询问用户 JetBrains IDE/JTools 的自定义安装位置。如果未安装 JTools，说明可在该 JetBrains IDE 的 Plugins 中搜索 **JTools**，或从 [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.lhstack.tools) / [GitHub Releases](https://github.com/lhstack/JTools/releases) 下载安装。没有 JetBrains IDE 时使用对应产品的 [JetBrains 下载页面](https://www.jetbrains.com/products/)。不要提前要求下载，也不自动替用户安装或接受许可。
+5. `start` 的路径参数可省略，由服务按相同规则发现；发现结果不唯一时会显式报错并提示选择。显式提供的路径优先，必须验证实际文件。默认 debugger_jar 使用已加载控制端的完整包，sandbox_parent 使用宿主 system 目录下的专用沙箱位置；可显式覆盖。
+
+沙箱复制已有 JTools 安装和 debugger，在独立 JetBrains IDE 进程运行临时插件；新建空项目和独立 system/log/plugins/JTools 数据。默认只复用调试器专用 config/home，不复制个人配置、项目源码或凭据。共享 IDE 安装程序，不共享日常用户数据。构建默认平台基线不决定实际宿主产品。
+
+## 2. 安装包与三种接入
+
+随附完整包：`assets/debugger/plugin-debugger-0.2.0-mcp.jar`。同一包支持 JTools 扩展安装、沙箱运行端和可执行 stdio 桥接，包含隔离后的 MCP/HTTP 运行依赖，不使用 plain JAR。
+
+- 完整包大小：`11289937` 字节。
+- SHA-256：`b31c9c87434072d2eaa179f971637f7d51c6d4f1eecc19cf29196ff4d93b81a4`。
+- 校验文件：`assets/debugger/plugin-debugger-0.2.0-mcp.jar.sha256`。
+
+### 安装及更新
+
+1. 自动发现 JTools 后，在该宿主的 **JTools 插件管理**中安装随附完整 JAR。这是 JTools 扩展，不是 JetBrains 插件市场直接安装的发行 ZIP。JTools 主插件才从 Marketplace 安装。
+2. 更新已有 debugger 前结束需要保留证据的调试工作；卸载控制端会终止它管理的沙箱。JTools 安装会复制扩展 JAR，替换 Skill 附件或 start 的 debugger_jar 不会更新已加载控制端；应卸载旧扩展，再安装新版。
+3. `help` 必须包含 `discover`、`methods`、`invoke`、异步 `js.cdp` 和 `js.operation`。安装后可以使用 JTools 动态暴露的 sandbox_debug，也可使用外部 MCP 客户端。
+
+### 外部 MCP（无需 JTools AI 会话）
+
+在 debugger 面板设置端口（0 自动分配），点击“启动”。配置分为 Streamable HTTP、SSE、stdio 三个标签；选择协议后点击“复制配置”，只复制当前标签的完整 mcpServers JSON，可直接粘贴，不含额外协议名称或说明字段。服务仅监听 127.0.0.1，默认不自动启动。同一 JetBrains IDE 应用内所有项目、窗口和会话共享唯一 MCP 服务；打开面板先读取运行状态与最新配置，启停及新客户端配置通过应用级 MessageBus 广播到全部面板。已启动时再次启动回显现有服务，已停止时再次停止保持停止状态。
+
+- **Streamable HTTP**：连接面板显示的 `/mcp`，Authorization 为 `Bearer <令牌>`。
+- **SSE**：连接同一端口 `/sse`，请求均需相同 Authorization；消息端点由协议返回。SSE 为明确支持的旧版传输，推荐新客户端使用 Streamable HTTP。
+- **stdio**：面板生成完整的 command/args/env 配置，自动填入 Java 可执行文件和已安装完整 JAR 的绝对路径、实际端口及 `JTOOLS_DEBUGGER_TOKEN`，无需手动拼接。在 MCP 客户端中原样使用 command/args/env；不要将整条 shell 命令填入 command。使用 Java 17+；stdout 仅有 MCP 消息，日志写 stderr。stdio 子进程连接宿主共享服务，不启动另一份控制器。
+
+终端命令包含令牌设置和完整 Java 调用，两者缺一不可。结构如下（示例中的占位值必须替换，实际操作优先复制面板生成的完整命令）：
+
+```bash
+JTOOLS_DEBUGGER_TOKEN='<面板令牌>' '/绝对路径/JBR/bin/java' '-jar' '/绝对路径/plugin-debugger-0.2.0-mcp.jar' '--url' 'http://127.0.0.1:<实际端口>/mcp'
 ```
 
-共享的是 **IDEA 安装程序及其平台版本**，不是日常实例的用户数据。沙箱新建空测试项目、system、log、plugins、JTools 数据、临时目录和专用 HOME；默认可复用调试器专用 config/home，不复制个人 IDE 配置或凭据。桥接返回的项目路径因此应是沙箱测试项目，而非源码工作区。
+```powershell
+$env:JTOOLS_DEBUGGER_TOKEN='<面板令牌>'; & 'C:\绝对路径\JBR\bin\java.exe' '-jar' 'C:\绝对路径\plugin-debugger-0.2.0-mcp.jar' '--url' 'http://127.0.0.1:<实际端口>/mcp'
+```
 
-### 如何确认宿主路径
+在 MCP 客户端配置中直接使用 command/args/env，不能把上述整条 shell 命令填进 command。桥接通过 stdin/stdout 运行，直接在终端启动会等待 MCP 消息，没有欢迎输出属于正常行为。
 
-1. 先由当前 IDE 的“关于”、实际安装位置或用户提供的信息确认发行版、版本、架构与安装根目录；有多个 IDEA 时不能凭目录名选一个。
-2. `launcher` 选择该安装内的实际可执行文件。macOS 常见结构是 `<当前 IDEA.app>/Contents/MacOS/idea`；Linux 常见为 `<当前 IDEA>/bin/idea.sh`；Windows 选择该安装 `bin` 下的对应可执行程序。这些只是结构示例，不是本机已确认路径。不要传 `.app` 目录、`open -a` 命令或任意包装命令。
-3. `vm_options` 选择同一安装中核实过的基础 VM 配置，或用户明确准备的干净基础配置。不要直接复制日常 IDE 的自定义 agent、路径与调试参数。
-4. `jtools_distribution` 使用当前 IDEA 中用户已经安装的 JTools 插件根目录，目录内必须有 `lib/`。参数名称虽为 distribution，**不意味着需要下载发行包**；沙箱会复制这份现有安装。通过当前 IDE 的插件信息及已核实的插件安装位置确认目录，不凭历史版本目录或另一套 IDEA 的安装猜测。不是 JTools ZIP 路径、仓库根、源码目录或某个单独 JAR。若目录无法确认，只请用户提供现有安装位置，不让用户重新下载。
-5. 在工具调用前列明这几个路径及来源，请用户补齐无法确认的路径。不要通过全盘扫描、端口扫描或猜测补齐。
+三种接入暴露同一 `sandbox_debug`、Schema 和 help。每次“新客户端配置”生成独立身份，最新配置同步回显到全部面板，之前发出的令牌仍有效；同一令牌重连恢复原沙箱归属，不用 MCP 会话 ID 作为业务 owner。独立用户不要共享令牌。JTools 会话与 MCP 身份隔离。服务停止保留沙箱及本次插件实例内的令牌，重启服务后旧配置更新端口并重连；关闭面板或项目不会停止共享服务，也不会终止 MCP 客户端沙箱；关闭项目仅清理该项目 JTools AI 会话的沙箱。卸载 debugger 或退出 IDE 才统一关闭共享服务和全部沙箱，旧令牌和沙箱不可恢复。
 
-**平台基线不等于运行环境选择**：debugger 构建默认平台基线为 IDEA 2022.3、Java 17 字节码；不表示调试时要另装 2022.3。实际能否运行取决于当前 IDEA、JBR、JTools 沙箱接口和被测插件的兼容性，不能据此声称支持所有 JetBrains 版本。当前手册中的真实 JCEF 验收不代表所有操作系统都已验收。
+MCP 工具结果包含文本及截图 image 内容；错误返回 isError=true 和真实堆栈。连接中断、HTTP/MCP 超时、取消通知都不证明目标动作已停止，禁止自动重发。被测插件仅临时装载，不自动安装到日常 IDE。
 
-## 2. 安装包、安装和版本检查
-
-相对此 Skill 的安装包：
-
-- `assets/debugger/plugin-debugger-0.1.0.jar`
-- 文件大小：`103957` 字节。
-- SHA-256：`306cf35dcb70aa39b36fec559fb1509c71612cfba935b88258d4ce15970697fe`
-- 同一 JAR 同时包含 `META-INF/ToolsPlugin.txt` 控制端入口、`META-INF/JToolsSandbox.txt` 沙箱运行端入口，以及新版 `CdpOperations`。
-
-### 安装顺序
-
-1. 在当前宿主 JTools 的插件管理中，使用已有的本地安装能力安装上述 JAR。它是 **JTools 扩展插件**，不是独立 JetBrains 插件发行 ZIP，不要走 IDEA 插件市场安装流程。
-2. 已有旧版本时，先停止旧调试工作并确认是否保留沙箱；不要在仍需查询操作结果时卸载控制端。卸载控制端会清理它管理的沙箱。
-3. 刷新当前会话可用工具，寻找当前实际暴露的 `sandbox_debug`。工具前缀由安装实例生成，可能形如 `plugin_<动态标识>_sandbox_debug`，不要照抄旧会话名称。
-4. 调用 `help` 检查契约，必须包含 `js.cdp(...,async=false)`、`async=true` 和 `js.operation`。版本号同为 `0.1.0` 不能证明是同一构建，应结合文件校验与实际帮助判断。
-5. 若仍显示旧帮助，重新加载插件/会话；必要时重新启动当前宿主 IDEA，再检查。不应因旧帮助而改用同步长等待。用新 JAR **新启动**沙箱，避免旧运行端继续驻留。
-
-导入 Skill 只安装知识和附件，不会自动安装或授权 debugger。若调试工具不存在，应明确让用户安装随附 debugger，不要假造调用，也不要因此要求另下 JTools。当前对话默认已有 JTools，但不保证其版本包含 `SandboxHost` / `SandboxRuntime` 与启动支持；若现有安装缺少这些能力，显式报告具体兼容性问题，等待用户确认升级或更换方案，不自动下载、升级、替换 JTools，也不静默改用其他发行目录。
-
-### 安装包更新
-
-此仓库维护者更新 debugger 时，在仓库根执行 `./gradlew :plugin-debugger:jar`，将实际产物复制到此 Skill 的 `assets/debugger/`，同步文件大小、SHA-256 和命令说明。该命令只构建 debugger，不等于构建/验证整个 JTools 发行包。构建需要与目标平台兼容的 JDK/Gradle 环境；不要为了导入技能自动安装依赖或执行完整构建。
+导入 Skill 不会自动安装 debugger；没有工具且没有 MCP 服务时，先按上述发现和安装流程操作，不编造工具。维护者执行 `./gradlew :plugin-debugger:shadowJar` 构建完整包并更新附件，不能使用 `:plugin-debugger:jar` 的 plain 产物代替。
 
 ## 3. 工具调用格式
 
-以下 JSON 都是传给 **当前实际 `sandbox_debug` 工具** 的参数，不是 shell 命令，不是另一个名为 `jtools.plugins` 的接口。`<...>` 都须替换为现场值，禁止原样执行。
+以下 JSON 都是传给 **当前实际 `sandbox_debug` 工具（JTools 或 MCP）** 的参数，不是 shell 命令，不是另一个名为 `jtools.plugins` 的接口。`<...>` 都须替换为现场值，禁止原样执行。
 
 ```json
 {"command":"help"}
 ```
 
-除 `help`、`start` 外，所有命令的 `arguments` 必须有 `sandbox_id`。ID 绑定当前项目和会话，重启控制端后不要假定旧 ID 可用。`panel_id`、`operation_id`、`request_id`、`thread_id` 均从实际返回值获取，不可猜测、混用或跨会话复用。
+除 `help`、`discover`、`start` 外，所有命令的 `arguments` 必须有 `sandbox_id`。ID 绑定当前项目与调用身份（JTools 会话或 MCP 客户端令牌），重启控制端后不要假定旧 ID 可用。`panel_id`、`operation_id`、`request_id`、`thread_id` 均从实际返回值获取，不可猜测、混用或跨会话复用。
 
 `timeout_secs` 是 RPC 等待配置，取值 `1..300`，默认 `30`；它 **不会** 改变同步 CDP 内部的 20 秒响应等待，也不是浏览器操作取消开关。
 
@@ -71,10 +74,10 @@
 {
   "command":"start",
   "arguments":{
-    "launcher":"<当前宿主 IDEA 可执行文件绝对路径>",
+    "launcher":"<当前宿主 JetBrains IDE 可执行文件绝对路径>",
     "vm_options":"<已核实的干净基础 VM 配置绝对路径>",
-    "jtools_distribution":"<当前 IDEA 中已安装的 JTools 插件根目录绝对路径，含 lib>",
-    "debugger_jar":"<此 Skill>/assets/debugger/plugin-debugger-0.1.0.jar",
+    "jtools_distribution":"<当前 JetBrains IDE 中已安装的 JTools 插件根目录绝对路径，含 lib>",
+    "debugger_jar":"<此 Skill>/assets/debugger/plugin-debugger-0.2.0-mcp.jar",
     "sandbox_parent":"<已存在的专用沙箱父目录绝对路径>",
     "fresh":false
   }
@@ -83,11 +86,11 @@
 
 | 参数 | 契约 |
 | --- | --- |
-| `launcher` | 必填、已存在、可执行的普通文件；使用当前宿主 IDEA 安装 |
-| `vm_options` | 必填、已存在、小于 1 MiB 的基础 VM 配置 |
-| `jtools_distribution` | 必填、当前 IDEA 已安装的 JTools 插件根目录，包含 `lib/`；无需另下 JTools，复制时拒绝符号链接 |
-| `debugger_jar` | 必填、包含沙箱运行端入口；与控制端保持同一构建 |
-| `sandbox_parent` | 必填、已存在目录；由用户确认，优先使用较短的专用路径 |
+| `launcher` | 可省略自动发现；显式值须为所选 JetBrains IDE 中已存在、可执行的普通文件 |
+| `vm_options` | 可省略使用发现的产品基础 VM 文件；显式值须已存在且小于 1 MiB |
+| `jtools_distribution` | 可省略自动定位匹配宿主的已安装 JTools；显式值为含 `lib/` 的插件根目录。未找到才询问位置或提供安装入口 |
+| `debugger_jar` | 可省略使用已加载控制端完整包；显式值须含运行端入口并与控制端保持同一构建 |
+| `sandbox_parent` | 可省略使用宿主 system 中的专用沙箱目录；显式值须为已存在目录，较短路径可避免 Unix socket 长度限制 |
 | `fresh` | 可选布尔值，默认 `false`，不是字符串 `"false"` |
 
 基础 VM 配置中的 `-javaagent`、`-agentlib`、`-agentpath`、`-Didea.*`、`-Djtools.*`、`-Duser.home`、`-Djava.io.tmpdir`、`-Dide.browser.jcef.*` 等会触发冲突校验。少量受管理的统计/引导选项由调试器移除后统一生成。遇到冲突应确认干净配置，不能把日常 IDE 个人配置带入沙箱。
@@ -312,7 +315,7 @@ JCEF 参数维护注意：IntelliJ 的 `ide.browser.jcef.extra.args` 按逗号�
 
 | 范围 | 至少核对 |
 | --- | --- |
-| 基础设施 | 使用当前宿主 IDEA 安装，独立 PID/目录，ping.ready=true，未复制日常凭据 |
+| 基础设施 | 使用当前宿主 JetBrains IDE 安装，独立 PID/目录，ping.ready=true，未复制日常凭据 |
 | Java/Kotlin | 入口与 install/openProject，面板或非 UI 运行；真实交互与结果 |
 | JVM 调试 | 断点命中事件、线程/栈/变量、恢复、原操作结束；没有仅凭 bound=true 判定通过 |
 | Swing | 最新 snapshot/ref、操作状态、界面业务状态；截图声明遮挡限制 |

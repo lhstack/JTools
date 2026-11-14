@@ -148,6 +148,8 @@ internal class SandboxController : AutoCloseable {
             env["WEBIDE_VM_OPTIONS"] = vmFile.toString()
             env["PYCHARM_VM_OPTIONS"] = vmFile.toString()
             env["GOLAND_VM_OPTIONS"] = vmFile.toString()
+            val launcherName = launcher.fileName.toString().removeSuffix(".exe").removeSuffix(".sh").removeSuffix("64").uppercase()
+            env["${launcherName}_VM_OPTIONS"] = vmFile.toString()
             builder.redirectErrorStream(true).redirectOutput(root.resolve("process.log").toFile())
             val process = builder.start()
             val session = Session(owner, layout, process, port, launchKey, profile)
@@ -227,6 +229,20 @@ internal class SandboxController : AutoCloseable {
     }
 
     @Synchronized
+    fun closeProject(projectKey: String) {
+        var failure: Throwable? = null
+        sessions.values.filter { it.owner.startsWith("$projectKey:") }.forEach {
+            try {
+                terminate(it)
+                sessions.remove(it.layout.id)
+            } catch (error: Throwable) {
+                if (failure == null) failure = error else failure!!.addSuppressed(error)
+            }
+        }
+        failure?.let { throw it }
+    }
+
+    @Synchronized
     override fun close() {
         var failure: Throwable? = null
         sessions.values.forEach {
@@ -241,8 +257,9 @@ internal class SandboxController : AutoCloseable {
     }
 
     private fun help() = mapOf(
-        "start" to "必填 launcher(IDE可执行文件), vm_options(基础VM配置), jtools_distribution(含lib的JTools安装或解压目录), debugger_jar, sandbox_parent(已存在目录)。默认复用当前项目会话同参数的存活沙箱；终止后复用专用IDE配置。fresh=true完全新建，可并行。只创建空测试项目，不复制个人配置或密钥。",
-        "common" to "除start/help外必须 sandbox_id。每个沙箱绑定当前项目和会话。timeout_secs=1..300。",
+        "discover" to "自动发现当前宿主及本机 JetBrains IDE、匹配的 JTools 安装和启动路径。多个候选无法确定时请用户选择；未找到才询问路径并给出安装下载入口。",
+        "start" to "可显式指定 launcher(JetBrains IDE可执行文件), vm_options(基础VM配置), jtools_distribution(含lib且匹配宿主的JTools安装或解压目录), debugger_jar, sandbox_parent。省略时先自动发现；优先当前宿主，否则使用唯一候选，不猜多个候选。默认复用当前项目会话同参数的存活沙箱；终止后复用专用IDE配置。fresh=true完全新建，可并行。只创建空测试项目，不复制个人配置或密钥。",
+        "common" to "除discover/start/help外必须 sandbox_id。每个沙箱绑定当前项目和会话。timeout_secs=1..300。",
         "run" to "artifact=JAR/ZIP绝对路径；必须先stop旧运行。先jvm.breakpoint可捕获初始化。",
         "lifecycle" to "ping, status, events(after游标), panel.open, panel.close(panel_id), stop, terminate(强制进程终止), status.process(含启动提示), startup.logs(offset字节偏移)。stop保留沙箱进程；terminate后start复用专用配置，fresh=true执行全新验收。",
         "methods" to "methods(object_id 或 class_name 二选一, method 可选过滤)。object_id 列实例方法，class_name 列静态方法；返回声明类、参数类型、返回类型、可见性及varargs。run/status返回plugin_object和project_object引用。继承/非public方法也列出，能否调用取决于JVM访问规则。",
@@ -250,6 +267,6 @@ internal class SandboxController : AutoCloseable {
         "swing" to "swing.snapshot(panel_id), swing.action(panel_id,ref,action,text/index), swing.screenshot(panel_id)。ref只在最近快照内有效；action=click/input/select/scroll。click校验后异步提交，返回operation_id及QUEUED；用swing.operation(operation_id)查询QUEUED/RUNNING/COMPLETED/FAILED，失败含error/stack。查询不等待EDT，可在断点暂停时使用；最多保留1000条操作记录，满后淘汰已结束记录。COMPLETED仅指按钮回调返回，不代表业务结果已验证。语义操作不是物理键鼠。",
         "js" to "js.cdp(panel_id,method,params,async=false) 默认同步；async=true 返回operation_id及QUEUED，通过js.operation(operation_id)查询QUEUED/RUNNING/COMPLETED/FAILED及result或error/stack。异步响应不因断点暂停超过20秒而失败，不为等待响应占用线程；首次调用仍需完成target绑定。COMPLETED只表示CDP成功响应，不代表业务结果已验证。查询不访问EDT或重新绑定target；面板关闭/stop使未完成操作失败，最终记录仍可查询。最多保留1000条操作，只淘汰已结束记录，满载未完成时拒绝新提交。不自动重发或宣称取消浏览器操作。js.events(panel_id,after)，js.screenshot(panel_id)。CDP支持Runtime/DOM/Input/Page/Network/Debugger，先enable域，再调用对应协议。事件仅保留最近1000条且不自动抓取网络凭据。",
         "jvm" to "jvm.breakpoint(class,line), jvm.exception(class,caught,uncaught), jvm.events(after), jvm.threads, jvm.frames(thread_id), jvm.variables(thread_id,frame), jvm.resume, jvm.pause, jvm.step(thread_id,depth=into/over/out), jvm.remove(request_id)。Kotlin使用编译后的类名与行号，不伪造完整表达式求值。",
-        "security" to "独立进程和数据目录，不是OS级恶意代码沙箱；启动路径/发行目录由用户明确提供。不要输入日常密钥。"
+        "security" to "独立进程和数据目录，不是OS级恶意代码沙箱；启动路径/发行目录自动校验发现或由用户显式指定。支持兼容的 JetBrains IDE 产品，不限定 IDEA。不要输入日常密钥。"
     )
 }

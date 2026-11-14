@@ -1,6 +1,6 @@
 # 调试与故障定位
 
-Java 可在 JTools 原有开发面板选择模块、按需安装 SDK 依赖并运行预览；Gradle/Maven 同步完成后再编译。日常 IDE 正式安装与独立沙箱调试是两条不同路径：调试优先阅读 [Debugger 完整使用手册](debugger.md)，安装此 Skill 随附的 debugger 后，通过实际暴露的 `sandbox_debug` 工具执行。被测产物只在独立沙箱临时加载；需要正式安装时，另行取得用户确认。不要假定工具已安装或编造工具名。
+Java 可在 JTools 原有开发面板选择模块、按需安装 SDK 依赖并运行预览；Gradle/Maven 同步完成后再编译。日常 IDE 正式安装与独立沙箱调试是两条不同路径：调试优先阅读 [Debugger 完整使用手册](debugger.md)，先自动发现本机 JetBrains IDE 和匹配的 JTools，安装此 Skill 随附 debugger 后，通过 JTools 或外部 MCP 客户端实际暴露的 `sandbox_debug` 执行；支持 stdio、SSE、Streamable HTTP，不限定 IDEA，不要求 JTools AI。只有定向发现未找到时才询问路径并提供下载入口。被测产物只在独立沙箱临时加载；需要正式安装时，另行取得用户确认。不要假定工具已安装或编造工具名。
 
 | 现象 | 核对 |
 | --- | --- |
