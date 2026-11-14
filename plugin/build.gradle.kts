@@ -81,6 +81,7 @@ val sdkProject = project(":sdk")
 val sdkVersion = sdkProject.version.toString()
 val instrumentedJar = tasks.named<Jar>("instrumentedJar")
 val sdkJar = sdkProject.tasks.named<Jar>("jar")
+// SDK 使用原始构建产物交付，不创建 SDK ProGuard 任务。
 val sdkComposedJar = sdkProject.tasks.named<Jar>("composedJar")
 val proguardRules = listOf(
     "-target 17",
@@ -209,9 +210,13 @@ val proguardJar by tasks.registering(proguard.taskClass) {
 //    addInput {
 //        classpath.from(tasks.shadowJar)
 //    }
-    dependsOn(instrumentedJar)
+    dependsOn(instrumentedJar, sdkJar)
     addInput {
         classpath.from(instrumentedJar.flatMap { it.archiveFile })
+    }
+    // SDK 全部类与成员保持公开名称；仅作只读库输入解析接口，不参与混淆、裁剪或输出。
+    addLibrary {
+        classpath.from(sdkJar.flatMap { it.archiveFile })
     }
     addOutput {
         archiveFile.set(base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar"))
@@ -222,35 +227,26 @@ val proguardJar by tasks.registering(proguard.taskClass) {
     rules.addAll(proguardRules)
 }
 
-val proguardSdkJar by tasks.registering(proguard.taskClass) {
-    dependsOn(sdkJar)
-    addInput {
-        classpath.from(sdkJar.flatMap { it.archiveFile })
-    }
-    addOutput {
-        archiveFile.set(base.libsDirectory.file("sdk-${sdkVersion}-proguarded.jar"))
-    }
-    jdkModules.add("java.base")
-    mappingFile.set(base.libsDirectory.file("sdk-${sdkVersion}-mapping.txt"))
-    rules.addAll(proguardRules)
-}
-
-// SDK 是外部插件与调试运行端的公共契约，不进入混淆覆盖流程。
 val verifySandboxHost by tasks.registering {
-    dependsOn(proguardJar)
+    dependsOn(proguardJar, sdkJar)
     val artifact = base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar")
+    val mapping = base.libsDirectory.file("${project.name}-${project.version}-mapping.txt")
     inputs.file(artifact)
+    inputs.file(mapping)
+    inputs.file(sdkJar.flatMap { it.archiveFile })
     doLast {
-        val output = ByteArrayOutputStream()
-        exec {
-            commandLine(
-                File(System.getProperty("java.home"), "bin/javap").absolutePath,
-                "-p", "-s", "-classpath", artifact.get().asFile.absolutePath,
-                "com.lhstack.tools.sandbox.SandboxPluginHost"
-            )
-            standardOutput = output
+        fun inspect(jar: File, className: String): String {
+            val output = ByteArrayOutputStream()
+            exec {
+                commandLine(
+                    File(System.getProperty("java.home"), "bin/javap").absolutePath,
+                    "-p", "-s", "-classpath", jar.absolutePath, className
+                )
+                standardOutput = output
+            }
+            return output.toString("UTF-8")
         }
-        val bytecode = output.toString("UTF-8")
+        val bytecode = inspect(artifact.get().asFile, "com.lhstack.tools.sandbox.SandboxPluginHost")
         listOf(
             "public java.lang.String execute(java.lang.String, java.lang.String);" to "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
             "public javax.swing.JComponent panel(java.lang.String);" to "(Ljava/lang/String;)Ljavax/swing/JComponent;",
@@ -258,6 +254,21 @@ val verifySandboxHost by tasks.registering {
         ).forEach { (method, descriptor) ->
             check(bytecode.contains(method) && bytecode.contains("descriptor: $descriptor")) {
                 "混淆产物缺少 SandboxHost 实现：$method"
+            }
+        }
+        val loggerSource = "com.lhstack.tools.sandbox.SandboxPluginHost\$run\$logger\$1"
+        val loggerMapping = mapping.get().asFile.useLines { lines ->
+            lines.single { it.startsWith("$loggerSource -> ") }.substringAfter(" -> ").removeSuffix(":")
+        }
+        val loggerBytecode = inspect(artifact.get().asFile, loggerMapping)
+        val loggerInterface = inspect(sdkJar.get().archiveFile.get().asFile, "com.lhstack.tools.plugins.Logger")
+        val abstractMethods = loggerInterface.lineSequence().map(String::trim)
+            .filter { it.startsWith("public abstract ") }.toList()
+        check(abstractMethods.isNotEmpty()) { "SDK Logger 没有可校验的抽象方法" }
+        abstractMethods.forEach { method ->
+            val implementation = method.replace("public abstract ", "public ")
+            check(loggerBytecode.contains(implementation)) {
+                "混淆产物缺少 Logger 实现：$implementation ($loggerMapping)"
             }
         }
     }
