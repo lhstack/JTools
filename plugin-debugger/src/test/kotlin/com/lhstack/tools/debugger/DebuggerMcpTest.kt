@@ -104,7 +104,7 @@ class DebuggerMcpTest {
             val bus = debuggerTestMessageBus()
             try {
                 val commands = DebuggerCommands(controller, JetBrainsDiscovery(), { Path.of(System.getProperty("debugger.test.jar")) }, { root })
-                DebuggerMcpServer(commands, bus).use { service ->
+                DebuggerMcpServer(commands, bus, DebuggerMcpSettings(root.resolve("mcp.json"))).use { service ->
                     val first = mutableListOf<DebuggerMcpServer.State>()
                     val second = mutableListOf<DebuggerMcpServer.State>()
                     val a = bus.connect()
@@ -211,11 +211,91 @@ class DebuggerMcpTest {
         }
     }
 
+    @Test
+    fun `application restart restores fixed port all client credentials and manual stop preference`() {
+        SandboxController().use { controller ->
+            val bus = debuggerTestMessageBus()
+            val settings = DebuggerMcpSettings(root.resolve(".jtools/plugin-debugger/mcp.json"))
+            val dispatch = DebuggerCommands(controller, JetBrainsDiscovery(), { Path.of(System.getProperty("debugger.test.jar")) }, { root })
+            fun server() = DebuggerMcpServer(dispatch, bus, settings)
+            try {
+                var port = 0
+                lateinit var first: String
+                lateinit var second: String
+                server().use { service ->
+                    service.restore()
+                    assertFalse(service.state().running)
+                    first = service.start(0)
+                    second = service.newClient()
+                    port = service.state().port
+                    assertEquals(port, settings.read().port)
+                    assertTrue(settings.read().enabled)
+                }
+                server().use { restored ->
+                    restored.restore()
+                    assertEquals(port, restored.state().port)
+                    assertEquals(second, restored.state().token)
+                    for (token in listOf(first, second)) client(port, token, false).use {
+                        it.initialize()
+                        assertEquals("sandbox_debug", it.listTools().tools().single().name())
+                    }
+                    restored.stop()
+                    assertFalse(settings.read().enabled)
+                    assertFalse(restored.state().running)
+                }
+                server().use { stopped ->
+                    stopped.restore()
+                    assertFalse(stopped.state().running)
+                    assertEquals(port, stopped.state().configuredPort)
+                    assertEquals(second, stopped.state().token)
+                }
+            } finally { bus.dispose() }
+        }
+    }
+
+    @Test
+    fun `auto start reports occupied saved port and never changes endpoint`() {
+        SandboxController().use { controller ->
+            val bus = debuggerTestMessageBus()
+            val settings = DebuggerMcpSettings(root.resolve("occupied-mcp.json"))
+            val dispatch = DebuggerCommands(controller, JetBrainsDiscovery(), { Path.of(System.getProperty("debugger.test.jar")) }, { root })
+            try {
+                java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { occupied ->
+                    settings.write(DebuggerMcpSettings.Saved(true, occupied.localPort, "test-token", mapOf("test-token" to "owner")))
+                    DebuggerMcpServer(dispatch, bus, settings).use { service ->
+                        assertFails { service.restore() }
+                        assertFalse(service.state().running)
+                        assertEquals(occupied.localPort, service.state().configuredPort)
+                        assertNotNull(service.state().error)
+                        assertTrue(settings.read().enabled)
+                        assertEquals(occupied.localPort, settings.read().port)
+                    }
+                }
+            } finally { bus.dispose() }
+        }
+    }
+
+    @Test
+    fun `disabled first install and malformed configuration preserve explicit state`() {
+        val file = root.resolve(".jtools/plugin-debugger/mcp.json")
+        val settings = DebuggerMcpSettings(file)
+        assertFalse(settings.read().enabled)
+        val saved = DebuggerMcpSettings.Saved(false, 0, null, emptyMap())
+        settings.write(saved)
+        assertEquals(saved, settings.read())
+        if (java.nio.file.Files.getFileStore(file).supportsFileAttributeView("posix")) {
+            assertEquals(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"), java.nio.file.Files.getPosixFilePermissions(file))
+        }
+        java.nio.file.Files.writeString(file, "{invalid}")
+        assertFails { settings.read() }
+        assertEquals("{invalid}", java.nio.file.Files.readString(file))
+    }
+
     private fun service(action: (DebuggerMcpServer, String) -> Unit) {
         SandboxController().use { controller ->
             val dispatch = DebuggerCommands(controller, JetBrainsDiscovery(), { Path.of(System.getProperty("debugger.test.jar")) }, { root })
             val bus = debuggerTestMessageBus()
-            try { DebuggerMcpServer(dispatch, bus).use { server -> action(server, server.start(0)) } }
+            try { DebuggerMcpServer(dispatch, bus, DebuggerMcpSettings(root.resolve("mcp.json"))).use { server -> action(server, server.start(0)) } }
             finally { bus.dispose() }
         }
     }

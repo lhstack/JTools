@@ -14,7 +14,8 @@ import javax.swing.*
 class DebuggerPlugin : IPlugin {
     private val controller = SandboxController()
     // JTools PluginManager keeps this extension instance at application scope.
-    private val mcpService = lazy { DebuggerMcpServer(dispatch, com.intellij.openapi.application.ApplicationManager.getApplication().messageBus) }
+    private val mcpService = lazy { DebuggerMcpServer(dispatch, com.intellij.openapi.application.ApplicationManager.getApplication().messageBus,
+        DebuggerMcpSettings(Path.of(System.getProperty("user.home"), ".jtools", "plugin-debugger", "mcp.json"))) }
     private val discovery by lazy {
         JetBrainsDiscovery(currentIde = Path.of(PathManager.getHomePath()), currentPlugins = Path.of(PathManager.getPluginsPath()),
             currentJtools = PluginManagerCore.getPlugin(PluginId.getId("com.lhstack.tools"))?.pluginPath)
@@ -28,6 +29,13 @@ class DebuggerPlugin : IPlugin {
         val connection = resource.openConnection()
         check(connection is java.net.JarURLConnection) { "debugger 必须从完整 MCP JAR 安装；解压目录运行时请显式提供 debugger_jar" }
         return Path.of(connection.jarFileURL.toURI())
+    }
+    override fun install() {
+        try { mcpService.value.restore() }
+        catch (failure: Exception) {
+            com.intellij.openapi.diagnostic.Logger.getInstance(DebuggerPlugin::class.java)
+                .warn("Debugger MCP 自动恢复失败；请查看 debugger 面板", failure)
+        }
     }
     override fun pluginName() = "插件沙箱调试器"
     override fun pluginDesc() = "AI 独立 IDE 沙箱、界面自动化、JCEF 与 JVM 调试"
@@ -60,6 +68,9 @@ class DebuggerPlugin : IPlugin {
         if (mcpService.isInitialized()) mcpService.value.close()
         controller.close()
     }
-    override fun unInstall() = close()
+    override fun unInstall() {
+        if (mcpService.isInitialized()) mcpService.value.stop()
+        close()
+    }
     override fun appClose() = close()
 }

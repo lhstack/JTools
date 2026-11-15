@@ -142,7 +142,7 @@ JTools/
 - 🎛️ **模型参数布局优化** - 高级参数分组展示，按可用宽度切换列数，完善中文标签和短窗口滚动布局。
 - 🛠️ **插件开发 Skill** - [jtools-plugin-development](skills/jtools-plugin-development/SKILL.md) 独立放在仓库，按需自行导入项目或全局 Skills。提供 Swing Maven、Swing Gradle、IDEA Gradle、JS 四套模板，以及 SDK 安装、Shadow/Shade 第三方依赖、Helper 宿主能力、多项目缓存、supportMultiOpens、生命周期、AI 函数/会话重载、面板动作、调试和打包手册，附完整多开示例。AI 使用通用工程工具完成开发，无专用开发 CLI 或自动安装入口。
 - 🐞 **独立沙箱调试与技能手册** - 在上述技能中追加 debugger 安装包与完整使用手册，支持临时加载插件、Swing 自动化、JVM 断点、JCEF/CDP 异步操作查询和截图。优先自动发现当前 JetBrains 宿主和已安装的 JTools；未找到才询问自定义位置并提供安装入口；独立进程和数据目录不等同于 OS 级安全沙箱。
-- 🔌 **Debugger MCP 接入** - debugger 0.2.0 提供 Streamable HTTP、传统 SSE 和独立 stdio 桥接，外部编辑器/AI 客户端无需使用 JTools AI 会话；运行宿主仍需安装 JTools 与 debugger。服务应用级唯一，所有项目共享，面板通过 Application MessageBus 同步状态；三种协议使用独立标签，一键复制当前协议配置。按客户端令牌隔离沙箱，重连保留归属，支持 MCP 图片结果。自动发现兼容的 JetBrains IDE 产品及 JTools 安装，不限定 IntelliJ IDEA。
+- 🔌 **Debugger MCP 接入** - debugger 0.2.0 提供 Streamable HTTP、传统 SSE 和独立 stdio 桥接，外部编辑器/AI 客户端无需使用 JTools AI 会话；运行宿主仍需安装 JTools 与 debugger。服务应用级唯一，所有项目共享，面板通过 Application MessageBus 同步状态；三种协议使用独立标签，一键复制当前协议配置。端口、启用状态和客户端身份保存到 `~/.jtools/plugin-debugger/mcp.json`，IDE 重启自动恢复已启用服务，手动停止关闭自动启动。按客户端令牌隔离沙箱，重连保留归属，支持 MCP 图片结果。自动发现兼容的 JetBrains IDE 产品及 JTools 安装，不限定 IntelliJ IDEA。
 - 🔎 **沙箱方法查看与反射调用** - 新增 `methods` / `invoke`，支持查看并调用运行中插件的实例方法及指定类的静态方法，按精确参数类型选择重载，支持对象引用、复杂结果继续调用和 worker/EDT 执行。可沿插件实例、Function Calling 列表和函数对象测试实际调用；停止或重载后旧引用失效，返回真实异常与堆栈。需同时更新 JTools 主插件和配套 debugger JAR；调用超时不代表取消，不自动重发。
 - 🔓 **公开 SDK 与沙箱接口修复** - SDK 全部类及成员保持公开名称，不参与混淆或裁剪；修复混淆阶段删除沙箱 Logger 接口实现方法的问题，构建时校验接口实现及最终发布产物。
 - 🧰 **工具选择与资源处理修正** - 完善编码环境中的工具选择和原生资源工具处理，并补充回归测试。

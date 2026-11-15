@@ -25,24 +25,45 @@ import java.util.concurrent.ConcurrentHashMap
 import tools.jackson.databind.json.JsonMapper
 
 /** Application-wide endpoint shared by every project and panel; client credentials own sandbox scopes. */
-internal class DebuggerMcpServer(private val commands: DebuggerCommands, val messageBus: com.intellij.util.messages.MessageBus) : AutoCloseable {
+internal class DebuggerMcpServer(private val commands: DebuggerCommands, val messageBus: com.intellij.util.messages.MessageBus, private val settings: DebuggerMcpSettings) : AutoCloseable {
     private var server: Server? = null
     private val protocols = mutableListOf<McpSyncServer>()
     private val clients = ConcurrentHashMap<String, String>()
     private val mapper = JacksonMcpJsonMapper(JsonMapper.builder().build())
-    data class State(val revision: Long, val port: Int, val token: String?) {
+    data class State(val revision: Long, val port: Int, val token: String?, val configuredPort: Int, val error: String?) {
         val running: Boolean get() = port != 0
     }
     private var revision = 0L
     private var activeToken: String? = null
+    private var configuredPort = 0
+    private var enabled = false
+    private var error: String? = null
     @Synchronized
-    fun state(): State = State(revision, port, activeToken)
+    fun state(): State = State(revision, port, activeToken, configuredPort, error)
 
     private fun publish() {
         revision++
         messageBus.syncPublisher(DebuggerMcpListener.TOPIC).stateChanged(state())
     }
     var port: Int = 0; private set
+
+    @Synchronized
+    fun restore() {
+        try {
+            val saved = settings.read()
+            enabled = saved.enabled
+            configuredPort = saved.port
+            activeToken = saved.activeToken
+            clients.putAll(saved.clients)
+            if (enabled) start(configuredPort) else publish()
+        } catch (failure: Exception) {
+            error = "MCP 配置恢复失败：${failure}"
+            publish()
+            throw failure
+        }
+    }
+
+    private fun persist() = settings.write(DebuggerMcpSettings.Saved(enabled, configuredPort, activeToken, clients.toMap()))
 
     @Synchronized
     fun start(requestedPort: Int): String {
@@ -87,12 +108,20 @@ internal class DebuggerMcpServer(private val commands: DebuggerCommands, val mes
             server = http; port = connector.localPort
             val token = activeToken ?: createClient()
             activeToken = token
+            configuredPort = port
+            enabled = true
+            persist()
+            error = null
             publish()
             return token
         } catch (error: Throwable) {
             try { protocols.forEach { it.closeGracefully() } } catch (cleanup: Throwable) { error.addSuppressed(cleanup) }
             protocols.clear()
             try { http.stop() } catch (cleanup: Throwable) { error.addSuppressed(cleanup) }
+            server = null
+            port = 0
+            this.error = "MCP 启动失败：${error}"
+            publish()
             throw error
         }
     }
@@ -101,7 +130,14 @@ internal class DebuggerMcpServer(private val commands: DebuggerCommands, val mes
     fun newClient(): String {
         check(server != null) { "先启动 MCP 服务" }
         val token = createClient()
+        val previous = activeToken
         activeToken = token
+        try { persist() }
+        catch (failure: Exception) {
+            clients.remove(token)
+            activeToken = previous
+            throw failure
+        }
         publish()
         return token
     }
@@ -124,6 +160,17 @@ internal class DebuggerMcpServer(private val commands: DebuggerCommands, val mes
         return content
     }
 
+    @Synchronized
+    fun stop() {
+        val previous = enabled
+        enabled = false
+        try { persist() }
+        catch (failure: Exception) { enabled = previous; throw failure }
+        error = null
+        close()
+    }
+
+    /** IDE shutdown releases resources without changing the saved auto-start preference. */
     @Synchronized
     override fun close() {
         if (server == null) {

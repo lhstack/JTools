@@ -43,7 +43,7 @@ internal class DebuggerMcpPanel(private val service: DebuggerMcpServer, private 
             val requestedPort = port.value as Int
             background { service.start(requestedPort) }
         }
-        stop.addActionListener { background { service.close() } }
+        stop.addActionListener { background { service.stop() } }
         newClient.addActionListener { background { service.newClient() } }
         add(actions, BorderLayout.NORTH)
         add(tabs, BorderLayout.CENTER)
@@ -71,16 +71,16 @@ internal class DebuggerMcpPanel(private val service: DebuggerMcpServer, private 
     private fun render(state: DebuggerMcpServer.State) {
         if (state.revision < lastRevision) return
         lastRevision = state.revision
-        status.text = if (state.running) "运行中 · 127.0.0.1:${state.port}" else "已停止"
+        status.text = if (state.running) "运行中 · 127.0.0.1:${state.port}" else if (state.error != null) "启动失败" else "已停止"
         port.isEnabled = !state.running && !working
-        if (state.running) port.value = state.port
+        port.value = if (state.running) state.port else state.configuredPort
         start.isEnabled = !state.running && !working
         stop.isEnabled = state.running && !working
         newClient.isEnabled = state.running && !working
         copy.isEnabled = state.running
         val configurations = if (state.running) configurations(state) else emptyMap()
         outputs.forEach { (protocol, output) ->
-            output.text = configurations[protocol] ?: "应用级 MCP 服务已停止。所有项目和会话共享此服务，启动后各面板自动同步配置。\n停止服务保留沙箱与客户端令牌；关闭面板或项目不会停止共享服务。卸载 debugger 或退出 IDE 会清理服务与沙箱。"
+            output.text = configurations[protocol] ?: state.error ?: "应用级 MCP 服务已停止。所有项目和会话共享此服务，启动后各面板自动同步配置。\n手动停止会关闭自动启动；启动后会保存实际端口和客户端令牌，IDE 重启自动恢复。关闭面板或项目不会停止共享服务；IDE 退出会清理调试沙箱进程。"
             output.caretPosition = 0
         }
     }

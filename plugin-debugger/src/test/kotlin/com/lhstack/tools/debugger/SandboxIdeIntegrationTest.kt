@@ -41,7 +41,7 @@ class SandboxIdeIntegrationTest {
                 searchRoots = emptyList(), inspectProcesses = false), { Path.of(System.getProperty("debugger.test.jar")) }, { root })
             val bus = debuggerTestMessageBus()
             try {
-            DebuggerMcpServer(commands, bus).use { service ->
+            DebuggerMcpServer(commands, bus, DebuggerMcpSettings(root.resolve("mcp.json"))).use { service ->
             val token = service.start(0)
             fun connect(credential: String) = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://127.0.0.1:${service.port}")
                 .endpoint("/mcp").requestBuilder(HttpRequest.newBuilder().header("Authorization", "Bearer $credential")).build())
@@ -205,6 +205,17 @@ class SandboxIdeIntegrationTest {
                 assertFalse(reopenedSnapshot.toString().contains("复制启动命令"))
                 val helpAfterReopen = packaged.callTool(McpSchema.CallToolRequest("sandbox_debug", mapOf("command" to "help")))
                 assertFalse(helpAfterReopen.isError() == true)
+            }
+            fun debuggerLifecycle(method: String) = call(bid, "invoke", JsonParser.parseString("""{"object_id":"$debuggerObject","method":"$method","parameter_types":[],"arguments":[]}""").asJsonObject)
+            debuggerLifecycle("appClose")
+            debuggerLifecycle("install")
+            val afterRestartPanel = call(bid, "status").getAsJsonArray("panels").single().asString
+            val afterRestartSnapshot = call(bid, "swing.snapshot", JsonObject().apply { addProperty("panel_id", afterRestartPanel) })
+            assertEquals(configuration, findConfiguration(afterRestartSnapshot))
+            McpClient.sync(HttpClientStreamableHttpTransport.builder("http://${uri.rawAuthority}").endpoint(uri.path)
+                .requestBuilder(HttpRequest.newBuilder().header("Authorization", auth)).build()).build().use { restored ->
+                restored.initialize()
+                assertEquals("sandbox_debug", restored.listTools().tools().single().name())
             }
             call(bid, "stop")
             client.closeGracefully()

@@ -20,8 +20,8 @@
 
 随附完整包：`assets/debugger/plugin-debugger-0.2.0-mcp.jar`。同一包支持 JTools 扩展安装、沙箱运行端和可执行 stdio 桥接，包含隔离后的 MCP/HTTP 运行依赖，不使用 plain JAR。
 
-- 完整包大小：`11289937` 字节。
-- SHA-256：`b31c9c87434072d2eaa179f971637f7d51c6d4f1eecc19cf29196ff4d93b81a4`。
+- 完整包大小：`11297963` 字节。
+- SHA-256：`c906c7d519857a5c72291612abded5a855c5df520ec157f7914aec5ad1d8c525`。
 - 校验文件：`assets/debugger/plugin-debugger-0.2.0-mcp.jar.sha256`。
 
 ### 安装及更新
@@ -32,13 +32,13 @@
 
 ### 外部 MCP（无需 JTools AI 会话）
 
-在 debugger 面板设置端口（0 自动分配），点击“启动”。配置分为 Streamable HTTP、SSE、stdio 三个标签；选择协议后点击“复制配置”，只复制当前标签的完整 mcpServers JSON，可直接粘贴，不含额外协议名称或说明字段。服务仅监听 127.0.0.1，默认不自动启动。同一 JetBrains IDE 应用内所有项目、窗口和会话共享唯一 MCP 服务；打开面板先读取运行状态与最新配置，启停及新客户端配置通过应用级 MessageBus 广播到全部面板。已启动时再次启动回显现有服务，已停止时再次停止保持停止状态。
+在 debugger 面板设置端口（0 自动分配），点击“启动”。配置分为 Streamable HTTP、SSE、stdio 三个标签；选择协议后点击“复制配置”，只复制当前标签的完整 mcpServers JSON，可直接粘贴，不含额外协议名称或说明字段。服务仅监听 127.0.0.1，首次使用默认不启动。启动成功后将启用状态、实际端口、全部客户端令牌及身份保存到 `~/.jtools/plugin-debugger/mcp.json`；首次使用 0 分配的实际端口也会固定保存。IDE 退出只释放监听，重启加载 debugger 时自动使用原端口和令牌恢复，无需打开面板或重配客户端。手动停止或卸载 debugger 关闭自动启动。端口被占用或配置读取失败时，面板显示真实恢复错误，不自动换端口。同一 JetBrains IDE 应用内所有项目、窗口和会话共享唯一 MCP 服务；打开面板先读取运行状态与最新配置，启停及新客户端配置通过应用级 MessageBus 广播到全部面板。已启动时再次启动回显现有服务，已停止时再次停止保持停止状态。
 
 - **Streamable HTTP**：连接面板显示的 `/mcp`，Authorization 为 `Bearer <令牌>`。
 - **SSE**：连接同一端口 `/sse`，请求均需相同 Authorization；消息端点由协议返回。SSE 为明确支持的旧版传输，推荐新客户端使用 Streamable HTTP。
 - **stdio**：面板生成完整的 command/args/env 配置，自动填入 Java 可执行文件和已安装完整 JAR 的绝对路径、实际端口及 `JTOOLS_DEBUGGER_TOKEN`，无需手动拼接。在 MCP 客户端中原样使用 command/args/env；不要将整条 shell 命令填入 command。使用 Java 17+；stdout 仅有 MCP 消息，日志写 stderr。stdio 子进程连接宿主共享服务，不启动另一份控制器。
 
-终端命令包含令牌设置和完整 Java 调用，两者缺一不可。结构如下（示例中的占位值必须替换，实际操作优先复制面板生成的完整命令）：
+终端命令包含令牌设置和完整 Java 调用，两者缺一不可。结构如下（示例中的占位值必须替换，实际操作优先使用面板对应协议标签生成的 command/args/env）：
 
 ```bash
 JTOOLS_DEBUGGER_TOKEN='<面板令牌>' '/绝对路径/JBR/bin/java' '-jar' '/绝对路径/plugin-debugger-0.2.0-mcp.jar' '--url' 'http://127.0.0.1:<实际端口>/mcp'
@@ -50,7 +50,7 @@ $env:JTOOLS_DEBUGGER_TOKEN='<面板令牌>'; & 'C:\绝对路径\JBR\bin\java.exe
 
 在 MCP 客户端配置中直接使用 command/args/env，不能把上述整条 shell 命令填进 command。桥接通过 stdin/stdout 运行，直接在终端启动会等待 MCP 消息，没有欢迎输出属于正常行为。
 
-三种接入暴露同一 `sandbox_debug`、Schema 和 help。每次“新客户端配置”生成独立身份，最新配置同步回显到全部面板，之前发出的令牌仍有效；同一令牌重连恢复原沙箱归属，不用 MCP 会话 ID 作为业务 owner。独立用户不要共享令牌。JTools 会话与 MCP 身份隔离。服务停止保留沙箱及本次插件实例内的令牌，重启服务后旧配置更新端口并重连；关闭面板或项目不会停止共享服务，也不会终止 MCP 客户端沙箱；关闭项目仅清理该项目 JTools AI 会话的沙箱。卸载 debugger 或退出 IDE 才统一关闭共享服务和全部沙箱，旧令牌和沙箱不可恢复。
+三种接入暴露同一 `sandbox_debug`、Schema 和 help。每次“新客户端配置”生成独立身份，最新配置同步回显到全部面板，之前发出的令牌仍有效；同一令牌重连恢复原沙箱归属，不用 MCP 会话 ID 作为业务 owner。独立用户不要共享令牌。JTools 会话与 MCP 身份隔离。手动停止服务保留沙箱与持久化的令牌；使用已保存端口重新启动可直接复用客户端配置。关闭面板或项目不会停止共享服务，也不会终止 MCP 客户端沙箱；关闭项目仅清理该项目 JTools AI 会话的沙箱。卸载 debugger 或退出 IDE 会关闭共享服务和全部沙箱；IDE 重启后恢复服务端口与客户端身份，旧沙箱进程和对象引用不会恢复，须重新 start/run。
 
 MCP 工具结果包含文本及截图 image 内容；错误返回 isError=true 和真实堆栈。连接中断、HTTP/MCP 超时、取消通知都不证明目标动作已停止，禁止自动重发。被测插件仅临时装载，不自动安装到日常 IDE。
 
