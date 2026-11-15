@@ -291,6 +291,35 @@ class DebuggerMcpTest {
         assertEquals("{invalid}", java.nio.file.Files.readString(file))
     }
 
+    @Test
+    fun `cold auto restore does not depend on caller context class loader`() {
+        val settings = DebuggerMcpSettings(root.resolve("cold-restore.json"))
+        val socket = java.net.ServerSocket(0)
+        val port = socket.localPort
+        socket.close()
+        settings.write(DebuggerMcpSettings.Saved(true, port, "restore-token", mapOf("restore-token" to "restore-owner")))
+        SandboxController().use { controller ->
+            val bus = debuggerTestMessageBus()
+            try {
+                val dispatch = DebuggerCommands(controller, JetBrainsDiscovery(), { Path.of(System.getProperty("debugger.test.jar")) }, { root })
+                DebuggerMcpServer(dispatch, bus, settings).use { server ->
+                    val thread = Thread.currentThread()
+                    val original = thread.contextClassLoader
+                    try {
+                        thread.contextClassLoader = object : ClassLoader(null) { }
+                        server.restore()
+                        assertEquals(port, server.state().port)
+                        assertNull(server.state().error)
+                    } finally { thread.contextClassLoader = original }
+                    client(port, "restore-token", false).use { client ->
+                        client.initialize()
+                        assertFalse(client.callTool(McpSchema.CallToolRequest("sandbox_debug", mapOf("command" to "help"))).isError() == true)
+                    }
+                }
+            } finally { bus.dispose() }
+        }
+    }
+
     private fun service(action: (DebuggerMcpServer, String) -> Unit) {
         SandboxController().use { controller ->
             val dispatch = DebuggerCommands(controller, JetBrainsDiscovery(), { Path.of(System.getProperty("debugger.test.jar")) }, { root })

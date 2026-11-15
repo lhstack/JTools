@@ -86,7 +86,7 @@ internal class DebuggerMcpServer(private val commands: DebuggerCommands, val mes
             .contextExtractor { McpTransportContext.create(mapOf("owner" to it.getAttribute("debugger.owner"))) }
             .keepAliveInterval(Duration.ofSeconds(15)).build()
         fun register(spec: McpServer.SyncSpecification<*>): McpSyncServer =
-            spec.jsonSchemaValidator(DefaultJsonSchemaValidator(JsonMapper.builder().build())).serverInfo("jtools-debugger", "0.2.0")
+            spec.jsonMapper(mapper).jsonSchemaValidator(DefaultJsonSchemaValidator(JsonMapper.builder().build())).serverInfo("jtools-debugger", "0.2.0")
                 .capabilities(McpSchema.ServerCapabilities.builder().tools(false).build())
                 .toolCall(McpSchema.Tool.builder().name(DebuggerCommands.TOOL).description(DebuggerCommands.DESCRIPTION)
                     .inputSchema(mapper, DebuggerCommands.SCHEMA).build()) { exchange, request ->

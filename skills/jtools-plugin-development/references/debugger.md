@@ -20,8 +20,8 @@
 
 随附完整包：`assets/debugger/plugin-debugger-0.2.0-mcp.jar`。同一包支持 JTools 扩展安装、沙箱运行端和可执行 stdio 桥接，包含隔离后的 MCP/HTTP 运行依赖，不使用 plain JAR。
 
-- 完整包大小：`11297963` 字节。
-- SHA-256：`c906c7d519857a5c72291612abded5a855c5df520ec157f7914aec5ad1d8c525`。
+- 完整包大小：`11297982` 字节。
+- SHA-256：`7d021e8ae0d902198bf7f3694c26272613e8957873eceaa10dee139a75d84618`。
 - 校验文件：`assets/debugger/plugin-debugger-0.2.0-mcp.jar.sha256`。
 
 ### 安装及更新
