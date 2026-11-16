@@ -158,7 +158,7 @@
 
     <change-notes>
         <![CDATA[
-            <h2>🚀 Version v1.1.5.9</h2>
+            <h2>🚀 Version v1.1.5.9-fix</h2>
             <p><i>Current Release / 当前版本</i></p>
             <ul>
                 <li>🐚 <b>Bash Output Encoding:</b> Decode stdout and stderr independently as UTF-8 or GBK to fix garbled Chinese output and decoding failures on Windows. Invalid byte sequences use UTF-8 replacement characters when neither encoding succeeds; delivered files remain UTF-8. Decoding never reruns commands and preserves exit, timeout and cancellation status.</li>
@@ -180,7 +180,7 @@
                 <li>🧰 <b>Tool and Resource Handling:</b> Improved coding-environment tool selection and native resource handling, with regression tests.</li>
                 <li>🌊 <b>OpenAI Streaming Errors:</b> Improved streaming error handling with focused tests.</li>
                 <li>📚 <b>Debugger Skill Guide:</b> Added the debugger package and comprehensive host-IDE, lifecycle, Swing/JVM/JCEF, verification, and troubleshooting guidance. Automatically discovers existing JetBrains IDE and JTools installations; asks for custom paths or provides download links only when not found.</li>
-                <li>📦 <b>Version Metadata:</b> Plugin version 1.1.5.9 and SDK Helper marker 1159; the single-package IDEA 251–263 compatibility range is retained.</li>
+                <li>📦 <b>Version Metadata:</b> Plugin version 1.1.5.9-fix and SDK Helper marker 1159; the single-package IDEA 251–263 compatibility range is retained.</li>
             </ul>
             <ul>
                 <li>🐚 <b>Bash 输出编码修复：</b>命令 stdout/stderr 分别识别 UTF-8 和 GBK 输出，修复 Windows 中文输出乱码或解码失败；无法完整解码的输出使用 UTF-8 替换无效字符，交付文件统一为 UTF-8。编码处理不重复执行命令，并保留退出码、超时及取消状态。</li>
@@ -202,7 +202,7 @@
                 <li>🧰 <b>工具与资源处理：</b>完善编码环境工具选择和原生资源处理，并补充回归测试。</li>
                 <li>🌊 <b>OpenAI 流式错误：</b>完善流式错误处理并增加专项测试。</li>
                 <li>📚 <b>Debugger 技能手册：</b>加入 debugger 安装包及宿主 IDE、生命周期、Swing/JVM/JCEF、验收和排障手册；先自动发现 JetBrains IDE 与 JTools；未找到才询问位置或提供下载入口。</li>
-                <li>📦 <b>版本同步：</b>插件版本为 1.1.5.9，SDK Helper 标识为 1159，保留 IDEA 251–263 单包兼容范围。</li>
+                <li>📦 <b>版本同步：</b>插件版本为 1.1.5.9-fix，SDK Helper 标识为 1159，保留 IDEA 251–263 单包兼容范围。</li>
             </ul>
 
             <!-- English Version -->
