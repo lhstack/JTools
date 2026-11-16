@@ -49,6 +49,8 @@ interface MessageEventMapper : BaseMapper<MessageEventEntity> {
               and c.id > coalesce((select json_extract(config, '$.coding_compacted_through_event_id') from message_sessions where id=#{sessionId}), 0)
               and c.turn_id<>#{currentTurnId}
               and c.event_type='tool_call'
+              and json_type(c.context, '$.arguments') = 'object'
+              and coalesce(json_type(c.context, '$.raw_arguments'), 'null') = 'null'
               and c.parent_event_id is null
               and c.status in ('completed','failed','cancelled')
               and coalesce(json_extract(c.context, '$.extra.type'), '') <> 'subagent'
@@ -129,7 +131,11 @@ interface MessageEventMapper : BaseMapper<MessageEventEntity> {
               )
           and (
                 event_type<>'tool_call'
-                or coalesce(json_extract(context, '$.extra.type'), '') <> 'subagent'
+                or (
+                    coalesce(json_extract(context, '$.extra.type'), '') <> 'subagent'
+                    and json_type(context, '$.arguments') = 'object'
+                    and coalesce(json_type(context, '$.raw_arguments'), 'null') = 'null'
+                )
               )
         """
     )

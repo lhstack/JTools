@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
  * Shell 执行工具。
  *
  * 用系统 shell 执行命令，返回 stdout / stderr / exit_code / success；超限文件化交付。
+ * 命令输出依次尝试严格 UTF-8、严格 GBK、宽松 UTF-8 解码；交付文件统一为 UTF-8。
  * cwd 省略时用 workspace 根目录；timeout_secs 未设置时默认 300s，设置后按该秒数超时。
  * 超时/取消时销毁进程树，返回明确状态并保留已捕获输出，success=false。
  *
@@ -43,7 +44,7 @@ class BashTool(
         val envHint = shell.envProbe?.let { "（${it.sourceLabel}）" } ?: "（当前 shell 无用户配置可加载）"
         return ToolDefinition(
             name = NAME,
-            description = "在本机通过 ${shell.label} 执行 Shell 命令的工具，返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，因此可直接使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止，输出超限时只返回摘要和 UTF-8 文件地址，不因输出量终止进程。需要内容时用普通 Shell 命令按文件路径分批读取。",
+            description = "在本机通过 ${shell.label} 执行 Shell 命令（启动方式：${shell.program} ${shell.args.joinToString(" ")}），返回 stdout、stderr、退出码和成功标志。会自动加载用户 shell 环境${envHint}，可使用用户安装的命令行工具。支持指定工作目录、超时控制和进程树终止。输出超限时不终止命令，而是返回摘要和完整输出的 UTF-8 文件地址，可按需分批读取。",
             parameters = JsonParser.parseString(
                 """
                 {
@@ -51,7 +52,7 @@ class BashTool(
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "必填。要执行的 Shell 命令。超限返回文件地址，可用 head/tail/sed 等按需读取，勿重复执行原命令。"
+                            "description": "必填。命令由 ${shell.program} ${shell.args.joinToString(" ")} 执行，请使用 ${shell.label} 的语法；工具名 bash 不表示当前使用 Bash。需要其他 Shell 时须在命令中显式启动，并处理外层 Shell 的引号和转义。输出超限会返回文件地址，可用适合当前 Shell 的命令分批读取（如 head/tail/sed），不要重复执行原命令。"
                         },
                         "cwd": {
                             "type": "string",
@@ -135,7 +136,7 @@ class BashTool(
             if (timedOut || cancelled) {
                 check(process.waitFor(5, TimeUnit.SECONDS)) { "命令终止后仍未退出" }
             }
-            val result = outputs.deliver(capture, shell.outputCharset, process.exitValue(), timedOut, cancelled, maxOutputChars)
+            val result = outputs.deliver(capture, process.exitValue(), timedOut, cancelled, maxOutputChars)
             if (refreshVfs) refreshVfsAfterCommand(cwd)
             return result
         } catch (error: Throwable) {
@@ -249,10 +250,14 @@ data class SelectedShell(
         )
 
         fun current(): SelectedShell {
-            val os = System.getProperty("os.name").lowercase()
-            if (os.contains("win")) {
+            return select(System.getProperty("os.name"), System.getenv("PATH"))
+        }
+
+        internal fun select(osName: String, path: String?): SelectedShell {
+            val isWindows = osName.lowercase().contains("win")
+            if (isWindows) {
                 val winCharset = systemNativeCharset()
-                if (commandInPath("pwsh")) {
+                if (commandInPath("pwsh", path, isWindows)) {
                     return SelectedShell(
                         "pwsh",
                         "pwsh",
@@ -261,7 +266,7 @@ data class SelectedShell(
                         envProbe = PWSH_PROBE,
                     )
                 }
-                if (commandInPath("powershell")) {
+                if (commandInPath("powershell", path, isWindows)) {
                     return SelectedShell(
                         "powershell",
                         "powershell",
@@ -273,10 +278,10 @@ data class SelectedShell(
                 // cmd 没有用户级启动脚本机制（AutoRun 注册表项不可靠，也不应依赖）。
                 return SelectedShell("cmd", "cmd", arrayOf("/C"), winCharset)
             }
-            if (commandInPath("zsh")) {
+            if (commandInPath("zsh", path, isWindows)) {
                 return SelectedShell("zsh", "zsh", arrayOf("-lc"), Charsets.UTF_8, envProbe = ZSH_PROBE)
             }
-            if (commandInPath("bash")) {
+            if (commandInPath("bash", path, isWindows)) {
                 return SelectedShell("bash", "bash", arrayOf("-lc"), Charsets.UTF_8, envProbe = BASH_PROBE)
             }
             // POSIX sh 不读 .zshrc/.bashrc：其交互式启动文件由 $ENV 指定且默认不存在，
@@ -295,11 +300,13 @@ data class SelectedShell(
             return name?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: Charset.defaultCharset()
         }
 
-        /** 照抄 command_in_path：在 PATH 各目录下找可执行文件。 */
-        private fun commandInPath(name: String): Boolean {
-            val path = System.getenv("PATH") ?: return false
-            return path.split(File.pathSeparatorChar).any { dir ->
-                dir.isNotBlank() && File(dir, name).isFile
+        /** Windows 需检查 .exe 文件名；Unix 保持无后缀文件名检测。 */
+        private fun commandInPath(name: String, path: String?, isWindows: Boolean): Boolean {
+            if (path == null) return false
+            val names = if (isWindows) listOf("$name.exe", name) else listOf(name)
+            val separator = if (isWindows) ';' else ':'
+            return path.split(separator).any { dir ->
+                dir.isNotBlank() && names.any { File(dir, it).isFile }
             }
         }
     }

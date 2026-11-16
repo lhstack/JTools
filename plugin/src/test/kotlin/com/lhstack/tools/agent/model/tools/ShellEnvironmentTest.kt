@@ -90,13 +90,17 @@ class ShellEnvironmentTest {
     }
 
     @Test
-    fun `tool description states identity and capability without parameter usage`() {
+    fun `tool description states capability and shell launch mode`() {
         val source = bashToolSource()
         val desc = source.substringAfter("description = \"在本机通过").substringBefore("\",")
         // 工具描述只说明这是什么工具、用哪个 shell、有哪些能力。
         assertTrue(desc.contains("返回 stdout、stderr、退出码"))
         assertTrue(desc.contains("自动加载用户 shell 环境"))
-        // 参数用法不应出现在工具描述里。
+        assertTrue(desc.contains("启动方式："))
+        assertFalse(desc.contains("AI"))
+        assertFalse(desc.contains("必须都是 UTF-8 内容"))
+        assertFalse(desc.contains("解码失败"))
+        assertFalse(desc.contains("output_encoding"))
         assertFalse(desc.contains("refresh_env"))
         assertFalse(desc.contains("refresh_vfs"))
         assertFalse(desc.contains("省略 cwd"))
@@ -111,6 +115,10 @@ class ShellEnvironmentTest {
         assertTrue(params.contains("文件地址"))
         assertTrue(params.contains("command not found"))
         assertTrue(params.contains("终止整个进程树"))
+        assertTrue(params.contains("\"required\": [\"command\"]"))
+        assertFalse(params.contains("output_encoding"))
+        assertTrue(params.contains("工具名 bash 不表示当前使用 Bash"))
+        assertFalse(params.contains("必须都是 UTF-8 内容"))
     }
 
     @Test

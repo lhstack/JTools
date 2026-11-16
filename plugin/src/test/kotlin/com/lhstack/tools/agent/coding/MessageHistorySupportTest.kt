@@ -92,6 +92,44 @@ class MessageHistorySupportTest {
         assertTrue(MessageEventSupport.RESUMED_PROMPT.contains("服务重启"))
     }
 
+    @Test
+    fun `invalid tool events do not consume history rounds or enter any protocol request`() {
+        val valid = event(1, "valid", MessageEventType.TOOL_CALL, JsonObject().apply {
+            addProperty("name", "cli"); addProperty("call_id", "valid-call")
+            add("arguments", JsonObject()); addProperty("result", "business error")
+        })
+        val invalidArguments = listOf("null", "[]", "1", "false", "\"{}\"")
+        val invalid = invalidArguments.mapIndexed { index, value ->
+            event(index + 2L, "invalid-$index", MessageEventType.TOOL_CALL, JsonObject().apply {
+                addProperty("name", "cli"); addProperty("call_id", "invalid-$index")
+                add("arguments", com.google.gson.JsonParser.parseString(value))
+                addProperty("result", "invalid arguments")
+            })
+        } + event(8, "raw", MessageEventType.TOOL_CALL, JsonObject().apply {
+            addProperty("name", "cli"); addProperty("call_id", "invalid-raw")
+            add("arguments", JsonObject()); addProperty("raw_arguments", "{invalid")
+            addProperty("result", "invalid arguments")
+        }) + event(9, "missing", MessageEventType.TOOL_CALL, JsonObject().apply {
+            addProperty("name", "cli"); addProperty("call_id", "invalid-missing")
+            addProperty("result", "invalid arguments")
+        })
+        val expected = MessageHistorySupport.toModelHistory(listOf(valid), "current", false)
+        val history = MessageHistorySupport.toModelHistory(listOf(valid) + invalid, "current", false, 1)
+        assertEquals(expected, history)
+        assertEquals(2, history.size)
+        assertEquals(com.lhstack.tools.llm.openai.OpenAiMessages.chatMessages("", expected),
+            com.lhstack.tools.llm.openai.OpenAiMessages.chatMessages("", history))
+        assertEquals(com.lhstack.tools.llm.openai.OpenAiMessages.responseInput(expected),
+            com.lhstack.tools.llm.openai.OpenAiMessages.responseInput(history))
+        assertEquals(com.lhstack.tools.llm.anthropic.AnthropicMessages.messagesFromRuntime("", expected),
+            com.lhstack.tools.llm.anthropic.AnthropicMessages.messagesFromRuntime("", history))
+        assertEquals(7, invalid.size)
+        val resumed = MessageHistorySupport.toModelHistory(
+            listOf(valid) + invalid.map { it.copy(turnId = "current") }, "current", true, 1,
+        )
+        assertEquals(expected, resumed)
+    }
+
     private fun event(
         id: Long,
         turnId: String,

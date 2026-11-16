@@ -39,7 +39,7 @@ object MessageHistorySupport {
         if (!isAllowed(event)) return false
         return when (event.eventType) {
             MessageEventType.MODEL_REPLY -> hasNonEmptyModelText(event)
-            MessageEventType.TOOL_CALL -> event.status in setOf(
+            MessageEventType.TOOL_CALL -> hasValidToolArguments(event.context) && event.status in setOf(
                 MessageEventStatus.COMPLETED,
                 MessageEventStatus.FAILED,
                 MessageEventStatus.CANCELLED,
@@ -52,6 +52,11 @@ object MessageHistorySupport {
             else -> false
         }
     }
+
+    // Filter before selecting turns; a tool event contains both the call and its result.
+    private fun hasValidToolArguments(context: JsonObject?): Boolean =
+        context?.get("arguments")?.isJsonObject == true &&
+            context.get("raw_arguments").let { it == null || it.isJsonNull }
 
     private fun isAllowed(event: MessageEventRecord): Boolean = event.eventType in setOf(
         MessageEventType.USER_MESSAGE,

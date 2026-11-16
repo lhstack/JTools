@@ -2,7 +2,11 @@ package com.lhstack.tools.agent.model.tools
 
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
+import java.io.InputStreamReader
+import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
+import java.nio.charset.CharsetDecoder
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,9 +24,9 @@ internal class BashOutputSupport {
         return Capture(Files.createTempDirectory("jtools-bash-output-"))
     }
 
-    fun deliver(capture: Capture, charset: Charset, exitCode: Int?, timedOut: Boolean, cancelled: Boolean, limit: Int): JsonObject {
+    fun deliver(capture: Capture, exitCode: Int?, timedOut: Boolean, cancelled: Boolean, limit: Int): JsonObject {
         try {
-            val output = Output(convert(capture, "stdout", charset), convert(capture, "stderr", charset))
+            val output = Output(convertOutput(capture, "stdout"), convertOutput(capture, "stderr"))
             val response = status(exitCode, timedOut, cancelled).apply {
                 addProperty("stdout", "")
                 addProperty("stderr", "")
@@ -55,11 +59,26 @@ internal class BashOutputSupport {
         Files.delete(capture.directory)
     }
 
-    private fun convert(capture: Capture, stream: String, charset: Charset): StreamFile {
+    /** 每次从原始文件头重新解码；只有字符编码错误才进入下一种策略，不重跑命令。 */
+    private fun convertOutput(capture: Capture, stream: String): StreamFile {
+        for (charset in listOf(UTF_8, Charset.forName("GBK"))) {
+            try {
+                return convert(capture, stream, charset.newDecoder())
+            } catch (_: CharacterCodingException) {
+                // 严格 UTF-8、严格 GBK 均失败后，才使用带替换字符的 UTF-8。
+            }
+        }
+        val decoder = UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE)
+        return convert(capture, stream, decoder)
+    }
+
+    private fun convert(capture: Capture, stream: String, decoder: CharsetDecoder): StreamFile {
         val path = capture.directory.resolve("$stream.txt")
         var chars = 0
         var previousHigh = false
-        Files.newBufferedReader(capture.raw(stream), charset).use { reader ->
+        InputStreamReader(Files.newInputStream(capture.raw(stream)), decoder).buffered().use { reader ->
             Files.newBufferedWriter(path, UTF_8).use { writer ->
                 val buffer = CharArray(8192)
                 while (true) {
