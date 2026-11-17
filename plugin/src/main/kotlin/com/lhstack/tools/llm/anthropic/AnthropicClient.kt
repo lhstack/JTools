@@ -77,8 +77,7 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         val awaitingDelivery = request.initialContinuationBatchId?.let { mutableListOf(it) } ?: mutableListOf()
         while (true) {
             throwIfCancelled(cancel)
-            val value = postMessage(request, cancel)
-            val round = AnthropicParser.parseMessageResponse(value)
+            val round = postMessage(request, cancel)
             emitRoundText(round)
             confirmContinuationDelivery(continuation, awaitingDelivery)
             val continued = continueToolLoop(request, total, round, rounds, toolRuntime, cancel, continuation, awaitingDelivery)
@@ -139,13 +138,13 @@ class AnthropicClient(private val params: AnthropicClientParams) {
 
     // -------- non-stream request --------
 
-    private fun postMessage(request: AnthropicMessageRequest, cancel: ModelCancel?): JsonElement {
+    private fun postMessage(request: AnthropicMessageRequest, cancel: ModelCancel?): ProviderRound {
         val body = request.body()
         var retryAttempt = 0
         val failures = mutableListOf<String>()
         while (true) {
             try {
-                return postMessageOnce(body, request.anthropicBeta(), cancel)
+                return AnthropicParser.parseMessageResponse(postMessageOnce(body, request.anthropicBeta(), cancel))
             } catch (e: ModelRequestCancelledException) {
                 throw e
             } catch (e: Throwable) {
@@ -267,6 +266,9 @@ class AnthropicClient(private val params: AnthropicClientParams) {
         traceRoundResponse(url, round)
         return round
         } catch (e: ModelRequestCancelledException) {
+            throw e
+        } catch (e: com.lhstack.tools.llm.ToolCallParseException) {
+            // 参数解析失败必须重试原请求，不能执行同批的其他工具或追加失败响应。
             throw e
         } catch (e: Throwable) {
             return StreamRetryCarry.throwOrComplete(

@@ -45,6 +45,14 @@ class ToolRuntime(
 
     /** 对齐 execute_tool_calls：先发 tool_call 事件，并发执行，再发 tool_result 事件。 */
     fun executeToolCalls(calls: List<ProviderToolCall>): ToolExecutionBatch {
+        // 整批校验必须早于事件、记录和并发执行，避免失败重试造成部分工具重复执行。
+        for (call in calls) {
+            if (call.rawArguments != null || !call.arguments.isJsonObject) {
+                throw com.lhstack.tools.llm.ToolCallParseException(
+                    "工具 `${call.name}` 参数解析失败: 模型返回的工具参数必须是合法 JSON object"
+                )
+            }
+        }
         emitToolCalls(calls)
         val batch = beginToolBatch()
         try {
@@ -153,7 +161,6 @@ class ToolRuntime(
     }
 
     private fun timeoutSecondsFor(call: ProviderToolCall, index: Int): Long {
-        if (call.rawArguments != null || !call.arguments.isJsonObject) return 120L
         val declared = if (index >= 0) tools[index].executionTimeoutSeconds else 120L
         val requested = requestedTimeoutSeconds(call)
         return maxOf(declared, requested).coerceAtLeast(1L)
@@ -173,9 +180,6 @@ class ToolRuntime(
     private fun failure(text: String) = ToolExecutionResult(JsonPrimitive(text))
 
     private fun executeToolCall(call: ProviderToolCall): ToolExecutionResult {
-        if (call.rawArguments != null || !call.arguments.isJsonObject) {
-            return failure("工具调用失败: 模型返回的工具参数不是合法 JSON object，请修正参数后重新调用工具。原始参数：${call.argsString()}")
-        }
         val index = definitions.indexOfFirst { it.name == call.name }
         if (index < 0) return failure("工具调用失败: 模型请求了未注册的工具 `${call.name}`")
         return try {

@@ -50,12 +50,12 @@ object LlmJson {
         return arguments
     }
 
-    /** Completed model output is retained as a failed tool call when arguments are invalid. */
+    /** 参数解析失败属于模型响应错误，由当前请求重试；不能构造工具调用写入上下文。 */
     fun toolCall(id: String, callId: String?, name: String, raw: String): ProviderToolCall =
         try {
             ProviderToolCall(id, callId, name, parseArgs(raw))
-        } catch (_: IllegalStateException) {
-            ProviderToolCall(id, callId, name, com.google.gson.JsonNull.INSTANCE, raw)
+        } catch (error: IllegalStateException) {
+            throw ToolCallParseException("工具 `$name` 参数解析失败: ${error.message}", error)
         }
 
     fun removeNullRequestParams(params: JsonObject) {

@@ -132,15 +132,15 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             val round = if (request.stream) {
                 responsesStream(request, responsesUrl(), cancel)
             } else {
-                val value = postJsonWithRetries(
+                postJsonWithRetries(
                     "/responses",
                     request.body,
                     request.maxRetries,
                     request.retryIntervalMs,
                     "OpenAI Responses API",
                     cancel,
+                    OpenAiParser::parseResponse,
                 )
-                OpenAiParser.parseResponse(value)
             }
             if (!request.stream) emitRoundText(round)
             confirmContinuationDelivery(continuation, awaitingDelivery)
@@ -175,15 +175,15 @@ class OpenAiClient(private val params: OpenAiClientParams) {
     // -------- internal request helpers --------
 
     private fun chatOnce(request: OpenAiChatRequest, cancel: ModelCancel?): ProviderRound {
-        val value = postJsonWithRetries(
+        return postJsonWithRetries(
             "/chat/completions",
             request.body,
             request.maxRetries,
             request.retryIntervalMs,
             "OpenAI Chat Completions API",
             cancel,
+            OpenAiParser::parseChatResponse,
         )
-        return OpenAiParser.parseChatResponse(value)
     }
 
     /** 照抄 post_json_with_retries：单次失败累计重试信息，超过阈值抛错。取消不重试。 */
@@ -194,13 +194,14 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         retryIntervalMs: Long,
         apiName: String,
         cancel: ModelCancel?,
-    ): JsonElement {
+        parseResponse: (JsonElement) -> ProviderRound,
+    ): ProviderRound {
         val url = ModelHttpSupport.joinUrl(baseUrl, path)
         var retryAttempt = 0
         val failures = mutableListOf<String>()
         while (true) {
             try {
-                return postJsonOnce(url, body, cancel)
+                return parseResponse(postJsonOnce(url, body, cancel))
             } catch (e: ModelRequestCancelledException) {
                 throw e
             } catch (e: Throwable) {
@@ -336,6 +337,9 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         traceRoundResponse(url, round)
         return round
         } catch (e: ModelRequestCancelledException) {
+            throw e
+        } catch (e: com.lhstack.tools.llm.ToolCallParseException) {
+            // 完整响应中的非法工具调用不能降级成部分成功或携带到重试上下文。
             throw e
         } catch (e: Throwable) {
             return StreamRetryCarry.throwOrComplete(
@@ -481,6 +485,8 @@ class OpenAiClient(private val params: OpenAiClientParams) {
         traceRoundResponse(url, round)
         return round
         } catch (e: ModelRequestCancelledException) {
+            throw e
+        } catch (e: com.lhstack.tools.llm.ToolCallParseException) {
             throw e
         } catch (e: Throwable) {
             val calls = runCatching {
