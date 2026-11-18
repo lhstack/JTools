@@ -1,3 +1,4 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
@@ -14,6 +15,7 @@ plugins {
     id("org.jetbrains.kotlin.jvm") version "2.2.10"
     id("org.jetbrains.intellij.platform") version "2.7.2"
     id("io.github.sgtsilvio.gradle.proguard") version "0.7.0"
+    id("com.gradleup.shadow") version "8.3.6" apply false
 }
 
 group = "com.lhstack"
@@ -42,7 +44,21 @@ intellijPlatform {
     buildSearchableOptions.set(false)
 }
 
+val svgRenderer by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+// IDE 也会捆绑 JSVG；编译、测试和发布统一使用独立命名空间的这一份。
+val svgRendererJar by tasks.registering(ShadowJar::class) {
+    configurations = listOf(svgRenderer)
+    archiveBaseName.set("jtools-svg-renderer")
+    archiveClassifier.set("")
+    relocate("com.github.weisj.jsvg", "com.lhstack.tools.vendor.jsvg")
+}
+
 dependencies {
+    svgRenderer("com.github.weisj:jsvg:2.2.0")
+    implementation(files(svgRendererJar.flatMap { it.archiveFile }))
     // https://mvnrepository.com/artifact/cn.hutool/hutool-core
     implementation("cn.hutool:hutool-core:5.8.37")
     // sqlite + mybatis-plus + hikaricp (persistence)
@@ -218,6 +234,9 @@ val proguardJar by tasks.registering(proguard.taskClass) {
     addLibrary {
         classpath.from(sdkJar.flatMap { it.archiveFile })
     }
+    addLibrary {
+        classpath.from(svgRendererJar.flatMap { it.archiveFile })
+    }
     addOutput {
         archiveFile.set(base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar"))
     }
@@ -350,6 +369,13 @@ tasks {
                 }
             ZipFile(archiveFile.get().asFile).use { zip ->
                 val jars = zip.entries().asSequence().filter { it.name.endsWith(".jar") }.toList()
+                val renderer = svgRendererJar.get().archiveFile.get().asFile
+                val rendererEntry = jars.single { it.name.endsWith("/lib/${renderer.name}") }
+                val rendererClasses = classes(zip.getInputStream(rendererEntry))
+                check("com/lhstack/tools/vendor/jsvg/parser/SVGLoader.class" in rendererClasses &&
+                    rendererClasses.keys.none { it.startsWith("com/github/weisj/jsvg/") } &&
+                    rendererClasses == classes(renderer.inputStream())
+                ) { "发布 ZIP 未包含正确重定位的 SVG 渲染库" }
                 listOf(
                     "${project.name}-${project.version}.jar" to base.libsDirectory.file("${project.name}-${project.version}-proguarded.jar").get().asFile,
                     "sdk-$sdkVersion.jar" to sdkComposedJar.get().archiveFile.get().asFile

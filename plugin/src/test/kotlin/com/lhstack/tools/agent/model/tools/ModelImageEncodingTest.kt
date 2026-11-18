@@ -61,6 +61,26 @@ class ModelImageEncodingTest {
     }
 
     @Test
+    fun `SVG renders local shapes without loading external image files`() {
+        withProject { project ->
+            val external = project.resolve("external.png")
+            val red = BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB).apply {
+                for (y in 0 until height) for (x in 0 until width) setRGB(x, y, Color.RED.rgb)
+            }
+            assertTrue(ImageIO.write(red, "png", external))
+            project.resolve("reference.svg").writeText(
+                """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="8" height="4">
+                    <rect width="4" height="4" fill="blue"/>
+                    <image x="4" width="4" height="4" xlink:href="${external.toURI().toASCIIString()}"/>
+                </svg>""".trimIndent(),
+            )
+            val bitmap = readPng(view(project, "reference.svg"))
+            assertEquals(Color.BLUE.rgb, bitmap.getRGB(1, 1))
+            assertEquals(0, bitmap.getRGB(6, 1) ushr 24)
+        }
+    }
+
+    @Test
     fun `corrupt PNG and invalid SVG are rejected before a model request`() {
         withProject { project ->
             for (name in listOf("broken.png", "broken.svg")) {

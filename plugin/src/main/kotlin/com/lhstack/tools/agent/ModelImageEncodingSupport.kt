@@ -1,12 +1,15 @@
 package com.lhstack.tools.agent
 
-import com.intellij.ui.svg.getSvgDocumentSize
-import com.intellij.ui.svg.renderSvg
 import com.lhstack.tools.llm.ImageMediaType
+import com.lhstack.tools.vendor.jsvg.parser.LoaderContext
+import com.lhstack.tools.vendor.jsvg.parser.SVGLoader
+import com.lhstack.tools.vendor.jsvg.parser.resources.ResourcePolicy
+import com.lhstack.tools.vendor.jsvg.view.ViewBox
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import kotlin.math.roundToInt
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.plugins.jpeg.JPEGImageWriteParam
@@ -32,11 +35,26 @@ internal object ModelImageEncodingSupport {
     }
 
     private fun rasterizeSvg(bytes: ByteArray): EncodedImage {
-        // IDE 自带的 SVG 渲染器不读取外部图片资源。先获取尺寸，避免按巨大的原尺寸分配画布。
-        val bounds = getSvgDocumentSize(bytes)
-        require(bounds.width.isFinite() && bounds.height.isFinite() && bounds.width > 0 && bounds.height > 0) { "SVG 图片尺寸无效" }
-        val scale = minOf(1f, MAX_DIMENSION / maxOf(bounds.width, bounds.height))
-        return encodePng(renderSvg(bytes, scale))
+        // 只渲染本次读取的 SVG，不允许它再访问磁盘或网络资源。
+        val context = LoaderContext.builder().externalResourcePolicy(ResourcePolicy.DENY_EXTERNAL).build()
+        val document = bytes.inputStream().use { SVGLoader().load(it, null, context) }
+        requireNotNull(document) { "SVG 文档无法解析" }
+        val (width, height) = document.size().let { it.width to it.height }
+        require(width.isFinite() && height.isFinite() && width > 0 && height > 0) { "SVG 图片尺寸无效" }
+        val scale = minOf(1.0, MAX_DIMENSION.toDouble() / maxOf(width, height))
+        val image = BufferedImage(
+            (width * scale).roundToInt().coerceAtLeast(1),
+            (height * scale).roundToInt().coerceAtLeast(1),
+            BufferedImage.TYPE_INT_ARGB,
+        )
+        val graphics = image.createGraphics()
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            document.render(null, graphics, ViewBox(image.width.toFloat(), image.height.toFloat()))
+        } finally {
+            graphics.dispose()
+        }
+        return encodePng(image)
     }
 
     private fun readRaster(bytes: ByteArray): EncodedImage? =

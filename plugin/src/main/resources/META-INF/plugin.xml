@@ -161,7 +161,7 @@
             <h2>🚀 Version v1.1.6.0</h2>
             <p><i>Current Release / 当前版本</i></p>
             <ul>
-                <li>🖼️ <b>Multimodal Image Encoding:</b> SVG and decodable unsupported raster formats such as BMP are converted to PNG for model input. SVG bypasses generic ImageIO reader discovery. The source file is not changed; undecodable images produce an explicit error.</li>
+                <li>🖼️ <b>Multimodal Image Encoding:</b> SVG and decodable unsupported raster formats such as BMP are converted to PNG for model input. SVG uses a bundled renderer instead of internal IntelliJ APIs or generic ImageIO reader discovery. The source file is not changed; undecodable images produce an explicit error.</li>
                 <li>📝 <b>Tool Result Layout:</b> Multiline records are separated by blank lines, while single-line lists stay compact. Web Fetch returns head and tail excerpts and the absolute path to the complete response body when the inline byte limit is exceeded. Multimodal resource tools accept absolute paths and paths relative to the current project working directory.</li>
                 <li>📝 <b>Readable Tool Results:</b> Agent and coding sessions send readable text to the model and track success, failure and cancellation separately. Non-zero exits, HTTP errors, MCP failures and timeouts are not reported as successes. Original output and files for oversized results are preserved. The public plugin SDK and standalone Debugger MCP result contracts are unchanged.</li>
                 <li>📂 <b>Path-Only Native Resources:</b> Native view tools accept only path, not attachment_id, removing their incompatible oneOf constraint. Attachments still start as metadata and load on demand; storage and UI references are unchanged.</li>
@@ -169,7 +169,7 @@
                 <li>📦 <b>Version Metadata:</b> Plugin version 1.1.6.0 and SDK Helper marker 1160; the single-package IDEA 251–263 compatibility range is unchanged.</li>
             </ul>
             <ul>
-                <li>🖼️ <b>多模态图片格式修复：</b>SVG 和 BMP 等可解码但模型输入不直接支持的图片会转换为 PNG。SVG 直接走专用渲染，不经过通用 ImageIO 读取器探测。源文件不变，无法解码时明确报错。</li>
+                <li>🖼️ <b>多模态图片格式修复：</b>SVG 和 BMP 等可解码但模型输入不直接支持的图片会转换为 PNG。SVG 使用插件内打包的渲染库，不调用 IntelliJ 内部 API，也不经过通用 ImageIO 探测。源文件不变，无法解码时明确报错。</li>
                 <li>📝 <b>工具结果排版：</b>多行记录之间留空行，单行列表保持紧凑。Web Fetch 超过正文内联上限时返回首尾摘录和完整正文文件的绝对路径。多模态资源支持绝对路径及基于当前项目工作目录的相对路径。</li>
                 <li>📝 <b>工具结果文本化：</b>Agent 和编码会话向模型提供可读文本，成功、失败和取消单独记录。非零退出、HTTP 错误、MCP 执行失败和超时不再标为成功；保留原始正文和超限输出文件。插件 SDK 和独立 Debugger MCP 的对外返回契约不变。</li>
                 <li>📂 <b>原生资源只按路径读取：</b>原生 view 工具只接受 path，不再接受 attachment_id，移除不兼容的 oneOf。附件仍先提供元数据、按需读取；附件存储和界面引用不变。</li>
