@@ -44,7 +44,8 @@ class UnifiedMessageEventRecorder(
                 addProperty("call_id", result.callId ?: result.id)
                 addProperty("tool_call_id", result.callId ?: result.id)
                 addProperty("result", text)
-                addProperty("status", "completed")
+                addProperty("status", result.status.value)
+                result.resourceRead?.let { add("resource_read", it) }
             })
         }
 
@@ -262,6 +263,7 @@ class UnifiedMessageEventRecorder(
             status,
             data.get("reason")?.takeIf { it.isJsonPrimitive }?.asString,
             parentEventId,
+            data.get("resource_read"),
         )
         val remaining = pendingToolCalls[turnId]
         remaining?.remove(callId)

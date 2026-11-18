@@ -64,6 +64,7 @@ internal class OpenAiChatRequest(
             } else {
                 OpenAiMessages.chatTools(tools)
             }
+            OpenAiToolSchemaSupport.validate(requestTools, responses = false)
             val existingToolChoice = options.remove("tool_choice")?.takeIf { !it.isJsonNull }
             val toolChoice = if (requestTools != null && existingToolChoice == null) {
                 JsonPrimitive("auto")
@@ -142,6 +143,8 @@ internal class OpenAiResponsesRequest(
             } else {
                 OpenAiMessages.responseTools(tools)
             }
+            OpenAiToolSchemaSupport.validate(requestTools, responses = true,
+                strictByDefault = openaiProviderType == OpenAiProviderType.OFFICIAL)
             val existingToolChoice = options.remove("tool_choice")?.takeIf { !it.isJsonNull }
             val toolChoice = if (requestTools != null && existingToolChoice == null) {
                 JsonPrimitive("auto")

@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent
 
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.intellij.openapi.application.ApplicationManager
@@ -323,8 +324,7 @@ internal object AgentRunService {
             synchronized(run) {
                 run.tools[result.id]?.apply {
                     this.result = text
-                    finished = true
-                    failed = text.startsWith("工具调用失败:") || text == "用户手动取消"
+                    status = result.status
                 }
             }
             if (run.runId !in deletedRuns) publish(run)
@@ -335,7 +335,7 @@ internal object AgentRunService {
         if (structured == null) return emptyList()
         val results = structured.getAsJsonArray("tool_results")?.associate { value ->
             val item = value.asJsonObject
-            item.get("internal_call_id")?.asString.orEmpty() to item.get("result")?.asString.orEmpty()
+            item.get("internal_call_id")?.asString.orEmpty() to item
         }.orEmpty()
         return structured.getAsJsonArray("tool_calls")?.mapIndexed { index, value ->
             val item = value.asJsonObject
@@ -345,7 +345,8 @@ internal object AgentRunService {
                 id = id,
                 name = item.get("tool_name")?.asString.orEmpty(),
                 finished = result != null,
-                failed = result?.startsWith("工具调用失败:") == true,
+                failed = result?.get("status")?.asString in setOf("failed", "cancelled"),
+                status = result?.get("status")?.asString ?: if (result == null) "running" else "completed",
             )
         }.orEmpty()
     }
@@ -415,7 +416,12 @@ internal object AgentRunService {
         AgentRunSnapshot(
             run.runId, run.agentId, run.agentName, run.projectPath, run.sessionId, run.receiver.value, run.prompt, run.status,
             run.response, run.reasoning,
-            run.tools.values.map { AgentBrowserTool(it.id, it.name, it.finished, it.failed) },
+            run.tools.values.map { tool ->
+                val status = tool.status
+                AgentBrowserTool(tool.id, tool.name, status != null,
+                    status != null && status != ToolExecutionStatus.COMPLETED,
+                    status?.value ?: "running")
+            },
             run.error, run.logId, run.createdAt,
         )
     }

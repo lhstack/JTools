@@ -1,5 +1,6 @@
 package com.lhstack.tools.llm.provider
 
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonNull
@@ -96,6 +97,7 @@ class RunOutput(
                     add("internal_call_id", JsonPrimitive(event.internalCallId))
                     add("args", parseJsonOrString(event.args))
                     addProperty("result", event.result)
+                    addProperty("status", event.status.value)
                 })
             }
         }
@@ -110,6 +112,7 @@ class RunOutput(
                 add("internal_call_id", JsonPrimitive(result.id))
                 add("args", JsonNull.INSTANCE)
                 addProperty("result", result.content)
+                addProperty("status", result.status.value)
             })
         }
         return results
@@ -161,6 +164,7 @@ class RunOutput(
             val id: String,
             val callId: String?,
             val content: String,
+            val status: ToolExecutionStatus,
         )
 
         /** 照抄 collect_tool_results：从 user 消息收集 ToolResult。 */
@@ -176,6 +180,7 @@ class RunOutput(
                                     id = result.id,
                                     callId = result.callId,
                                     content = LlmSupport.formatToolResultContent(result.content),
+                                    status = result.status,
                                 )
                             )
                         }

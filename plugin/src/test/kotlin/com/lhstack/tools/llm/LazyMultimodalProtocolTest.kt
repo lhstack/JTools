@@ -29,6 +29,7 @@ class LazyMultimodalProtocolTest {
                 ToolExecutionResult(
                     JsonObject().apply { addProperty("type", "resource_read_summary") },
                     listOf(ToolResource("image-v1", listOf(picture))),
+                    text = "已读取图片",
                 )
         }
 
@@ -134,7 +135,8 @@ class LazyMultimodalProtocolTest {
         assertTrue(bodies[2].toString().contains("aW1hZ2U="))
         val history = ProviderMessageHistory.toJson(result.historyMessages).toString()
         assertFalse(history.contains("aW1hZ2U="))
-        assertTrue(history.contains("resource_read_summary"))
+        assertTrue(history.contains("已读取图片"))
+        assertFalse(history.contains("resource_read_summary"))
         val next =
             OpenAiChatRequest.fromRuntime(
                 "m",

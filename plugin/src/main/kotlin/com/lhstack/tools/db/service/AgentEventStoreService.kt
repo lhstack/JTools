@@ -1,5 +1,7 @@
 package com.lhstack.tools.db.service
 
+import com.lhstack.tools.llm.provider.ToolResultText
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -184,9 +186,7 @@ object AgentEventStoreService {
                     ),
                 ),
             )
-            val resultText = result.get("result")?.let { item ->
-                if (item.isJsonPrimitive && item.asJsonPrimitive.isString) item.asString else item.toString()
-            }.orEmpty()
+            val resultText = result.get("result")?.let(ToolResultText::render).orEmpty()
             messages += Message.User(
                 listOf(
                     UserContent.ToolResult(
@@ -194,6 +194,8 @@ object AgentEventStoreService {
                             id = callId,
                             callId = callId,
                             content = listOf(ToolResultContent.Text(resultText)),
+                            status = result.get("status")?.takeIf { it.isJsonPrimitive }?.asString
+                                ?.let(ToolExecutionStatus::fromValue) ?: ToolExecutionStatus.COMPLETED,
                         ),
                     ),
                 ),

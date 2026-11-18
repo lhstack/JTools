@@ -1,5 +1,7 @@
 package com.lhstack.tools.agent.coding
 
+import com.lhstack.tools.llm.ToolExecutionStatus
+import com.lhstack.tools.llm.ToolExecutionResult
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -154,6 +156,19 @@ private class SubagentRunTool(
                         .trimIndent()
                 ),
         )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        val status = ToolExecutionStatus.fromValue(result["status"].asString)
+        val output = result["output"]?.takeUnless { it.isJsonNull }?.asString.orEmpty()
+        val error = result["error"]?.takeUnless { it.isJsonNull }?.asString
+        val text = when (status) {
+            ToolExecutionStatus.COMPLETED -> output.ifBlank { "SubAgent 执行完成，无输出。" }
+            ToolExecutionStatus.FAILED -> listOfNotNull("工具调用失败: ${requireNotNull(error)}", output.takeIf { it.isNotBlank() }).joinToString("\n")
+            ToolExecutionStatus.CANCELLED -> "用户手动取消"
+        }
+        return ToolExecutionResult(result, status = status, text = text)
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val obj =

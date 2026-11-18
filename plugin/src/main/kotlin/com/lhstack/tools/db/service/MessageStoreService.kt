@@ -561,12 +561,14 @@ object MessageStoreService {
         status: MessageEventStatus,
         reason: String?,
         parentEventId: Long?,
+        resourceRead: JsonElement? = null,
     ): Long = AgentDatabase.execute { session ->
         require(status != MessageEventStatus.RUNNING) { "工具结果必须是终态" }
         val event = findEvent(session, sessionId, turnId, parentEventId, MessageEventType.TOOL_CALL, callId)
             ?: throw IllegalStateException("工具调用事件 `$callId` 不存在")
         val context = parseObject(event.context)
         context.add("result", result)
+        if (resourceRead != null) context.add("resource_read", resourceRead)
         context.addProperty("result_status", status.value)
         if (reason != null) context.addProperty("reason", reason)
         event.status = status.value

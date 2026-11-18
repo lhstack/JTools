@@ -1,5 +1,8 @@
 package com.lhstack.tools.agent.model.tools
 
+import com.lhstack.tools.llm.provider.ToolResultText
+import com.lhstack.tools.llm.ToolExecutionStatus
+import com.lhstack.tools.llm.ToolExecutionResult
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -40,6 +43,31 @@ class CliTool(
                         .trimIndent()
                 ),
         )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args)
+        val command = args.asJsonObject.get("command").asString.trim()
+        if (command != "mcp.call") return ToolExecutionResult(result)
+        val output = result.asJsonObject
+        val failed = output["isError"]?.asBoolean == true
+        val text = buildList {
+            if (failed) add("MCP 工具执行失败")
+            if (output.has("path") && output.has("summary")) {
+                add(output["summary"].asString)
+                add("完整输出文件：${output["path"].asString}")
+            } else {
+                output.getAsJsonArray("content")?.forEach { add(ToolResultText.render(it)) }
+                output["structuredContent"]?.takeUnless { it.isJsonNull }?.let {
+                    add(ToolResultText.render(it))
+                }
+            }
+            if (isEmpty()) add("MCP 工具执行成功，无输出。")
+        }.joinToString("\n")
+        return ToolExecutionResult(
+            result, status = if (failed) ToolExecutionStatus.FAILED
+            else ToolExecutionStatus.COMPLETED, text = text,
+        )
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.requireObject("cli arguments")

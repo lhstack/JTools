@@ -61,9 +61,9 @@ class NativeResourceTool(
     override fun definition(prompt: String) =
         ToolDefinition(
             kind.toolName,
-            "读取${kind.asStr}并通过原生多模态协议加入当前模型本轮上下文，不调用其他 Agent。每个资源使用 attachment_id 或 path 二选一；支持工作区内相对路径、普通绝对路径（含工作区外文件）及本地 file URI；attachment_id 必须属于当前会话或本次传入附件。每次最多 3 个资源，每个资源最大 32 MiB；首次仅有元数据，需要查看时调用。跨轮历史不含资源原文，需要时重新读取。",
+            "读取${kind.asStr}并通过原生多模态协议加入当前模型本轮上下文，不调用其他 Agent。每个资源必须提供 path；支持工作区相对路径、绝对路径及本地 file URI。每次最多 3 个资源，每个资源最大 32 MiB；首次仅有元数据，需要查看时调用。跨轮历史不含资源原文，需要时重新读取。",
             JsonParser.parseString(
-                """{"type":"object","additionalProperties":false,"properties":{"resources":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"attachment_id":{"type":["string","integer"],"description":"当前会话或本次传入附件的 ID，接受非空字符串或整数，与 path 二选一"},"path":{"type":"string","description":"本地资源相对路径、绝对路径（允许工作区外）或 file URI，与 attachment_id 二选一"}},"oneOf":[{"required":["attachment_id"]},{"required":["path"]}]}}},"required":["resources"]}"""
+                """{"type":"object","additionalProperties":false,"properties":{"resources":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"本地资源相对路径、绝对路径或 file URI"}},"required":["path"]}}},"required":["resources"]}"""
             ),
         )
 
@@ -88,42 +88,20 @@ class NativeResourceTool(
                 })
         val resolved =
             resources.map { item ->
+                require(item.isJsonObject) { "资源必须是包含 path 的对象" }
                 val ref = item.asJsonObject
-                require(
-                    ref.size() == 1 && ref.keySet().single() in setOf("attachment_id", "path")
-                ) {
-                    "每个资源只能指定 attachment_id 或 path"
+                require(ref.keySet() == setOf("path")) { "每个资源只接受 path" }
+                val path = ref.get("path")
+                require(path.isJsonPrimitive && path.asJsonPrimitive.isString && path.asString.isNotBlank()) {
+                    "path 必须为非空字符串"
                 }
-                val key = ref.keySet().single()
-                val value = ref.get(key)
-                require(value.isJsonPrimitive) { "资源引用必须为非空字符串；attachment_id 也支持整数" }
-                val primitive = value.asJsonPrimitive
-                val reference = if (key == "attachment_id" && primitive.isNumber) {
-                    try {
-                        primitive.asBigDecimal.toBigIntegerExact().toString()
-                    } catch (error: ArithmeticException) {
-                        throw IllegalArgumentException("attachment_id 必须为非空字符串或整数", error)
-                    }
-                } else {
-                    require(primitive.isString && primitive.asString.isNotBlank()) {
-                        "资源引用必须为非空字符串；attachment_id 也支持整数"
-                    }
-                    primitive.asString
-                }
-                val attachment = if (key == "attachment_id") {
-                    attachments.firstOrNull { it.id == reference } ?: error("附件不属于当前会话: $reference")
-                } else null
-                val location =
-                    LocalResourceReferenceSupport.resolve(
-                        attachment?.path ?: reference,
-                        workspace,
-                    )
+                val location = LocalResourceReferenceSupport.resolve(path.asString, workspace)
                 val file = location.file
                 require(file.isFile && file.length() <= 32L * 1024 * 1024) {
                     "资源必须为普通文件且不超过 32 MiB"
                 }
                 val matched =
-                    attachment ?: attachments.firstOrNull { File(it.path).canonicalFile == file }
+                    attachments.firstOrNull { File(it.path).canonicalFile == file }
                 val draft =
                     AgentAttachmentSupport.normalize(
                         AgentAttachmentState(
@@ -152,7 +130,6 @@ class NativeResourceTool(
                         addProperty("type", "resource_read_summary")
                         addProperty("kind", kind.asStr)
                         addProperty("path", draft.path)
-                        addProperty("attachment_id", draft.id)
                         addProperty("mime_type", draft.mimeType)
                         addProperty("bytes", draft.size)
                         addProperty("sha256", digest)
@@ -168,6 +145,12 @@ class NativeResourceTool(
                     ),
                 )
             }
-        return ToolExecutionResult(JsonObject().apply { add("resources", summaries) }, candidates)
+        val metadata = JsonObject().apply { add("resources", summaries) }
+        return ToolExecutionResult(
+            result = metadata,
+            resources = candidates,
+            text = resolved.joinToString("\n") { "已读取：${it.path}（${it.mimeType}，${it.size} 字节）" } +
+                "\n资源仅在当前轮次注入，后续需要时请重新调用 ${kind.toolName}。",
+        )
     }
 }

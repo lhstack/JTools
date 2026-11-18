@@ -1,5 +1,7 @@
 package com.lhstack.tools.agent.model.tools
 
+import com.lhstack.tools.llm.ToolExecutionStatus
+import com.lhstack.tools.llm.ToolExecutionResult
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -76,6 +78,32 @@ class BashTool(
                 """.trimIndent()
             ),
         )
+    }
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        val status = when {
+            result["cancelled"]?.asBoolean == true -> ToolExecutionStatus.CANCELLED
+            result["success"].asBoolean -> ToolExecutionStatus.COMPLETED
+            else -> ToolExecutionStatus.FAILED
+        }
+        val text = buildList {
+            when {
+                status == ToolExecutionStatus.CANCELLED -> add("用户手动取消")
+                result["timed_out"]?.asBoolean == true -> add("命令执行超时")
+                status == ToolExecutionStatus.FAILED ->
+                    add("命令执行失败，退出码：${result["exit_code"]}")
+            }
+            result["summary"]?.let { add(it.asString) }
+            for (stream in listOf("stdout", "stderr")) {
+                result[stream]?.asString?.takeIf { it.isNotEmpty() }?.let { add("$stream:\n$it") }
+                result.getAsJsonObject("files")?.getAsJsonObject(stream)?.get("path")?.let {
+                    add("$stream 完整输出文件：${it.asString}")
+                }
+            }
+            if (isEmpty()) add("命令执行成功，无输出。")
+        }.joinToString("\n")
+        return ToolExecutionResult(result, status = status, text = text)
     }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {

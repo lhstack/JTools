@@ -113,7 +113,7 @@ class InvalidToolArgumentsTest {
                 effects++
             }
 
-            override fun onToolResult(name: String, callId: String?, internalId: String, args: String, result: String) {
+            override fun onToolResult(name: String, callId: String?, internalId: String, args: String, result: String, status: ToolExecutionStatus) {
                 effects++
             }
         }

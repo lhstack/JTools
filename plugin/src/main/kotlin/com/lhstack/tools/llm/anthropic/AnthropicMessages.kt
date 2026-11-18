@@ -1,5 +1,6 @@
 package com.lhstack.tools.llm.anthropic
 
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.lhstack.tools.llm.LlmJson
 
 import com.google.gson.JsonArray
@@ -89,6 +90,7 @@ internal object AnthropicMessages {
         is UserContent.ToolResult -> JsonObject().apply {
             addProperty("type", "tool_result")
             addProperty("tool_use_id", content.toolResult.callId ?: content.toolResult.id)
+            if (content.toolResult.status != ToolExecutionStatus.COMPLETED) addProperty("is_error", true)
             addProperty("content", formatToolResultContent(content.toolResult.content))
         }
 

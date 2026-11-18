@@ -7,7 +7,7 @@ package com.lhstack.tools.agent.model.tools
  * 语义都是「携带一条给模型看的错误文案」。Kotlin 侧统一用一个异常类型 + 工厂方法承接，
  * message 文案照抄 awake 的 #[error(...)]，保证模型看到的错误信息一致。
  */
-class ToolException(message: String) : RuntimeException(message) {
+open class ToolException(message: String) : RuntimeException(message) {
 
     companion object {
         // -------- File tool errors --------
@@ -56,6 +56,8 @@ class ToolException(message: String) : RuntimeException(message) {
 
         fun invalidJsonBody(detail: String) = ToolException("invalid json_body: $detail")
 
-        fun cancelled() = ToolException("用户手动取消")
+        fun cancelled(): ToolException = ToolCancelledException()
     }
 }
+
+internal class ToolCancelledException : ToolException("用户手动取消")

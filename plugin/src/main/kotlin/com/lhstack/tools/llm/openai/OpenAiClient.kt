@@ -226,7 +226,8 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             executor.sendJson(url, authHeaders(), serialized.toString(), cancel)
         } catch (e: ModelHttpStatusException) {
             httpTrace?.error(url, e.status.toString(), "model API returned non-success status", com.google.gson.JsonPrimitive(e.bodyText))
-            throw IllegalStateException("model API returned ${e.status}: ${e.bodyText}")
+            val toolError = OpenAiToolSchemaSupport.rejectedTool(e.bodyText, serialized.asJsonObject.getAsJsonArray("tools"))
+            throw IllegalStateException(listOfNotNull(toolError, "model API returned ${e.status}: ${e.bodyText}").joinToString("\n"))
         } catch (e: ModelRequestCancelledException) {
             throw e
         } catch (e: Throwable) {
@@ -556,7 +557,8 @@ class OpenAiClient(private val params: OpenAiClientParams) {
             executor.sendJsonStream(url, authHeaders(), serialized.toString(), cancel, params.firstTokenTrace)
         } catch (e: ModelHttpStatusException) {
             httpTrace?.error(url, e.status.toString(), "model API returned non-success status", com.google.gson.JsonPrimitive(e.bodyText))
-            throw IllegalStateException("model API returned ${e.status}: ${e.bodyText}")
+            val toolError = OpenAiToolSchemaSupport.rejectedTool(e.bodyText, serialized.asJsonObject.getAsJsonArray("tools"))
+            throw IllegalStateException(listOfNotNull(toolError, "model API returned ${e.status}: ${e.bodyText}").joinToString("\n"))
         } catch (e: ModelRequestCancelledException) {
             throw e
         } catch (e: Throwable) {

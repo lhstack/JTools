@@ -94,7 +94,8 @@ class NativeResourceToolTest {
                 (batch.currentMessages[1] as Message.User).content.any { it is UserContent.Image }
             )
             val history = ProviderMessageHistory.toJson(batch.historyMessages).toString()
-            assertTrue(history.contains("resource_read_summary"))
+            assertTrue(history.contains("已读取"))
+            assertFalse(history.contains("resource_read_summary"))
             assertFalse(history.contains("base64"))
             assertFalse(history.contains("image_url"))
             val draft =
@@ -106,11 +107,9 @@ class NativeResourceToolTest {
                     image.length(),
                     "image",
                 )
-            assertTrue(
-                AgentAttachmentSupport.toUserContents(draft, setOf("image")).all {
-                    it is UserContent.Text
-                }
-            )
+            val metadata = AgentAttachmentSupport.toUserContents(draft, setOf("image")).single() as UserContent.Text
+            assertTrue(metadata.text.contains("path: ${image.path}"))
+            assertFalse(metadata.text.contains("attachment_id"))
             val event =
                 com.lhstack.tools.agent.coding.MessageEventRecord(
                     1,
@@ -123,18 +122,10 @@ class NativeResourceToolTest {
                     "",
                     JsonObject().apply {
                         addProperty("name", "view_image")
-                        addProperty(
-                            "result",
-                            (batch.historyMessages[0] as Message.User)
-                                .content
-                                .filterIsInstance<UserContent.ToolResult>()
-                                .single()
-                                .toolResult
-                                .content
-                                .filterIsInstance<ToolResultContent.Text>()
-                                .single()
-                                .text,
-                        )
+                        val result = (batch.historyMessages.single() as Message.User)
+                            .content.filterIsInstance<UserContent.ToolResult>().single().toolResult
+                        addProperty("result", (result.content.single() as ToolResultContent.Text).text)
+                        add("resource_read", result.resourceRead)
                     },
                     1,
                     null,
@@ -160,7 +151,7 @@ class NativeResourceToolTest {
     }
 
     @Test
-    fun `native resources accept external absolute paths file URIs and attached IDs with no workspace restriction`() {
+    fun `native resources accept only paths including external absolute paths and file URIs`() {
         val root = Files.createTempDirectory("jtools-native-paths-").toFile()
         val external = Files.createTempDirectory("jtools-external-paths-").toFile()
         try {
@@ -179,16 +170,15 @@ class NativeResourceToolTest {
                 val summary = result.result.asJsonObject.getAsJsonArray("resources").single().asJsonObject
                 assertEquals(image.canonicalPath, summary["path"].asString)
             }
-            val byId = tool.executeBlocking(args("attachment_id", "external-image"))
-            assertEquals("external-image", byId.result.asJsonObject.getAsJsonArray("resources").single().asJsonObject["attachment_id"].asString)
-            assertEquals(unregistered.executeBlocking(args("path", image.path)).resources.single().identity, byId.resources.single().identity)
-            assertFailsWith<IllegalStateException> { tool.executeBlocking(args("attachment_id", "other-session-id")) }
+            val byPath = tool.executeBlocking(args("path", image.path))
+            assertTrue(byPath.text.contains(image.canonicalPath))
+            assertFailsWith<IllegalArgumentException> { tool.executeBlocking(args("attachment_id", "external-image")) }
             val both = args("path", image.path)
             both.getAsJsonArray("resources")[0].asJsonObject.addProperty("attachment_id", "external-image")
             assertFailsWith<IllegalArgumentException> { tool.executeBlocking(both) }
             assertEquals(image.canonicalFile, com.lhstack.tools.agent.resources.LocalResourceReferenceSupport.resolve(image.path, root.path).file)
             val relativeEscape = root.toPath().relativize(image.toPath()).toString()
-            assertEquals(byId.resources.single().identity, unregistered.executeBlocking(args("path", relativeEscape)).resources.single().identity)
+            assertEquals(byPath.resources.single().identity, unregistered.executeBlocking(args("path", relativeEscape)).resources.single().identity)
             assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", external.path)) }
             assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", image.path + ".missing")) }
             assertFailsWith<IllegalArgumentException> { unregistered.executeBlocking(args("path", "https://example.test/image.png")) }
@@ -203,39 +193,19 @@ class NativeResourceToolTest {
     }
 
     @Test
-    fun `numeric and string attachment IDs resolve identical native image content`() {
-        val root = Files.createTempDirectory("jtools-native-id-").toFile()
-        try {
-            val image = root.resolve("test.png")
-            ImageIO.write(BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", image)
-            val attachments = listOf("45", "9007199254740993").map { id ->
-                AgentAttachmentState(id, image.name, image.path, "image/png", image.length(), "image")
-            }
-            val tool = NativeResourceTool(ResourceKind.IMAGE, root.path, null, attachments)
-            fun args(value: String, key: String = "attachment_id") =
-                JsonParser.parseString("""{"resources":[{"$key":$value}]}""")
-            for (id in listOf("45", "9007199254740993")) {
-                val numeric = tool.executeBlocking(args(id))
-                val string = tool.executeBlocking(args("\"$id\""))
-                assertEquals(string.resources.single().identity, numeric.resources.single().identity)
-                assertTrue(numeric.resources.single().content.any { it is UserContent.Image })
-                assertEquals(id, numeric.result.asJsonObject.getAsJsonArray("resources").single().asJsonObject["attachment_id"].asString)
-            }
+    fun `every native resource schema requires path and rejects invalid values`() {
+        for (kind in ResourceKind.entries) {
+            val tool = NativeResourceTool(kind, "/tmp", null)
             val schema = tool.definition("").parameters.asJsonObject
-                .getAsJsonObject("properties").getAsJsonObject("resources")
-                .getAsJsonObject("items").getAsJsonObject("properties")
-            assertEquals(listOf("string", "integer"), schema.getAsJsonObject("attachment_id").getAsJsonArray("type").map { it.asString })
-            assertEquals("string", schema.getAsJsonObject("path")["type"].asString)
-            for (invalid in listOf("null", "true", "{}", "[]", "45.5", "\"\"", "\"   \"")) {
-                assertFailsWith<IllegalArgumentException>("非法附件 ID: $invalid") { tool.executeBlocking(args(invalid)) }
+            val items = schema.getAsJsonObject("properties").getAsJsonObject("resources").getAsJsonObject("items")
+            assertEquals(setOf("path"), items.getAsJsonObject("properties").keySet())
+            assertEquals(listOf("path"), items.getAsJsonArray("required").map { it.asString })
+            assertTrue(!schema.toString().contains("oneOf"))
+            for (invalid in listOf("null", "true", "{}", "[]", "45", "\"\"", "\"   \"")) {
+                assertFailsWith<IllegalArgumentException> {
+                    tool.executeBlocking(JsonParser.parseString("""{"resources":[{"path":$invalid}]}"""))
+                }
             }
-            assertFailsWith<IllegalStateException> { tool.executeBlocking(args("46")) }
-            assertFailsWith<IllegalArgumentException> { tool.executeBlocking(args("45", "path")) }
-            assertFailsWith<IllegalArgumentException> {
-                tool.executeBlocking(JsonParser.parseString("""{"resources":[{"attachment_id":45,"path":"test.png"}]}"""))
-            }
-        } finally {
-            root.deleteRecursively()
         }
     }
 

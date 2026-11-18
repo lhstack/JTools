@@ -16,7 +16,7 @@ internal object ResourceReplaySupport {
             }
             .forEach { event ->
                 val context = event.context ?: return@forEach
-                val raw = context.get("result") ?: return@forEach
+                val raw = context.get("resource_read") ?: context.get("result") ?: return@forEach
                 val result =
                     if (raw.isJsonPrimitive && raw.asJsonPrimitive.isString)
                         runCatching { JsonParser.parseString(raw.asString) }.getOrNull()

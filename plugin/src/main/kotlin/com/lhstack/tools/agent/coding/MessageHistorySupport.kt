@@ -1,5 +1,7 @@
 package com.lhstack.tools.agent.coding
 
+import com.lhstack.tools.llm.provider.ToolResultText
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.google.gson.JsonObject
 import com.lhstack.tools.llm.AssistantContent
 import com.lhstack.tools.llm.Message
@@ -108,7 +110,7 @@ object MessageHistorySupport {
                         ),
                     )
                     context.get("result")?.let { result ->
-                        val text = if (result.isJsonPrimitive && result.asJsonPrimitive.isString) result.asString else result.toString()
+                        val text = ToolResultText.render(result)
                         messages += Message.User(
                             listOf(
                                 UserContent.ToolResult(
@@ -116,6 +118,7 @@ object MessageHistorySupport {
                                         id = event.eventId,
                                         callId = event.eventId,
                                         content = listOf(ToolResultContent.Text(text)),
+                                        status = ToolExecutionStatus.fromValue(event.status.value),
                                     ),
                                 ),
                             ),

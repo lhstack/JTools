@@ -167,7 +167,7 @@ object AgentAttachmentSupport {
                 kind = draft.kind.ifBlank { AgentAttachmentKind.FILE.id },
                 path = draft.path,
                 uploadedAt = "",
-            ) + "attachment_id: ${draft.id}\n读取内容请调用对应 view_* 工具，每次最多 3 个资源。\n"
+            ) + "读取内容请调用对应 view_* 工具并传入 path，每次最多 3 个资源。\n"
         )
     }
 

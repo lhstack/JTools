@@ -1,5 +1,8 @@
 package com.lhstack.tools.agent.model.tools
 
+import com.lhstack.tools.llm.provider.ToolResultText
+import com.lhstack.tools.llm.ToolExecutionStatus
+import com.lhstack.tools.llm.ToolExecutionResult
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -40,6 +43,23 @@ class WebFetchTool(
         description = "发送 HTTP 请求，支持请求方法、请求头、代理和多种请求体。",
         parameters = JsonParser.parseString(DEFINITION_JSON),
     )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        val success = result["success"].asBoolean
+        val text = buildList {
+            add(if (success) "HTTP ${result["status"].asInt}" else "HTTP 请求失败，状态码：${result["status"].asInt}")
+            add("URL: ${result["final_url"].asString}")
+            val headers = ToolResultText.render(result["headers"])
+            if (headers.isNotEmpty()) add(headers)
+            if (result["truncated"].asBoolean) add("响应正文已截断。")
+            add(result["body"].asString)
+        }.joinToString("\n")
+        return ToolExecutionResult(
+            result, status = if (success) ToolExecutionStatus.COMPLETED
+            else ToolExecutionStatus.FAILED, text = text,
+        )
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()

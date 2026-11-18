@@ -113,6 +113,8 @@ data class ToolResult(
     val id: String,
     val callId: String?,
     val content: List<ToolResultContent>,
+    val status: ToolExecutionStatus = ToolExecutionStatus.COMPLETED,
+    val resourceRead: JsonElement? = null,
 )
 
 sealed class ToolResultContent {
@@ -332,10 +334,20 @@ interface ToolDyn {
         get() = 120L
 }
 
-/** Content exists only in this turn; result is the durable tool summary. */
+enum class ToolExecutionStatus(val value: String) {
+    COMPLETED("completed"), FAILED("failed"), CANCELLED("cancelled");
+
+    companion object {
+        fun fromValue(value: String): ToolExecutionStatus = entries.first { it.value == value }
+    }
+}
+
+/** 结构化结果只用于工具内部组合和原生资源恢复，对外工具结果使用文本及独立状态。 */
 data class ToolExecutionResult(
     val result: JsonElement,
     val resources: List<ToolResource> = emptyList(),
+    val status: ToolExecutionStatus = ToolExecutionStatus.COMPLETED,
+    val text: String = com.lhstack.tools.llm.provider.ToolResultText.render(result),
 )
 
 data class ToolResource(val identity: String, val content: List<UserContent>)

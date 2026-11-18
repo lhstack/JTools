@@ -158,8 +158,22 @@
 
     <change-notes>
         <![CDATA[
-            <h2>🚀 Version v1.1.5.9-fix</h2>
+            <h2>🚀 Version v1.1.6.0</h2>
             <p><i>Current Release / 当前版本</i></p>
+            <ul>
+                <li>📝 <b>Readable Tool Results:</b> Agent and coding sessions send readable text to the model and track success, failure and cancellation separately. Non-zero exits, HTTP errors, MCP failures and timeouts are not reported as successes. Original output and files for oversized results are preserved. The public plugin SDK and standalone Debugger MCP result contracts are unchanged.</li>
+                <li>📂 <b>Path-Only Native Resources:</b> Native view tools accept only path, not attachment_id, removing their incompatible oneOf constraint. Attachments still start as metadata and load on demand; storage and UI references are unchanged.</li>
+                <li>🔍 <b>Tool Schema Diagnostics:</b> Known OpenAI strict mode checks for oneOf before sending; when a compatible endpoint rejects a schema, the error identifies the tool by its index in that request. Plugin schemas are not silently rewritten.</li>
+                <li>📦 <b>Version Metadata:</b> Plugin version 1.1.6.0 and SDK Helper marker 1160; the single-package IDEA 251–263 compatibility range is unchanged.</li>
+            </ul>
+            <ul>
+                <li>📝 <b>工具结果文本化：</b>Agent 和编码会话向模型提供可读文本，成功、失败和取消单独记录。非零退出、HTTP 错误、MCP 执行失败和超时不再标为成功；保留原始正文和超限输出文件。插件 SDK 和独立 Debugger MCP 的对外返回契约不变。</li>
+                <li>📂 <b>原生资源只按路径读取：</b>原生 view 工具只接受 path，不再接受 attachment_id，移除不兼容的 oneOf。附件仍先提供元数据、按需读取；附件存储和界面引用不变。</li>
+                <li>🔍 <b>工具 Schema 错误定位：</b>已知使用 OpenAI 严格模式时在发送前检查 oneOf；兼容端点拒绝 Schema 时，按请求索引定位工具名，不静默改写插件定义。</li>
+                <li>📦 <b>版本元数据：</b>插件版本 1.1.6.0、SDK Helper 标识 1160，IDEA 251–263 单包兼容范围不变。</li>
+            </ul>
+
+            <h2>🚀 Version v1.1.5.9-fix</h2>
             <ul>
                 <li>🐚 <b>Bash Output Encoding:</b> Decode stdout and stderr independently as UTF-8 or GBK to fix garbled Chinese output and decoding failures on Windows. Invalid byte sequences use UTF-8 replacement characters when neither encoding succeeds; delivered files remain UTF-8. Decoding never reruns commands and preserves exit, timeout and cancellation status.</li>
                 <li>🪟 <b>Windows Shell Detection and Guidance:</b> Detect pwsh.exe and powershell.exe in PATH, preferring PowerShell 7, Windows PowerShell, then cmd. Tool guidance identifies the actual shell, launch mode and command syntax so the bash tool name is not mistaken for the active shell; user environment loading is retained.</li>
@@ -207,7 +221,6 @@
 
             <!-- English Version -->
             <h2>🚀 Version v1.1.5.8</h2>
-            <p><i>Latest Release / 最新版本</i></p>
             <ul>
                 <li>📂 <b>Project-Scoped MCP, Skills, and SubAgents:</b> Configure MCP services, Skills, and SubAgents for a specific project and its development workflow. Project-specific tools, instructions, and subagents are available only within that project, keeping each project’s capabilities focused and isolated.</li>
                 <li>🧩 <b>Global and Project Resource Management:</b> Keep reusable resources at global scope and maintain project-specific MCP services, Skills, and SubAgents independently under the project’s .jtools directory. Management pages and CLI commands provide explicit global/project scopes.</li>

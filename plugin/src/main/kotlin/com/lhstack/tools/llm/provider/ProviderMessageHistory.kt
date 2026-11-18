@@ -9,6 +9,7 @@ import com.lhstack.tools.llm.Message
 import com.lhstack.tools.llm.Reasoning
 import com.lhstack.tools.llm.ReasoningContent
 import com.lhstack.tools.llm.ToolCall
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.lhstack.tools.llm.ToolFunction
 import com.lhstack.tools.llm.ToolResult
 import com.lhstack.tools.llm.ToolResultContent
@@ -52,6 +53,7 @@ internal object ProviderMessageHistory {
             addProperty("type", "tool_result")
             addProperty("id", content.toolResult.id)
             content.toolResult.callId?.let { addProperty("call_id", it) }
+            addProperty("status", content.toolResult.status.value)
             add("content", JsonArray().apply {
                 content.toolResult.content.forEach { result ->
                     when (result) {
@@ -137,6 +139,7 @@ internal object ProviderMessageHistory {
         "tool_result" -> UserContent.ToolResult(ToolResult(
             id = requiredString(value, "id"),
             callId = optionalString(value, "call_id"),
+            status = optionalString(value, "status")?.let(ToolExecutionStatus::fromValue) ?: ToolExecutionStatus.COMPLETED,
             content = requiredArray(value, "content").map { result ->
                 val resultObject = requiredObject(result, "tool result content")
                 require(requiredString(resultObject, "type") == "text") { "Only text tool results are supported" }

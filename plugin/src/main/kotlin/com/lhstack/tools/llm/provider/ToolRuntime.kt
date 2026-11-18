@@ -1,7 +1,7 @@
 package com.lhstack.tools.llm.provider
 
 import com.google.gson.JsonElement
-import com.google.gson.JsonPrimitive
+import com.google.gson.JsonNull
 import com.lhstack.tools.agent.model.tools.ToolOutputLimit
 import com.lhstack.tools.concurrent.AgentExecutors
 import com.lhstack.tools.llm.Message
@@ -10,6 +10,7 @@ import com.lhstack.tools.llm.ToolDefinition
 import com.lhstack.tools.llm.ToolDyn
 import com.lhstack.tools.llm.ToolExecutionBatch
 import com.lhstack.tools.llm.ToolExecutionResult
+import com.lhstack.tools.llm.ToolExecutionStatus
 import com.lhstack.tools.llm.ToolResult
 import com.lhstack.tools.llm.ToolResultContent
 import com.lhstack.tools.llm.UserContent
@@ -74,11 +75,19 @@ class ToolRuntime(
     private fun callTools(calls: List<ProviderToolCall>): ToolExecutionBatch {
         recordToolCalls(calls)
         val outputs = executeToolCallsConcurrently(calls)
-        val summaries = outputs.map { stringifyToolOutput(it.result) }
-        recordToolResults(calls, summaries)
-        val toolMessage = Message.User(toolResults(calls, summaries))
+        recordToolResults(calls, outputs)
+        val toolMessage = Message.User(calls.zip(outputs).map { (call, output) ->
+            UserContent.ToolResult(ToolResult(
+                id = call.id,
+                callId = call.callId,
+                content = listOf(ToolResultContent.text(output.text)),
+                status = output.status,
+                resourceRead = output.result.takeIf { output.resources.isNotEmpty() && output.status == ToolExecutionStatus.COMPLETED },
+            ))
+        })
         val resources =
             outputs
+                .filter { it.status == ToolExecutionStatus.COMPLETED }
                 .flatMap { it.resources }
                 .filter { injectedResources.add(it.identity) }
                 .flatMap { it.content }
@@ -119,6 +128,8 @@ class ToolRuntime(
             futures.forEach { it.cancel(true) }
             Unit
         }
+        val batchToken = toolCancelSlot?.get()
+        val batchInterruptId = batchToken?.registerInterrupt(cancelFutures)
         val toolInterruptId = toolCancel?.registerInterrupt(cancelFutures)
         val conversationInterruptId = conversationCancel?.registerInterrupt(cancelFutures)
         val deadlines =
@@ -129,15 +140,15 @@ class ToolRuntime(
             return pending.map { invocation ->
                 try {
                     val remaining = deadlines.getValue(invocation.future) - System.nanoTime()
-                    if (remaining <= 0L) throw TimeoutException()
-                    invocation.future.get(remaining, TimeUnit.NANOSECONDS)
+                    val result = invocation.future.get(remaining.coerceAtLeast(0), TimeUnit.NANOSECONDS)
+                    if (isCancellationRequested()) cancelled() else result
                 } catch (_: CancellationException) {
-                    if (isCancellationRequested()) failure("用户手动取消")
+                    if (isCancellationRequested()) cancelled()
                     else failure("工具调用失败: `${invocation.call.name}` 被执行器取消")
                 } catch (_: TimeoutException) {
-                    cancelFutures()
+                    invocation.future.cancel(true)
                     if (isCancellationRequested()) {
-                        failure("用户手动取消")
+                        cancelled()
                     } else {
                         failure(
                             "工具调用失败: `${invocation.call.name}` 超过 ${invocation.timeoutSeconds} 秒未完成"
@@ -145,18 +156,19 @@ class ToolRuntime(
                     }
                 } catch (error: ExecutionException) {
                     val cause = error.cause ?: error
-                    failure("工具调用失败: ${describeThrowable(cause)}")
+                    if (isCancellationRequested()) cancelled() else failure("工具调用失败: ${describeThrowable(cause)}")
                 }
             }
         } finally {
+            batchInterruptId?.let { batchToken.clearInterrupt(it) }
             toolInterruptId?.let { toolCancel?.clearInterrupt(it) }
             conversationInterruptId?.let { conversationCancel?.clearInterrupt(it) }
         }
     }
 
-    private fun recordToolResults(calls: List<ProviderToolCall>, outputs: List<String>) {
+    private fun recordToolResults(calls: List<ProviderToolCall>, outputs: List<ToolExecutionResult>) {
         for ((call, output) in calls.zip(outputs)) {
-            hook.onToolResult(call.name, call.callId, call.id, call.argsString(), output)
+            hook.onToolResult(call.name, call.callId, call.id, call.argsString(), output.text, output.status)
         }
     }
 
@@ -177,30 +189,24 @@ class ToolRuntime(
     }
 
     /** 照抄 execute_tool_call：按名找工具，未注册返回错误文本，异常包成错误文本。 */
-    private fun failure(text: String) = ToolExecutionResult(JsonPrimitive(text))
+    private fun failure(text: String) = ToolExecutionResult(JsonNull.INSTANCE, status = ToolExecutionStatus.FAILED, text = text)
+
+    private fun cancelled() = ToolExecutionResult(JsonNull.INSTANCE, status = ToolExecutionStatus.CANCELLED, text = "用户手动取消")
 
     private fun executeToolCall(call: ProviderToolCall): ToolExecutionResult {
+        if (isCancellationRequested()) return cancelled()
         val index = definitions.indexOfFirst { it.name == call.name }
         if (index < 0) return failure("工具调用失败: 模型请求了未注册的工具 `${call.name}`")
         return try {
             val result = tools[index].executeBlocking(call.arguments)
-            val limited =
-                if (call.name in LIMITED_OUTPUT_TOOLS)
-                    result.copy(
-                        result =
-                            JsonPrimitive(
-                                ToolOutputLimit.truncateToLimit(
-                                    call.name,
-                                    stringifyToolOutput(result.result),
-                                )
-                            )
-                    )
-                else result
-            if (isCancellationRequested()) failure("用户手动取消") else limited
+            when {
+                isCancellationRequested() || result.status == ToolExecutionStatus.CANCELLED -> cancelled()
+                call.name in LIMITED_OUTPUT_TOOLS -> result.copy(text = ToolOutputLimit.truncateToLimit(call.name, result.text))
+                else -> result
+            }
         } catch (error: Throwable) {
-            failure(
-                if (isCancellationRequested()) "用户手动取消" else "工具调用失败: ${describeThrowable(error)}"
-            )
+            if (isCancellationRequested() || error is com.lhstack.tools.agent.model.tools.ToolCancelledException) cancelled()
+            else failure("工具调用失败: ${describeThrowable(error)}")
         }
     }
 
@@ -234,21 +240,6 @@ class ToolRuntime(
         private val LIMITED_OUTPUT_TOOLS =
             setOf("search_project_text", "find_project_files", "find_project_classes")
 
-        /** 照抄 tool_results：把 outputs 按 call 顺序包成 ToolResult UserContent。 */
-        private fun toolResults(
-            calls: List<ProviderToolCall>,
-            outputs: List<String>,
-        ): List<UserContent> = calls.zip(outputs).map { (call, output) -> toolResult(call, output) }
-
-        private fun toolResult(call: ProviderToolCall, output: String): UserContent =
-            UserContent.ToolResult(
-                ToolResult(
-                    id = call.id,
-                    callId = call.callId,
-                    content = listOf(ToolResultContent.text(output)),
-                )
-            )
-
         /**
          * 展开异常的 cause 链拼接可读信息。部分库（如 MCP SDK）把真实失败原因包在外层 包装异常里（例如 "Client failed to initialize by
          * explicit API call"），只取顶层 message 会掩盖根因，这里把整条 cause 链串起来暴露给模型和用户。
@@ -266,12 +257,5 @@ class ToolRuntime(
             return messages.joinToString(" -> ")
         }
 
-        /** 照抄 stringify_tool_output：null -> ""，字符串取原文，其余 toString。 */
-        private fun stringifyToolOutput(value: JsonElement): String =
-            when {
-                value.isJsonNull -> ""
-                value is JsonPrimitive && value.isString -> value.asString
-                else -> value.toString()
-            }
     }
 }

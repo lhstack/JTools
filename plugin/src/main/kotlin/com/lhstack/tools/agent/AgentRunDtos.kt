@@ -1,14 +1,14 @@
 package com.lhstack.tools.agent
 
 import com.google.gson.annotations.SerializedName
+import com.lhstack.tools.llm.ToolExecutionStatus
 
 internal class AgentToolItem(
     val id: String,
     val name: String,
     val args: String,
     var result: String = "",
-    var finished: Boolean = false,
-    var failed: Boolean = false,
+    var status: ToolExecutionStatus? = null,
 )
 
 internal data class AgentBrowserTool(
@@ -16,6 +16,7 @@ internal data class AgentBrowserTool(
     @SerializedName("name") val name: String,
     @SerializedName("finished") val finished: Boolean,
     @SerializedName("failed") val failed: Boolean,
+    @SerializedName("status") val status: String,
 )
 
 internal data class AgentBrowserToolDetail(

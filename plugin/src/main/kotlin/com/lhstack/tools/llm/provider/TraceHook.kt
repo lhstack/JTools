@@ -1,5 +1,7 @@
 package com.lhstack.tools.llm.provider
 
+import com.lhstack.tools.llm.ToolExecutionStatus
+
 /**
  * 工具调用/结果事件收集器。完全照抄 awake-claw common/output.rs 的 TraceHook。
  *
@@ -24,9 +26,10 @@ class TraceHook : ToolHook {
         internalId: String,
         args: String,
         result: String,
+        status: ToolExecutionStatus,
     ) {
         synchronized(lock) {
-            events.add(TraceEvent.ToolResult(name, callId, internalId, args, result))
+            events.add(TraceEvent.ToolResult(name, callId, internalId, args, result, status))
         }
     }
 
@@ -49,5 +52,6 @@ sealed class TraceEvent {
         val internalCallId: String,
         val args: String,
         val result: String,
+        val status: ToolExecutionStatus,
     ) : TraceEvent()
 }

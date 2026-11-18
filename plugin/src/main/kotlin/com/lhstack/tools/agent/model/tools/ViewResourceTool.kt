@@ -1,5 +1,6 @@
 package com.lhstack.tools.agent.model.tools
 
+import com.lhstack.tools.llm.ToolExecutionResult
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -42,6 +43,11 @@ class ViewResourceTool(
             description = description() + " 每次最多 3 个资源，超出会报错。",
             parameters = JsonParser.parseString(DEFINITION_JSON),
         )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        return ToolExecutionResult(result, text = result["response"].asString)
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
