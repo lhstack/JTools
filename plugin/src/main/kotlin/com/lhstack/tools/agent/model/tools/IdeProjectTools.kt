@@ -6,6 +6,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.lhstack.tools.llm.ToolDefinition
 import com.lhstack.tools.llm.ToolDyn
+import com.lhstack.tools.llm.ToolExecutionResult
 
 internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : ToolDyn {
     override fun definition(prompt: String) = definition(
@@ -13,6 +14,19 @@ internal class ReadProjectFilesTool(private val support: IdeProjectSupport) : To
         "读取项目内文本文件的内容，通过 IDE VFS 读取，能拿到编辑器中尚未保存的最新内容。可整文件读取，也可按 line_ranges（1 起始闭区间）读取；用户消息里的 startLine/endLine 可直接填入 line_ranges。支持一次传多个请求批量读取，同一文件可用不同范围重复读取。path 支持项目相对路径，也支持 find_project_files / find_project_classes 在 include_global=true 时返回的 VFS URL（如 jar://、jrt://、file://），用于读取依赖或 SDK 源码。返回包含 charset、content_kind（project/external）、line_count、按行内容及是否截断等信息。",
         """{"type":"object","properties":{"files":{"type":"array","minItems":1,"maxItems":20,"description":"必填。 1到20个读取请求；同一路径可使用不同范围重复读取。","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"description":"必填。 项目根目录相对路径。"},"line_ranges":{"type":"array","minItems":1,"description":"可选。 一个或多个从1开始的闭区间；省略时从文件开头读取。start_line 等于 end_line 时读取该单行。","items":{"type":"object","properties":{"start_line":{"type":"integer","minimum":1,"description":"必填。 起始行，从1开始。"},"end_line":{"type":"integer","minimum":1,"description":"必填。 结束行，包含该行且不小于起始行。"}},"required":["start_line","end_line"],"additionalProperties":false}},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"default":1000,"description":"可选。 最多返回行数，默认1000，范围1到5000。"}},"required":["path"],"additionalProperties":false}}},"required":["files"],"additionalProperties":false}""",
     )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        val text = result.getAsJsonArray("files").joinToString("\n\n") { item ->
+            val file = item.asJsonObject
+            buildString {
+                append("文件：${file["path"].asString}（${file["charset"].asString}，${file["content_kind"].asString}，${file["line_count"].asInt} 行）")
+                appendNumberedLines(file.getAsJsonArray("lines"))
+                if (file["truncated"].asBoolean) append("\n[结果已截断，可通过 line_ranges 分段读取。]")
+            }
+        }
+        return ToolExecutionResult(result, text = text)
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val requests = args.obj().objectArray("files").map { input ->
@@ -124,6 +138,22 @@ internal class SearchProjectTextTool(private val support: IdeProjectSupport) : T
         "在项目范围内全文搜索文件内容，基于 IDE 的 Find in Files 索引，搜索前会等索引就绪。支持普通文本或正则（use_regex）、区分或忽略大小写（case_sensitive）。可用 file_name_glob 按文件名或项目相对路径 glob（支持 *、**、?，如 *.md 或 src/**/*.kt）过滤。每个匹配返回命中行的路径、行号、内容，以及前后 context_lines 行上下文，并标记结果是否被截断。只想按文件名查找请用 find_project_files。",
         """{"type":"object","properties":{"text":{"type":"string","minLength":1,"description":"必填。搜索文本；use_regex=true时为正则。"},"use_regex":{"type":"boolean","default":false,"description":"可选。是否使用正则，默认false。"},"case_sensitive":{"type":"boolean","default":true,"description":"可选。是否区分大小写，默认true。"},"file_name_glob":{"type":"string","minLength":1,"description":"可选。文件名或项目相对路径glob；支持*、**、?，如*.md或src/**/*.xx。默认不过滤。"},"context_lines":{"type":"integer","minimum":0,"maximum":20,"default":2,"description":"可选。匹配行前后上下文行数，默认2，范围0到20。"},"max_results":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"可选。最多返回数量，默认100，范围1到1000。"}},"required":["text"],"additionalProperties":false}""",
     )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        val matches = result.getAsJsonArray("matches").joinToString("\n\n") { item ->
+            val match = item.asJsonObject
+            buildString {
+                append("${match["path"].asString}:${match["line"].asInt}")
+                appendNumberedLines(match.getAsJsonArray("lines"))
+            }
+        }
+        val text = buildString {
+            append(if (matches.isEmpty()) "没有匹配结果。" else "匹配：${result["count"].asInt} 条\n\n$matches")
+            if (result["truncated"].asBoolean) append("\n\n[达到结果数量上限，请缩小搜索范围。]")
+        }
+        return ToolExecutionResult(result, text = text)
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val input = args.obj()
@@ -244,3 +274,9 @@ private fun JsonObject.intOr(name: String, default: Int): Int = get(name)?.takeI
  */
 private fun JsonObject.positiveIntOr(name: String, default: Int): Int = intOr(name, default).takeIf { it != 0 } ?: default
 private fun JsonObject.booleanOr(name: String, default: Boolean): Boolean = get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean ?: default
+private fun StringBuilder.appendNumberedLines(lines: JsonArray) {
+    for (item in lines) {
+        val line = item.asJsonObject
+        append('\n').append(line["line"].asInt).append(": ").append(line["text"].asString)
+    }
+}

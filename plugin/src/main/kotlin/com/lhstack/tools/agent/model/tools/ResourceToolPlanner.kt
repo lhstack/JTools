@@ -61,9 +61,9 @@ class NativeResourceTool(
     override fun definition(prompt: String) =
         ToolDefinition(
             kind.toolName,
-            "读取${kind.asStr}并通过原生多模态协议加入当前模型本轮上下文，不调用其他 Agent。每个资源必须提供 path；支持工作区相对路径、绝对路径及本地 file URI。每次最多 3 个资源，每个资源最大 32 MiB；首次仅有元数据，需要查看时调用。跨轮历史不含资源原文，需要时重新读取。",
+            "读取${kind.asStr}并通过原生多模态协议加入当前模型本轮上下文，不调用其他 Agent。每个资源必须提供 path；支持相对于当前项目工作目录的路径、绝对路径及本地 file URI。每次最多 3 个资源，每个资源最大 32 MiB；首次仅有元数据，需要查看时调用。跨轮历史不含资源原文，需要时重新读取。",
             JsonParser.parseString(
-                """{"type":"object","additionalProperties":false,"properties":{"resources":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"本地资源相对路径、绝对路径或 file URI"}},"required":["path"]}}},"required":["resources"]}"""
+                """{"type":"object","additionalProperties":false,"properties":{"resources":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"相对于当前项目工作目录的路径、绝对路径或本地 file URI"}},"required":["path"]}}},"required":["resources"]}"""
             ),
         )
 
@@ -150,7 +150,7 @@ class NativeResourceTool(
             result = metadata,
             resources = candidates,
             text = resolved.joinToString("\n") { "已读取：${it.path}（${it.mimeType}，${it.size} 字节）" } +
-                "\n资源仅在当前轮次注入，后续需要时请重新调用 ${kind.toolName}。",
+                "\n\n资源仅在当前轮次注入，后续需要时请重新调用 ${kind.toolName}。",
         )
     }
 }

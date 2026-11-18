@@ -3,19 +3,11 @@ package com.lhstack.tools.agent
 import com.google.gson.JsonObject
 import com.lhstack.tools.agent.model.tools.ResourcePathSupport
 import com.lhstack.tools.llm.AudioMediaType
-import com.lhstack.tools.llm.ImageMediaType
 import com.lhstack.tools.llm.UserContent
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
-import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.Base64
-import javax.imageio.IIOImage
-import javax.imageio.ImageIO
-import javax.imageio.plugins.jpeg.JPEGImageWriteParam
-import javax.imageio.stream.FileImageOutputStream
 
 /** 附件元数据与显式原生读取编码。首次输入不读取资源字节。 */
 object AgentAttachmentSupport {
@@ -33,11 +25,9 @@ object AgentAttachmentSupport {
             }
         }
 
-    private val imageExtensions = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
+    private val imageExtensions = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg")
     private val audioExtensions = setOf("mp3", "wav", "m4a", "ogg", "flac")
     private val videoExtensions = setOf("mp4", "mov", "avi", "mkv", "webm")
-    private const val MAX_IMAGE_DIMENSION = 1568
-    private const val MAX_IMAGE_BYTES = 3L * 1024 * 1024
 
     /** 规范化附件：识别 MIME、类型与文件大小。 */
     fun normalize(draft: AgentAttachmentState): AgentAttachmentState {
@@ -125,11 +115,14 @@ object AgentAttachmentSupport {
     }
 
     private fun imageContent(draft: AgentAttachmentState): UserContent? {
-        val optimized = optimizeImage(draft)
-        val bytes = resourceBytes(optimized.path) ?: return null
-        val base64 = Base64.getEncoder().encodeToString(bytes)
-        val mediaType = ImageMediaType.fromMimeType(optimized.mimeType) ?: ImageMediaType.PNG
-        return UserContent.imageBase64(base64, mediaType, null)
+        val bytes = resourceBytes(draft.path) ?: return null
+        val svg = draft.mimeType.equals("image/svg+xml", ignoreCase = true) || extensionOf(draft) == "svg"
+        val encoded = try {
+            ModelImageEncodingSupport.encode(bytes, svg)
+        } catch (error: Exception) {
+            throw IllegalArgumentException("无法解码或转换图片：${draft.path}", error)
+        }
+        return UserContent.imageBase64(Base64.getEncoder().encodeToString(encoded.bytes), encoded.mediaType, null)
     }
 
     private fun audioContent(draft: AgentAttachmentState): UserContent? {
@@ -167,7 +160,7 @@ object AgentAttachmentSupport {
                 kind = draft.kind.ifBlank { AgentAttachmentKind.FILE.id },
                 path = draft.path,
                 uploadedAt = "",
-            ) + "读取内容请调用对应 view_* 工具并传入 path，每次最多 3 个资源。\n"
+            ) + "读取内容请调用对应 view_* 工具并使用上面的 path（不是 file_name）。相对路径以当前项目工作目录为基准，每次最多 3 个资源。\n"
         )
     }
 
@@ -178,6 +171,7 @@ object AgentAttachmentSupport {
             return it
         }
         return when (extensionOf(draft)) {
+            "svg" -> "image/svg+xml"
             in imageExtensions -> "image/${extensionOf(draft).replace("jpg", "jpeg")}"
             in audioExtensions -> "audio/${extensionOf(draft)}"
             in videoExtensions -> "video/${extensionOf(draft)}"
@@ -222,68 +216,5 @@ object AgentAttachmentSupport {
         return runCatching { Files.probeContentType(Paths.get(path)) }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
-    }
-
-    private fun optimizeImage(draft: AgentAttachmentState): AgentAttachmentState {
-        if (draft.path.isBlank()) return draft
-        val protocol = ResourcePathSupport.isProtocolPath(draft.path)
-        val localPath = if (protocol) null else Paths.get(draft.path)
-        if (localPath != null && (!Files.exists(localPath) || Files.isDirectory(localPath)))
-            return draft
-        val protocolBytes = if (protocol) resourceBytes(draft.path) ?: return draft else null
-        val size =
-            if (draft.size > 0) draft.size
-            else
-                protocolBytes?.size?.toLong()
-                    ?: runCatching { Files.size(localPath!!) }.getOrDefault(0)
-        val sourceImage =
-            if (protocol) {
-                runCatching { ImageIO.read(ByteArrayInputStream(protocolBytes)) }.getOrNull()
-            } else {
-                runCatching { ImageIO.read(localPath!!.toFile()) }.getOrNull()
-            } ?: return draft
-        if (
-            sourceImage.width <= MAX_IMAGE_DIMENSION &&
-                sourceImage.height <= MAX_IMAGE_DIMENSION &&
-                size in 1..MAX_IMAGE_BYTES
-        ) {
-            return draft
-        }
-        val scaled = scaleImage(sourceImage, MAX_IMAGE_DIMENSION)
-        val optimizedFile = kotlin.io.path.createTempFile("jtools-agent-image-", ".jpg").toFile()
-        val writer = ImageIO.getImageWritersByFormatName("jpg").next()
-        val params = writer.defaultWriteParam as JPEGImageWriteParam
-        params.compressionMode = JPEGImageWriteParam.MODE_EXPLICIT
-        params.compressionQuality = 0.86f
-        FileImageOutputStream(optimizedFile).use { output ->
-            writer.output = output
-            writer.write(null, IIOImage(scaled, null, null), params)
-        }
-        writer.dispose()
-        return draft.copy(
-            path = optimizedFile.absolutePath,
-            mimeType = "image/jpeg",
-            size = optimizedFile.length(),
-        )
-    }
-
-    private fun scaleImage(source: BufferedImage, maxDimension: Int): BufferedImage {
-        val ratio =
-            minOf(
-                maxDimension.toDouble() / source.width,
-                maxDimension.toDouble() / source.height,
-                1.0,
-            )
-        val width = (source.width * ratio).toInt().coerceAtLeast(1)
-        val height = (source.height * ratio).toInt().coerceAtLeast(1)
-        val output = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
-        val graphics = output.createGraphics()
-        graphics.setRenderingHint(
-            RenderingHints.KEY_INTERPOLATION,
-            RenderingHints.VALUE_INTERPOLATION_BICUBIC,
-        )
-        graphics.drawImage(source, 0, 0, width, height, null)
-        graphics.dispose()
-        return output
     }
 }

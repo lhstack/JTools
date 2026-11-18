@@ -193,6 +193,37 @@ class NativeResourceToolTest {
     }
 
     @Test
+    fun `relative resources use the current project and not another project or the process directory`() {
+        val root = Files.createTempDirectory("jtools-resource-projects-").toFile()
+        try {
+            val projects = listOf("first", "second").map { root.resolve(it).apply { mkdir() } }
+            val name = "图片 space.png"
+            projects.forEachIndexed { index, project ->
+                val image = project.resolve(name)
+                ImageIO.write(BufferedImage(index + 1, 2, BufferedImage.TYPE_INT_RGB), "png", image)
+                val native = NativeResourceTool(ResourceKind.IMAGE, project.path, null)
+                fun read(path: String) = native.executeBlocking(JsonObject().apply {
+                    add("resources", JsonArray().apply { add(JsonObject().apply { addProperty("path", path) }) })
+                })
+                val relative = read(name)
+                assertEquals(read(image.absolutePath).resources.single().identity, relative.resources.single().identity)
+                assertContains(relative.text, image.canonicalPath)
+
+                val delegated = ViewResourceTool(ResourceKind.IMAGE, 1, project.path, null, null)
+                // 两种路径都读取到文件并进入下一步参数校验，不执行 Agent。
+                for (path in listOf(name, image.absolutePath)) {
+                    val error = assertFailsWith<IllegalArgumentException> {
+                        delegated.callJsonBlocking(JsonObject().apply { addProperty("path", path) })
+                    }
+                    assertContains(error.message.orEmpty(), "prompt 不能为空")
+                }
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `every native resource schema requires path and rejects invalid values`() {
         for (kind in ResourceKind.entries) {
             val tool = NativeResourceTool(kind, "/tmp", null)

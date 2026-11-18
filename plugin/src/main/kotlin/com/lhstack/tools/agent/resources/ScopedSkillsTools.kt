@@ -29,6 +29,11 @@ class ScopedSkillsTool(
                 ),
         )
 
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        return ToolExecutionResult(result, text = if (view) SkillResultText.view(result) else SkillResultText.list(result))
+    }
+
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         require(args.isJsonObject) { "技能参数必须是 object" }
         val obj = args.asJsonObject

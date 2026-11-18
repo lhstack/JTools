@@ -227,11 +227,11 @@ class ViewResourceTool(
             {
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "可选。工作区相对路径、普通绝对路径或协议路径（如 file://、jar://、jrt://）。" },
+                "path": { "type": "string", "description": "可选。相对于当前项目工作目录的路径、绝对路径或协议路径（如 file://、jar://、jrt://）。" },
                 "paths": {
                   "type": "array", "maxItems": 3,
                   "items": { "type": "string" },
-                  "description": "可选。一个或多个工作区相对路径、普通绝对路径或协议路径（如 file://、jar://、jrt://）。"
+                  "description": "可选。一个或多个相对于当前项目工作目录的路径、绝对路径或协议路径（如 file://、jar://、jrt://）。"
                 },
                 "prompt": { "type": "string", "minLength": 1, "description": "必填。明确说明需要分析的内容。" }
               },

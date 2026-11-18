@@ -102,7 +102,7 @@ class BashTool(
                 }
             }
             if (isEmpty()) add("命令执行成功，无输出。")
-        }.joinToString("\n")
+        }.joinToString("\n\n")
         return ToolExecutionResult(result, status = status, text = text)
     }
 

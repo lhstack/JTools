@@ -1264,7 +1264,7 @@ private val GLOBAL_CONFIG_GROUPS = listOf(
         GlobalConfigField("web_fetch.proxy_enabled", "启用工具代理", "控制 web_fetch 工具是否使用工具代理地址。关闭时即使填写了代理地址也不会生效。", "boolean", "false"),
         GlobalConfigField("web_fetch.proxy", "工具代理地址", "web_fetch 工具使用的代理地址，仅在启用工具代理时生效。示例：http://127.0.0.1:7890、socks5://127.0.0.1:1080。只影响 web_fetch，不影响模型 API 请求。", "url", ""),
         GlobalConfigField("web_fetch.timeout_secs", "Web Fetch 超时", "web_fetch 工具默认请求超时时间，单位秒。", "number", "30"),
-        GlobalConfigField("web_fetch.max_response_bytes", "Web Fetch 最大响应", "web_fetch 工具读取响应体的最大字节数，避免拉取过大的页面或文件。", "number", "1000000"),
+        GlobalConfigField("web_fetch.max_response_bytes", "Web Fetch 正文内联上限", "web_fetch 直接返回正文的最大字节数；超限返回摘录和完整正文文件路径，不限制下载字节数。", "number", "1000000"),
     )),
     GlobalConfigGroup("命令工具", listOf(
         GlobalConfigField("mcp.call.max_output_chars", "MCP 调用最大返回字符", "仅限制 mcp.call 返回；超限只返回摘要和完整 UTF-8 JSON 文件地址，可用 Bash 按路径分批读取。默认 8000，最小 1024 字符。", "number", "8000"),

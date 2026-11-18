@@ -4,6 +4,8 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.lhstack.tools.llm.ToolExecutionResult
+import com.lhstack.tools.llm.provider.ToolResultText
 import java.io.File
 
 /**
@@ -42,6 +44,11 @@ class SkillsListTool(
             """.trimIndent()
         ),
     )
+
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        return ToolExecutionResult(result, text = SkillResultText.list(result))
+    }
 
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val root = SkillsSupport.configuredSkillsRoot(rootDir)
@@ -101,6 +108,11 @@ class SkillsViewTool(
         ),
     )
 
+    override fun executeBlocking(args: JsonElement): ToolExecutionResult {
+        val result = callJsonBlocking(args).asJsonObject
+        return ToolExecutionResult(result, text = SkillResultText.view(result))
+    }
+
     override fun callJsonBlocking(args: JsonElement): JsonElement {
         val obj = args.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject()
         val name = obj.get("name")?.takeIf { it.isJsonPrimitive }?.asString
@@ -152,5 +164,33 @@ class SkillsViewTool(
 
     companion object {
         const val NAME = "skills_view"
+    }
+}
+
+/** 普通与分域工具使用同一模型文本格式，不改变目录、授权或结果结构。 */
+internal object SkillResultText {
+    fun list(result: JsonObject): String = buildList {
+        val entries = result.getAsJsonArray("skills").map { item ->
+            val skill = item.asJsonObject
+            buildList {
+                add("技能：${skill["name"].asString}")
+                skill["scope"]?.let { add("作用域：${it.asString}") }
+                skill["description"]?.takeUnless { it.isJsonNull }?.let { add("描述：${it.asString}") }
+                add("目录：${skill["path"].asString}")
+                for ((key, label) in listOf("support_platform_types" to "支持平台", "check_scripts" to "检查脚本", "files" to "可读文件")) {
+                    val values = skill.getAsJsonArray(key) ?: continue
+                    if (!values.isEmpty()) add("$label：\n${ToolResultText.render(values)}")
+                }
+            }.joinToString("\n")
+        }
+        add(entries.joinToString("\n\n").ifEmpty { "没有可用技能。" })
+        if (result["truncated"].asBoolean) add("技能列表已截断，请按现有条件缩小范围或调整 max_results。")
+    }.joinToString("\n\n")
+
+    fun view(result: JsonObject): String = buildString {
+        val path = result["path"].asString
+        append("技能文件：").append(path).append("\n\n")
+        append(result["content"].asString)
+        if (result["truncated"].asBoolean) append("\n\n[内容已截断；原文件：").append(path).append(']')
     }
 }

@@ -164,7 +164,7 @@ private class SubagentRunTool(
         val error = result["error"]?.takeUnless { it.isJsonNull }?.asString
         val text = when (status) {
             ToolExecutionStatus.COMPLETED -> output.ifBlank { "SubAgent 执行完成，无输出。" }
-            ToolExecutionStatus.FAILED -> listOfNotNull("工具调用失败: ${requireNotNull(error)}", output.takeIf { it.isNotBlank() }).joinToString("\n")
+            ToolExecutionStatus.FAILED -> listOfNotNull("工具调用失败: ${requireNotNull(error)}", output.takeIf { it.isNotBlank() }).joinToString("\n\n")
             ToolExecutionStatus.CANCELLED -> "用户手动取消"
         }
         return ToolExecutionResult(result, status = status, text = text)

@@ -23,7 +23,7 @@ class ViewResourceToolDefinitionTest {
         val properties = com.google.gson.JsonParser.parseString(schema()).asJsonObject
             .getAsJsonObject("properties")
         assertTrue(properties.getAsJsonObject("path").get("description").asString.contains("协议路径"))
-        assertTrue(properties.getAsJsonObject("paths").get("description").asString.contains("普通绝对路径"))
+        assertTrue(properties.getAsJsonObject("paths").get("description").asString.contains("绝对路径"))
     }
 
     private fun schema(): String = ViewResourceTool::class.java.getDeclaredField("DEFINITION_JSON").let { field ->

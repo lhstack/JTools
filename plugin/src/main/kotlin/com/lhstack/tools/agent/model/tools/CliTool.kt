@@ -47,6 +47,20 @@ class CliTool(
     override fun executeBlocking(args: JsonElement): ToolExecutionResult {
         val result = callJsonBlocking(args)
         val command = args.asJsonObject.get("command").asString.trim()
+        if (command == "doc" || command == "--help") {
+            val doc = result.asJsonObject
+            val commands = doc.getAsJsonArray("commands").joinToString("\n") {
+                val row = it.asJsonObject
+                "${row["command"].asString} — ${row["description"].asString}"
+            }
+            return ToolExecutionResult(result, text = "${doc["usage"].asString}\n\n$commands")
+        }
+        if (command == "skill.read") {
+            val entry = result.asJsonObject
+            val file = entry.getAsJsonObject("result")
+            val text = "技能文件（${entry["scope"].asString}）：${file["skill"].asString}/${file["path"].asString}\n\n${file["content"].asString}"
+            return ToolExecutionResult(result, text = text)
+        }
         if (command != "mcp.call") return ToolExecutionResult(result)
         val output = result.asJsonObject
         val failed = output["isError"]?.asBoolean == true
@@ -56,13 +70,16 @@ class CliTool(
                 add(output["summary"].asString)
                 add("完整输出文件：${output["path"].asString}")
             } else {
-                output.getAsJsonArray("content")?.forEach { add(ToolResultText.render(it)) }
+                output.getAsJsonArray("content")?.forEach {
+                    val block = it.asJsonObject
+                    add(if (block["type"]?.asString == "text") block["text"].asString else ToolResultText.render(block))
+                }
                 output["structuredContent"]?.takeUnless { it.isJsonNull }?.let {
                     add(ToolResultText.render(it))
                 }
             }
             if (isEmpty()) add("MCP 工具执行成功，无输出。")
-        }.joinToString("\n")
+        }.joinToString("\n\n")
         return ToolExecutionResult(
             result, status = if (failed) ToolExecutionStatus.FAILED
             else ToolExecutionStatus.COMPLETED, text = text,

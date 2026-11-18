@@ -15,18 +15,25 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.HttpTimeoutException
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * web_fetch 工具。完全照抄 awake-claw tools.rs 的 WebFetchTool。
  *
  * 发送 HTTP 请求，支持 GET/POST/PUT/DELETE、headers、proxy、多种 body_type
- * （none/text/json/form/multipart/file）。响应按 max_response_bytes 截断。
+ * （none/text/json/form/multipart/file）。完整正文超出 max_response_bytes 时交付首尾摘录和文件。
  *
  * 与 awake 差异：reqwest -> JDK11 HttpClient。multipart 手工按 boundary 拼装
- * （JDK HttpClient 无原生 multipart）。取消通过 ModelCancel 检查 + 请求前后判定。
+ * （JDK HttpClient 无原生 multipart）。通过 ModelCancel 中断等待中的请求。
  * body_type 兼容 awake 的别名：form 含 x-www-form-urlencoded/urlencoded，
  * multipart 含 form_data。
  */
@@ -48,13 +55,15 @@ class WebFetchTool(
         val result = callJsonBlocking(args).asJsonObject
         val success = result["success"].asBoolean
         val text = buildList {
-            add(if (success) "HTTP ${result["status"].asInt}" else "HTTP 请求失败，状态码：${result["status"].asInt}")
-            add("URL: ${result["final_url"].asString}")
-            val headers = ToolResultText.render(result["headers"])
-            if (headers.isNotEmpty()) add(headers)
-            if (result["truncated"].asBoolean) add("响应正文已截断。")
-            add(result["body"].asString)
-        }.joinToString("\n")
+            add(buildString {
+                append(if (success) "HTTP ${result["status"].asInt}" else "HTTP 请求失败，状态码：${result["status"].asInt}")
+                append("\nURL: ${result["final_url"].asString}")
+                val headers = ToolResultText.render(result["headers"])
+                if (headers.isNotEmpty()) append('\n').append(headers)
+            })
+            result["body"].asString.takeIf { it.isNotEmpty() }?.let(::add)
+            result["path"]?.let { add("完整输出文件：${it.asString}") }
+        }.joinToString("\n\n")
         return ToolExecutionResult(
             result, status = if (success) ToolExecutionStatus.COMPLETED
             else ToolExecutionStatus.FAILED, text = text,
@@ -90,27 +99,57 @@ class WebFetchTool(
 
         applyBody(requestBuilder, method, obj)
 
+        return receiveBody(client, requestBuilder.build(), timeoutSecs, maxResponseBytes.toInt())
+    }
+
+    private fun receiveBody(client: HttpClient, request: HttpRequest, timeoutSecs: Long, limit: Int): JsonObject {
         checkCancelled()
-        val response = try {
-            client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray())
-        } catch (e: Throwable) {
-            if (cancel?.isCancelled() == true) throw ToolException.cancelled()
-            throw e
+        val path = Files.createTempFile("jtools-web-fetch-", ".body").toAbsolutePath()
+        try {
+            val response = awaitBody(client, request, path, timeoutSecs)
+            val size = Files.size(path)
+            val spilled = size > limit
+            val status = response.statusCode()
+            val result = JsonObject().apply {
+                addProperty("status", status)
+                addProperty("success", status in 200..299)
+                addProperty("final_url", response.uri().toString())
+                add("headers", responseHeaders(response))
+                addProperty("body", when {
+                    !spilled -> String(Files.readAllBytes(path), StandardCharsets.UTF_8)
+                    else -> WebFetchBodyOutput.preview(path, size, limit)
+                })
+                addProperty("bytes_read", size)
+                addProperty("truncated", spilled)
+                if (spilled) addProperty("path", path.toString())
+            }
+            checkCancelled()
+            if (!spilled) Files.delete(path)
+            return result
+        } catch (error: Exception) {
+            try {
+                Files.deleteIfExists(path)
+            } catch (cleanup: java.io.IOException) {
+                error.addSuppressed(cleanup)
+            }
+            throw error
         }
+    }
 
-        val bytes = response.body()
-        val truncated = bytes.size > maxResponseBytes
-        val bodyBytes = if (truncated) bytes.copyOfRange(0, maxResponseBytes.toInt()) else bytes
-        val status = response.statusCode()
-
-        return JsonObject().apply {
-            addProperty("status", status)
-            addProperty("success", status in 200..299)
-            addProperty("final_url", response.uri().toString())
-            add("headers", responseHeaders(response))
-            addProperty("body", String(bodyBytes, StandardCharsets.UTF_8))
-            addProperty("bytes_read", bodyBytes.size)
-            addProperty("truncated", truncated)
+    private fun awaitBody(client: HttpClient, request: HttpRequest, path: Path, timeoutSecs: Long): HttpResponse<Path> {
+        // 文件预先以临时文件权限创建；取消后不允许迟到的响应重新创建它。
+        val pending = client.sendAsync(request, HttpResponse.BodyHandlers.ofFile(path, StandardOpenOption.WRITE))
+        val interruptId = cancel?.registerInterrupt { pending.cancel(true) }
+        try {
+            return pending.get(timeoutSecs, TimeUnit.SECONDS)
+        } catch (error: Exception) {
+            pending.cancel(true)
+            checkCancelled()
+            if (error is TimeoutException) throw HttpTimeoutException("HTTP 响应读取超时（$timeoutSecs 秒）")
+            if (error is ExecutionException) throw error.cause ?: error
+            throw error
+        } finally {
+            interruptId?.let { cancel.clearInterrupt(it) }
         }
     }
 
@@ -265,7 +304,7 @@ class WebFetchTool(
                     "description": "可选。代理地址，覆盖默认代理。"
                 },
                 "timeout_secs": { "type": "integer", "description": "可选。请求超时秒数。" },
-                "max_response_bytes": { "type": "integer", "description": "可选。最大响应字节数，默认使用配置值。" },
+                "max_response_bytes": { "type": "integer", "description": "可选。内联正文的字节上限，默认使用配置值。超限返回摘录和完整正文文件路径。" },
                 "body_type": {
                     "type": "string",
                     "enum": ["none", "text", "json", "form", "multipart", "file"],
